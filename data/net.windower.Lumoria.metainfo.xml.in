@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>net.windower.Lumoria</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Lumoria</name>
+  <summary>A Linux native launcher for a classic MMORPG.</summary>
+
+  <description>
+    <p>
+      Lumoria is a native Linux launcher for a classic MMORPG. Install the game,
+      manage Wine prefixes, configure runners and runtime components, and get
+      playing ... all from a single app!
+    </p>
+    <p>
+      Supports DXVK, Windower 4, and multiple game installations with
+      independent configurations.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">net.windower.Lumoria.desktop</launchable>
+
+  <url type="homepage">https://docs.windower.net/linux/</url>
+  <url type="bugtracker">https://github.com/Windower/Lumoria/issues</url>
+  <url type="help">https://docs.windower.net/linux/</url>
+  <url type="vcs-browser">https://github.com/Windower/Lumoria</url>
+
+  <developer id="net.windower">
+	  <name>rysas</name>
+  </developer>
+  <branding>
+    <color type="primary" scheme_preference="light">#472B57</color>
+    <color type="primary" scheme_preference="dark">#DFBCD7</color>
+  </branding>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.1.0" date="2026-03-01">
+      <description>
+        <p>Initial testing release of Lumoria.</p>
+      </description>
+    </release>
+  </releases>
+
+  <requires>
+    <display_length compare="ge">480</display_length>
+  </requires>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>gamepad</control>
+  </supports>
+</component>

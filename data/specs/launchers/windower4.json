@@ -1,0 +1,35 @@
+{
+  "id": "windower4",
+  "name": "Windower 4",
+  "prefix": "default",
+  "default": true,
+  "variables": {
+    "SE_DIR": "drive_c/Program Files (x86)/PlayOnline/SquareEnix",
+    "WINDOWER": "drive_c/Windower4"
+  },
+  "entrypoints": [
+    {
+      "id": "windower",
+      "name": "Windower",
+      "exe": "$WINDOWER/Windower.exe",
+      "args": [],
+      "default": true
+    }
+  ],
+  "downloads": [
+    {
+      "id": "windower4",
+      "url": "https://update.windower.net/live/Windower.exe",
+      "dest": "$CACHE/windower/Windower.exe"
+    }
+  ],
+  "redists": ["dotnet48"],
+  "steps": [
+    {
+      "type": "copy",
+      "description": "Install Windower 4",
+      "src": "$CACHE/windower/Windower.exe",
+      "dst": "$PREFIX/$WINDOWER"
+    }
+  ]
+}

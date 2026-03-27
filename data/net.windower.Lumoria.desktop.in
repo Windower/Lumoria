@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Lumoria
+Comment=Final Fantasy XI Launcher for Linux
+Exec=lumoria
+Icon=net.windower.Lumoria
+Terminal=false
+Type=Application
+Categories=Game;
+Keywords=ffxi;wine;proton;final fantasy;
+StartupNotify=true

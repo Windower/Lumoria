@@ -1,0 +1,82 @@
+app-id: net.windower.Lumoria
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.vala
+command: lumoria
+
+build-options:
+  prepend-path: /usr/lib/sdk/vala/bin
+  prepend-ld-library-path: /usr/lib/sdk/vala/lib
+
+finish-args:
+  # Controllers (and virtual devices like Steam Deck desktop mode), hot-plugging, and ntsync support need --device=all.
+  # See https://github.com/flatpak/flatpak/issues/6199
+  - --device=all
+  - --filesystem=/run/udev:ro
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --allow=multiarch
+  - --socket=pulseaudio
+  - --share=network
+  - --share=ipc
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/pkgconfig
+  - /share/man
+  - /share/vala
+  - /bin/vte-2.91-gtk4
+  - /libexec/vte-urlencode-cwd
+  - /share/gir-1.0
+  - '*.la'
+  - '*.a'
+
+modules:
+
+  - name: fast_float
+    buildsystem: cmake-ninja
+    sources:
+      - type: git
+        url: https://github.com/fastfloat/fast_float.git
+        tag: v8.2.3
+        commit: 01ce95dfe46abccf3264fbccf9f5139ea9016cd2
+
+  - name: simdutf
+    buildsystem: cmake-ninja
+    sources:
+      - type: git
+        url: https://github.com/simdutf/simdutf.git
+        tag: v8.0.0
+        commit: 7f3757fba1b426e7f583011ba7bc4e700a8fbb1a
+
+  - name: vte
+    buildsystem: meson
+    config-opts:
+      - --buildtype=release
+      - -Dgtk3=false
+      - -Dgtk4=true
+      - -Dglade=false
+      - -Dgir=true
+      - -Dvapi=true
+    sources:
+      - type: archive
+        url: https://download.gnome.org/sources/vte/0.82/vte-0.82.3.tar.xz
+        sha256: 6dc6278f6fee30d07d1a03e2ba3335b1ea4e8d2956ceb59d861943115d930a85
+
+  - name: libmspack
+    buildsystem: autotools
+    build-options:
+      strip: true
+    sources:
+      - type: archive
+        url: https://www.cabextract.org.uk/libmspack/libmspack-0.11alpha.tar.gz
+        sha256: 70dd1fb2f0aecc36791b71a1e1840e62173079eadaa081192d1c323a0eeea21b
+
+  - name: lumoria
+    buildsystem: meson
+    sources:
+      - type: dir
+        path: .

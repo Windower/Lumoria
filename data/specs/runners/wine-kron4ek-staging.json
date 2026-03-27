@@ -1,0 +1,43 @@
+{
+  "id": "wine-kron4ek-staging",
+  "name": "Wine Staging",
+  "wine_arch": "win64",
+  "host_arches": ["x86_64"],
+  "github_repo": "Kron4ek/Wine-Builds",
+  "checksum_regex": "sha256sums\\.txt$",
+  "variants": [
+    {
+      "id": "wow64",
+      "label": "WoW64 (recommended)",
+      "default": true,
+      "asset_regex": "wine-[0-9]+\\.[0-9]+-staging-amd64-wow64\\.tar\\.xz$",
+      "wine_bin": "bin/wine",
+      "wineserver": "bin/wineserver",
+      "binary_kind": "wow64",
+      "sandbox_supported": true,
+      "paths": {
+        "bin": "bin",
+        "lib": ["lib"],
+        "lib_64": ["lib/x86_64-linux-gnu"],
+        "wine_dll": ["lib/wine"],
+        "wine_unix": ["lib/wine/x86_64-unix", "lib/wine/i386-unix"]
+      }
+    },
+    {
+      "id": "tkg-wow64",
+      "label": "TKG WoW64",
+      "asset_regex": "wine-[0-9]+\\.[0-9]+-staging-tkg-amd64-wow64\\.tar\\.xz$",
+      "wine_bin": "bin/wine",
+      "wineserver": "bin/wineserver",
+      "binary_kind": "wow64",
+      "sandbox_supported": true,
+      "paths": {
+        "bin": "bin",
+        "lib": ["lib"],
+        "lib_64": ["lib/x86_64-linux-gnu"],
+        "wine_dll": ["lib/wine"],
+        "wine_unix": ["lib/wine/x86_64-unix", "lib/wine/i386-unix"]
+      }
+    }
+  ]
+}

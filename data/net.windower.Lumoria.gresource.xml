@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/net/windower/Lumoria">
+    <file>css/style.css</file>
+    <file alias="appdata/net.windower.Lumoria.metainfo.xml">net.windower.Lumoria.metainfo.xml.in</file>
+    <file>ui/lumoria-mascot.svg</file>
+    <file>icons/hicolor/scalable/apps/net.windower.Lumoria.svg</file>
+    <file>specs/defaults.json</file>
+    <file>specs/installer.json</file>
+    <file>specs/runners/proton-ge.json</file>
+    <file>specs/runners/proton-cachyos.json</file>
+    <file>specs/runners/wine-kron4ek-staging.json</file>
+    <file>specs/launchers/windower4.json</file>
+    <file>specs/redists/corefonts.json</file>
+    <file>specs/redists/gdiplus.json</file>
+    <file>specs/redists/dotnet48.json</file>
+    <file>specs/components/dxvk.json</file>
+  </gresource>
+</gresources>

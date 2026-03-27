@@ -1,0 +1,45 @@
+{
+  "id": "proton-ge",
+  "name": "GE-Proton",
+  "wine_arch": "win64",
+  "default": true,
+  "github_repo": "GloriousEggroll/proton-ge-custom",
+  "version_dir": "GE-Proton(.+)",
+  "asset_regex": "GE-Proton.*\\.tar\\.(gz|zst)$",
+  "checksum_regex": "GE-Proton.*\\.(sha512sum|sha512)$",
+  "variants": [
+    {
+      "id": "wow64",
+      "label": "WoW64 (recommended)",
+      "default": true,
+      "wine_bin": "files/bin-wow64/wine",
+      "wineserver": "files/bin-wow64/wineserver",
+      "binary_kind": "wow64",
+      "sandbox_supported": true,
+      "paths": {
+        "bin": "files/bin-wow64",
+        "lib": ["files/lib"],
+        "lib_32": ["files/lib/i386-linux-gnu"],
+        "lib_64": ["files/lib/x86_64-linux-gnu"],
+        "wine_dll": ["files/lib/wine", "files/lib/vkd3d", "files/lib/wine/vkd3d-proton", "files/lib/wine/dxvk", "files/lib/wine/nvapi"],
+        "wine_unix": ["files/lib/wine/x86_64-unix", "files/lib/wine/i386-unix"]
+      }
+    },
+    {
+      "id": "bin",
+      "label": "Legacy 32-bit binary",
+      "wine_bin": "files/bin/wine",
+      "wineserver": "files/bin/wineserver",
+      "binary_kind": "legacy32",
+      "sandbox_supported": false,
+      "paths": {
+        "bin": "files/bin",
+        "lib": ["files/lib"],
+        "lib_32": ["files/lib/i386-linux-gnu"],
+        "lib_64": ["files/lib/x86_64-linux-gnu"],
+        "wine_dll": ["files/lib/wine", "files/lib/vkd3d", "files/lib/wine/vkd3d-proton", "files/lib/wine/dxvk", "files/lib/wine/nvapi"],
+        "wine_unix": ["files/lib/wine/x86_64-unix", "files/lib/wine/i386-unix"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+.prefix-detail-grid label.dim-label {
+    font-weight: 600;
+}
+
+.install-log textview {
+    font-family: monospace;
+    font-size: 0.85em;
+}
+
+.env-add-btn image {
+    -gtk-icon-style: symbolic;
+    color: @theme_fg_color;
+}

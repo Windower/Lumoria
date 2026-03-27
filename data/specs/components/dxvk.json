@@ -1,0 +1,29 @@
+{
+  "id": "dxvk",
+  "name": "DXVK",
+  "github_repo": "doitsujin/dxvk",
+  "asset_regex": "dxvk-.*\\.tar\\.gz$",
+  "checksum_regex": "dxvk-.*\\.(sha256|sha256sum|sha512|sha512sum)$",
+  "default_version": "latest",
+  "system_env_defaults": {
+    "DXVK_HUD": "fps"
+  },
+  "overrides": {
+    "d3d8": "n,b",
+    "d3d9": "n,b"
+  },
+  "steps": [
+    {
+      "type": "copy",
+      "description": "Install DXVK x32 DLLs",
+      "src": "$COMPONENT/x32",
+      "dst": "$PREFIX/drive_c/windows/syswow64"
+    },
+    {
+      "type": "copy",
+      "description": "Install DXVK x64 DLLs",
+      "src": "$COMPONENT/x64",
+      "dst": "$PREFIX/drive_c/windows/system32"
+    }
+  ]
+}

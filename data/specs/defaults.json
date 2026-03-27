@@ -1,0 +1,25 @@
+{
+  "default": {
+    "runner": {
+      "id": "proton-ge",
+      "version": "latest"
+    },
+    "wine": {
+      "wayland": false
+    },
+    "patches": {
+      "large_address_aware": false
+    },
+    "components": {
+      "dxvk": { "enabled": true }
+    }
+  },
+  "environments": {
+    "sandbox": {
+      "runner": {
+        "id": "wine-kron4ek-staging",
+        "version": "latest"
+      }
+    }
+  }
+}

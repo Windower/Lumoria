@@ -1,0 +1,118 @@
+{
+  "id": "ffxi",
+  "name": "Final Fantasy XI",
+  "version": "1.0",
+  "variables": {
+    "SE_DIR": "drive_c/Program Files (x86)/PlayOnline/SquareEnix"
+  },
+  "entrypoints": [
+    {
+      "id": "pol",
+      "name": "PlayOnline Viewer",
+      "exe": "$SE_DIR/PlayOnlineViewer/pol.exe",
+      "default": true
+    },
+    {
+      "id": "pol-config",
+      "name": "PlayOnline Config",
+      "exe": "$SE_DIR/PlayOnlineViewer/polcfg/polcfg.exe"
+    },
+    {
+      "id": "ffxi-config",
+      "name": "Final Fantasy XI Config",
+      "exe": "$SE_DIR/FINAL FANTASY XI/ToolsUS/FINAL FANTASY XI Config.exe"
+    },
+    {
+      "id": "ffxi-padconfig",
+      "name": "FFXI Gamepad Config",
+      "exe": "$SE_DIR/FINAL FANTASY XI/ToolsUS/FFXiPadConfig.exe"
+    }
+  ],
+
+  "redists": ["corefonts", "gdiplus"],
+  "steps": [
+    {
+      "type": "link",
+      "description": "Prepare installer archive links",
+      "mode": "symlink",
+      "dst": "$CACHE",
+      "args": [
+        "$CACHE/installer_part1/FFXIFullSetup_US.part1.exe",
+        "$CACHE/installer_part2/FFXIFullSetup_US.part2.rar",
+        "$CACHE/installer_part3/FFXIFullSetup_US.part3.rar",
+        "$CACHE/installer_part4/FFXIFullSetup_US.part4.rar",
+        "$CACHE/installer_part5/FFXIFullSetup_US.part5.rar"
+      ]
+    },
+    {
+      "type": "extract_multi",
+      "description": "Extract installer archive",
+      "src": "$CACHE/FFXIFullSetup_US.part1.exe",
+      "args": [
+        "$CACHE/FFXIFullSetup_US.part2.rar",
+        "$CACHE/FFXIFullSetup_US.part3.rar",
+        "$CACHE/FFXIFullSetup_US.part4.rar",
+        "$CACHE/FFXIFullSetup_US.part5.rar"
+      ],
+      "dst": "$CACHE",
+      "skip_if_exists": [
+        "$CACHE/FFXIFullSetup_US/PlayOnline/PlayOnlineViewer.msi",
+        "$CACHE/FFXIFullSetup_US/FINAL_FANTASY_XI/FINAL_FANTASY_XI.msi"
+      ],
+      "verify_paths": [
+        "$CACHE/FFXIFullSetup_US/PlayOnline/PlayOnlineViewer.msi",
+        "$CACHE/FFXIFullSetup_US/FINAL_FANTASY_XI/FINAL_FANTASY_XI.msi"
+      ]
+    },
+    {
+      "type": "wineexec",
+      "description": "Install PlayOnline",
+      "command": "msiexec",
+      "args": ["-q", "-i", "$CACHE/FFXIFullSetup_US/PlayOnline/PlayOnlineViewer.msi"],
+      "working_dir": "$CACHE",
+      "skip_if_exists": ["$PREFIX/drive_c/Program Files (x86)/PlayOnline/SquareEnix/PlayOnlineViewer"],
+      "verify_paths": ["$PREFIX/drive_c/Program Files (x86)/PlayOnline/SquareEnix/PlayOnlineViewer"]
+    },
+    {
+      "type": "wineexec",
+      "description": "Install Final Fantasy XI",
+      "command": "msiexec",
+      "args": ["-q", "-i", "$CACHE/FFXIFullSetup_US/FINAL_FANTASY_XI/FINAL_FANTASY_XI.msi"],
+      "working_dir": "$CACHE",
+      "skip_if_exists": ["$PREFIX/drive_c/Program Files (x86)/PlayOnline/SquareEnix/FINAL FANTASY XI"],
+      "verify_paths": ["$PREFIX/drive_c/Program Files (x86)/PlayOnline/SquareEnix/FINAL FANTASY XI"]
+    }
+  ],
+  "downloads": [
+    {
+      "id": "installer_part1",
+      "url": "https://gdl.square-enix.com/ffxi/download/us/FFXIFullSetup_US.part1.exe",
+      "dest": "$CACHE/installer_part1/FFXIFullSetup_US.part1.exe",
+      "sha256": "8b7abd42aa7c3cc4378f1fa02e3ea1e6019d2041bc8b77931f03a3f8202ceec9"
+    },
+    {
+      "id": "installer_part2",
+      "url": "https://gdl.square-enix.com/ffxi/download/us/FFXIFullSetup_US.part2.rar",
+      "dest": "$CACHE/installer_part2/FFXIFullSetup_US.part2.rar",
+      "sha256": "e2a0fb85cc33b82bcf40d84bf7b8c6d87e75aaaa7560598479711f3138c7da46"
+    },
+    {
+      "id": "installer_part3",
+      "url": "https://gdl.square-enix.com/ffxi/download/us/FFXIFullSetup_US.part3.rar",
+      "dest": "$CACHE/installer_part3/FFXIFullSetup_US.part3.rar",
+      "sha256": "ec582b38c52a6656cef569a89457d61d06bf722ad474dc929407bc5688c71983"
+    },
+    {
+      "id": "installer_part4",
+      "url": "https://gdl.square-enix.com/ffxi/download/us/FFXIFullSetup_US.part4.rar",
+      "dest": "$CACHE/installer_part4/FFXIFullSetup_US.part4.rar",
+      "sha256": "55cc35ee76fae44a2b02d57bd1883aaea535fff39761b995b57bb99c28602013"
+    },
+    {
+      "id": "installer_part5",
+      "url": "https://gdl.square-enix.com/ffxi/download/us/FFXIFullSetup_US.part5.rar",
+      "dest": "$CACHE/installer_part5/FFXIFullSetup_US.part5.rar",
+      "sha256": "675fa16fdb18ee711174a4f6b5521b1d158786540d28cb4348cce56e16a7f903"
+    }
+  ]
+}

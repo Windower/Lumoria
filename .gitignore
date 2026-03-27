@@ -1,0 +1,51 @@
+# Build directories
+builddir/
+builddir-flatpak/
+build-host/
+build-flatpak/
+build/
+
+# Flatpak builder
+.flatpak-builder/
+
+# Meson
+subprojects/
+*.wrap
+
+# C build artifacts
+*.o
+*.so
+*.a
+*.la
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.cursor/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Secrets / credentials — never commit these
+*.pem
+*.key
+*.p12
+*.gpg-key
+*.secret
+.env
+.env.*
+
+# GPG export files
+secring.*
+pubring.*
+lumoria-signing-public.gpg
+lumoria-signing-public.asc
+
+# Flatpak repo / bundle artifacts
+*.flatpak
+*.flatpak-bundle
+repo/
