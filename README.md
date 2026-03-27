@@ -24,7 +24,7 @@ Still rough around the edges, but it:
 
 ### Installing using Flatpak
 
-While the eventual goal is to get on Flathub, I want to work out the rough edges before submission. The testing repository can be installed using the below commands.
+While the eventual goal is to get on Flathub, we want to work out the rough edges before submission. The testing repository can be installed using the below commands.
 
 ***Note***: You need to have [Flathub](https://flathub.org/en/setup) installed on your device first.
 
