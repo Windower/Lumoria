@@ -1,3 +1,4 @@
+<div id="content-root"></div>
 <h1 align="center">
       <img align="center" src="data/icons/hicolor/scalable/apps/net.windower.Lumoria.svg" alt="Lumoria" width="175">
     <br><br>
@@ -35,7 +36,7 @@ Flatpak releases are signed with GPG. The public key is bundled in the `.flatpak
 Fingerprint: `75DC 1210 5CCA A971 94A6 7D07 9FE9 2A31 9A93 0950`
 
 ```sh
-flatpak remote-add --if-not-exists --user lumoria https://repo.lumoria.dev/lumoria.flatpakrepo
+flatpak remote-add --if-not-exists --user lumoria https://lumoria.windower.net/repo/lumoria.flatpakrepo
 flatpak install --user -y lumoria net.windower.Lumoria
 ```
 
