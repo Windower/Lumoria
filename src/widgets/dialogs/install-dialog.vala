@@ -324,7 +324,7 @@ namespace Lumoria.Widgets.Dialogs {
             var clipboard = get_clipboard ();
             clipboard.set_text (text);
 
-            copy_log_btn.icon_name = IconRegistry.COPY_DONE;
+            copy_log_btn.icon_name = IconRegistry.CHECKMARK;
             copy_log_btn.tooltip_text = _("Copied!");
             Timeout.add (2000, () => {
                 copy_log_btn.icon_name = IconRegistry.COPY;

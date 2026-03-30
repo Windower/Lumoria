@@ -8,10 +8,17 @@ namespace Lumoria.Widgets {
         private Gtk.ListBox prefix_list;
         private Gtk.Stack root_stack;
         private Adw.StatusPage empty_page;
+        private Gtk.Button add_prefix_btn;
+        private Gtk.Button preferences_btn;
+        private Gtk.Button close_btn;
         private Gtk.Button global_play_btn;
 
         private Adw.ToastOverlay toast_overlay;
         private Services.PrefixLaunchService launch_service;
+        private Services.GamepadService gamepad;
+        private Gee.ArrayList<Adw.Dialog> active_dialogs;
+        private Gtk.Widget? gamepad_focus_widget;
+        private bool allow_window_close = false;
 
         public Window (Application app) {
             Object (
@@ -28,31 +35,60 @@ namespace Lumoria.Widgets {
             runner_specs = Models.RunnerSpec.filter_for_host (Models.RunnerSpec.load_all_from_resource ());
             launcher_specs = Models.LauncherSpec.load_all_from_resource ();
             launch_service = new Services.PrefixLaunchService ();
+            active_dialogs = new Gee.ArrayList<Adw.Dialog> ();
+
+            gamepad = Services.GamepadService.instance ();
+            gamepad.action_pressed.connect (on_gamepad_action);
+            close_request.connect (() => on_close_request ());
 
             build_ui ();
             refresh_list ();
+            Idle.add (() => {
+                initialize_gamepad_focus ();
+                return false;
+            });
+        }
+
+        private Adw.ToolbarView build_window_toolbar (
+            out Adw.HeaderBar header,
+            out Gtk.Button out_close_btn,
+            out Gtk.Button out_prefs_btn
+        ) {
+            var toolbar = new Adw.ToolbarView ();
+            header = new Adw.HeaderBar ();
+            header.show_start_title_buttons = false;
+            header.show_end_title_buttons = false;
+
+            out_close_btn = new Gtk.Button.from_icon_name (IconRegistry.CLOSE);
+            out_close_btn.tooltip_text = _("Quit");
+            out_close_btn.focusable = true;
+            out_close_btn.add_css_class ("circular");
+            out_close_btn.clicked.connect (() => request_quit_confirmation ());
+            header.pack_end (out_close_btn);
+
+            out_prefs_btn = new Gtk.Button.from_icon_name (IconRegistry.MANAGE);
+            out_prefs_btn.tooltip_text = _("Preferences");
+            out_prefs_btn.focusable = true;
+            out_prefs_btn.clicked.connect (() => show_preferences ());
+            header.pack_end (out_prefs_btn);
+
+            toolbar.add_top_bar (header);
+            return toolbar;
         }
 
         private void build_ui () {
-            var app_menu = new GLib.Menu ();
-            app_menu.append (_("Preferences"), "app.preferences");
-            app_menu.append (_("About"), "app.about");
+            Adw.HeaderBar main_header;
+            Gtk.Button _close_btn;
+            Gtk.Button _prefs_btn;
+            var main_toolbar = build_window_toolbar (out main_header, out _close_btn, out _prefs_btn);
+            close_btn = _close_btn;
+            preferences_btn = _prefs_btn;
 
-            var main_toolbar = new Adw.ToolbarView ();
-            var main_header = new Adw.HeaderBar ();
-
-            var add_btn = new Gtk.Button.from_icon_name (IconRegistry.ADD);
-            add_btn.tooltip_text = _("Add new prefix");
-            add_btn.clicked.connect (on_add_prefix);
-            main_header.pack_start (add_btn);
-
-            var menu_btn = new Gtk.MenuButton ();
-            menu_btn.icon_name = IconRegistry.MENU;
-            menu_btn.tooltip_text = _("App Menu");
-            menu_btn.menu_model = app_menu;
-            main_header.pack_end (menu_btn);
-
-            main_toolbar.add_top_bar (main_header);
+            add_prefix_btn = new Gtk.Button.from_icon_name (IconRegistry.ADD);
+            add_prefix_btn.tooltip_text = _("Add new prefix");
+            add_prefix_btn.focusable = true;
+            add_prefix_btn.clicked.connect (on_add_prefix);
+            main_header.pack_start (add_prefix_btn);
 
             prefix_list = new Gtk.ListBox ();
             prefix_list.selection_mode = Gtk.SelectionMode.NONE;
@@ -73,6 +109,7 @@ namespace Lumoria.Widgets {
 
             global_play_btn = new Gtk.Button.with_label (_("Play"));
             global_play_btn.add_css_class ("suggested-action");
+            global_play_btn.focusable = true;
             global_play_btn.margin_start = 12;
             global_play_btn.margin_end = 12;
             global_play_btn.margin_top = 8;
@@ -95,14 +132,10 @@ namespace Lumoria.Widgets {
             get_started_btn.clicked.connect (on_add_prefix);
             empty_page.child = get_started_btn;
 
-            var empty_toolbar = new Adw.ToolbarView ();
-            var empty_header = new Adw.HeaderBar ();
-            var empty_menu_btn = new Gtk.MenuButton ();
-            empty_menu_btn.icon_name = IconRegistry.MENU;
-            empty_menu_btn.tooltip_text = _("App Menu");
-            empty_menu_btn.menu_model = app_menu;
-            empty_header.pack_end (empty_menu_btn);
-            empty_toolbar.add_top_bar (empty_header);
+            Adw.HeaderBar empty_header;
+            Gtk.Button empty_close;
+            Gtk.Button empty_prefs;
+            var empty_toolbar = build_window_toolbar (out empty_header, out empty_close, out empty_prefs);
             empty_toolbar.content = empty_page;
 
             root_stack = new Gtk.Stack ();
@@ -135,7 +168,7 @@ namespace Lumoria.Widgets {
             for (int i = 0; i < registry.prefixes.size; i++) {
                 var entry = registry.prefixes[i];
                 var row = new PrefixRowWidget (entry, i, runner_specs, launcher_specs, is_gamescope, registry.is_default (entry));
-                row.play_requested.connect (on_play);
+                row.play_requested.connect ((idx) => on_play_entrypoint (idx, ""));
                 row.play_entrypoint_requested.connect (on_play_entrypoint);
                 row.manage_requested.connect (on_manage_prefix);
                 row.wine_tools_requested.connect (on_wine_tools);
@@ -158,10 +191,7 @@ namespace Lumoria.Widgets {
                 if (first != null) first.expanded = true;
             }
 
-            var def = registry.default_prefix ();
-            var can_play = def != null && def.runner_id != "" && !is_gamescope;
-            global_play_btn.sensitive = can_play;
-
+            update_global_play_sensitivity ();
             update_stack ();
         }
 
@@ -175,6 +205,16 @@ namespace Lumoria.Widgets {
 
         private void update_stack () {
             root_stack.visible_child_name = registry.prefixes.size == 0 ? "empty" : "main";
+        }
+
+        private void save_and_refresh () {
+            registry.save (Utils.prefix_registry_path ());
+            refresh_list ();
+        }
+
+        private void update_global_play_sensitivity () {
+            var def = registry.default_prefix ();
+            global_play_btn.sensitive = def != null && def.runner_id != "" && !Utils.EnvironmentInfo.is_gamescope ();
         }
 
         public void show_toast (string message) {
@@ -199,7 +239,7 @@ namespace Lumoria.Widgets {
         private void on_global_play () {
             var idx = registry.default_prefix_index ();
             if (idx < 0) return;
-            on_play (idx);
+            on_play_entrypoint (idx, "");
         }
 
         private void on_set_default (int index) {
@@ -220,21 +260,14 @@ namespace Lumoria.Widgets {
                 );
             }
 
-            var def = registry.default_prefix ();
-            global_play_btn.sensitive = def != null && def.runner_id != "" && !is_gamescope;
+            update_global_play_sensitivity ();
         }
 
         private void on_add_prefix () {
             var dialog = new Dialogs.CreatePrefixDialog (this, registry, runner_specs, launcher_specs);
-            dialog.prefix_created.connect (() => {
-                registry.save (Utils.prefix_registry_path ());
-                refresh_list ();
-            });
+            track_dialog (dialog);
+            dialog.prefix_created.connect (save_and_refresh);
             dialog.present (this);
-        }
-
-        private void on_play (int index) {
-            on_play_entrypoint (index, "");
         }
 
         private void on_play_entrypoint (int index, string entrypoint_id) {
@@ -255,14 +288,9 @@ namespace Lumoria.Widgets {
             if (entry == null) return;
 
             var dialog = new Dialogs.ManagePrefixDialog (this, registry, index, runner_specs, launcher_specs);
-            dialog.saved.connect (() => {
-                registry.save (Utils.prefix_registry_path ());
-                refresh_list ();
-            });
-            dialog.removed.connect (() => {
-                registry.save (Utils.prefix_registry_path ());
-                refresh_list ();
-            });
+            track_dialog (dialog);
+            dialog.saved.connect (save_and_refresh);
+            dialog.removed.connect (save_and_refresh);
             dialog.present (this);
         }
 
@@ -270,7 +298,8 @@ namespace Lumoria.Widgets {
             var entry = require_runnable (index);
             if (entry == null) return;
 
-            var dialog = new Dialogs.WineToolsDialog (this, are_wine_tools_blocked ());
+            var dialog = new Dialogs.WineToolsDialog (this, Utils.EnvironmentInfo.is_gamescope ());
+            track_dialog (dialog);
             dialog.run_exe_requested.connect (() => on_launch_exe (index));
             dialog.open_bash_requested.connect (() => launch_bash_terminal (index));
             dialog.open_wine_console_requested.connect (() => launch_wine_tool (index, { "wineconsole" }, "wineconsole"));
@@ -285,20 +314,20 @@ namespace Lumoria.Widgets {
             var entry = entry_at (index);
             if (entry == null) return;
 
-            var log_dir = Path.build_filename (entry.resolved_path (), "logs");
-            Utils.ensure_dir (log_dir);
-            var launcher = new Gtk.FileLauncher (File.new_for_path (log_dir));
+            var prefix_dir = entry.resolved_path ();
+            var launcher = new Gtk.FileLauncher (File.new_for_path (prefix_dir));
             launcher.launch.begin (this, null, (obj, res) => {
                 try {
                     launcher.launch.end (res);
                 } catch (Error e) {
-                    show_toast (_("Could not open logs folder: %s").printf (e.message));
+                    show_toast (_("Could not open prefix directory: %s").printf (e.message));
                 }
             });
         }
 
         private void on_launch_exe (int index) {
             if (!ensure_wine_tools_allowed ()) return;
+            if (SettingsShared.file_browse_blocked (toast_overlay)) return;
             var entry = require_runnable (index);
             if (entry == null) return;
 
@@ -367,6 +396,7 @@ namespace Lumoria.Widgets {
                     var env_vars = ctx.env_vars;
                     Idle.add (() => {
                         var dialog = new Dialogs.TerminalDialog (work_dir, env_vars);
+                        track_dialog (dialog);
                         dialog.present (this);
                         return false;
                     });
@@ -381,19 +411,460 @@ namespace Lumoria.Widgets {
             });
         }
 
-        private bool are_wine_tools_blocked () {
-            return Utils.EnvironmentInfo.is_gamescope ();
-        }
-
         private bool ensure_wine_tools_allowed () {
-            if (!are_wine_tools_blocked ()) return true;
+            if (!Utils.EnvironmentInfo.is_gamescope ()) return true;
             show_toast (_("These tools are disabled while in a gamescope session."));
             return false;
         }
 
         public void show_preferences () {
             var dialog = new Dialogs.PreferencesDialog (this, runner_specs);
+            track_dialog (dialog);
             dialog.present (this);
+        }
+
+        private void on_gamepad_action (Services.GamepadAction action) {
+            if (!is_active) return;
+
+            focus_visible = true;
+
+            if (active_dialogs.size > 0) {
+                var top = active_dialogs[active_dialogs.size - 1];
+                if (top is Dialogs.WineToolsDialog) {
+                    if (((Dialogs.WineToolsDialog) top).handle_gamepad_action (action)) {
+                        return;
+                    }
+                }
+            }
+
+            switch (action) {
+                case Services.GamepadAction.NAVIGATE_DOWN:
+                    move_gamepad_focus (1);
+                    break;
+                case Services.GamepadAction.NAVIGATE_UP:
+                    move_gamepad_focus (-1);
+                    break;
+                case Services.GamepadAction.NAVIGATE_LEFT:
+                    navigate_left ();
+                    break;
+                case Services.GamepadAction.NAVIGATE_RIGHT:
+                    navigate_right ();
+                    break;
+                case Services.GamepadAction.TAB_PREV:
+                    cycle_context_tabs (-1);
+                    break;
+                case Services.GamepadAction.TAB_NEXT:
+                    cycle_context_tabs (1);
+                    break;
+                case Services.GamepadAction.ACTIVATE:
+                    activate_gamepad_target ();
+                    break;
+                case Services.GamepadAction.BACK:
+                    handle_back_action ();
+                    break;
+                case Services.GamepadAction.GLOBAL_PLAY:
+                    on_global_play ();
+                    break;
+            }
+        }
+
+        private void track_dialog (Adw.Dialog dialog) {
+            active_dialogs.add (dialog);
+            dialog.closed.connect (() => {
+                active_dialogs.remove (dialog);
+                var root = current_gamepad_root ();
+                if (gamepad_focus_widget != null && !is_descendant_of (gamepad_focus_widget, root)) {
+                    gamepad_focus_widget.remove_css_class ("gamepad-focus");
+                    gamepad_focus_widget = null;
+                }
+            });
+        }
+
+        private Gtk.Widget current_gamepad_root () {
+            var focus_dialog = find_dialog_from_focus ();
+            if (focus_dialog != null) {
+                return (Gtk.Widget) focus_dialog;
+            }
+            if (active_dialogs.size > 0) {
+                return (Gtk.Widget) active_dialogs[active_dialogs.size - 1];
+            }
+            return (Gtk.Widget) this;
+        }
+
+        private void navigate_left () {
+            var target = current_gamepad_target ();
+            if (target is Adw.ExpanderRow) {
+                var row = (Adw.ExpanderRow) target;
+                if (row.expanded) row.expanded = false;
+                return;
+            }
+            var parent = find_parent_expander (target);
+            if (parent != null) {
+                parent.expanded = false;
+                set_gamepad_focus_widget ((Gtk.Widget) parent);
+                return;
+            }
+            move_gamepad_focus (-1);
+        }
+
+        private void navigate_right () {
+            var target = current_gamepad_target ();
+            if (target is Adw.ExpanderRow) {
+                var row = (Adw.ExpanderRow) target;
+                if (!row.expanded) row.expanded = true;
+                return;
+            }
+            if (find_parent_expander (target) != null) return;
+            move_gamepad_focus (1);
+        }
+
+        private void cycle_context_tabs (int delta) {
+            var root = current_gamepad_root ();
+            var stack = find_view_stack (root);
+            if (stack == null) return;
+
+            var pages = stack.get_pages ();
+            int n = (int) pages.get_n_items ();
+            if (n <= 1) return;
+
+            var current_name = stack.get_visible_child_name ();
+            int current_idx = 0;
+            for (int i = 0; i < n; i++) {
+                var page = pages.get_item (i) as Adw.ViewStackPage;
+                if (page != null && page.name == current_name) {
+                    current_idx = i;
+                    break;
+                }
+            }
+
+            int next = current_idx + delta;
+            if (next < 0) next = n - 1;
+            if (next >= n) next = 0;
+
+            var next_page = pages.get_item (next) as Adw.ViewStackPage;
+            if (next_page == null) return;
+
+            stack.set_visible_child_name (next_page.name);
+            if (gamepad_focus_widget != null) {
+                gamepad_focus_widget.remove_css_class ("gamepad-focus");
+                gamepad_focus_widget = null;
+            }
+            move_gamepad_focus (1);
+        }
+
+        private Adw.ViewStack? find_view_stack (Gtk.Widget root) {
+            if (root is Adw.ViewStack) return (Adw.ViewStack) root;
+            for (var child = root.get_first_child (); child != null; child = child.get_next_sibling ()) {
+                var found = find_view_stack (child);
+                if (found != null) return found;
+            }
+            return null;
+        }
+
+        private void move_gamepad_focus (int delta) {
+            var root = current_gamepad_root ();
+            var targets = collect_gamepad_targets (root);
+            if (targets.size == 0) return;
+
+            var current = current_gamepad_target ();
+
+            if (current == global_play_btn) {
+                for (int i = 0; i < targets.size; i++) {
+                    if (targets[i] is PrefixRowWidget) {
+                        set_gamepad_focus_widget (targets[i]);
+                        return;
+                    }
+                }
+            }
+
+            int index = current != null ? targets.index_of (current) : -1;
+
+            if (index < 0) {
+                index = delta >= 0 ? 0 : targets.size - 1;
+            } else {
+                index += delta;
+                if (index < 0) index = 0;
+                if (index >= targets.size) index = targets.size - 1;
+            }
+
+            set_gamepad_focus_widget (targets[index]);
+        }
+
+        private void activate_gamepad_target () {
+            var target = current_gamepad_target ();
+            if (target == null) return;
+
+            if (target is Adw.EntryRow) {
+                ((Adw.EntryRow) target).grab_focus_without_selecting ();
+                return;
+            }
+
+            if (target is Gtk.Entry || target is Gtk.TextView) {
+                target.grab_focus ();
+                return;
+            }
+
+            if (target is Adw.ActionRow) {
+                var target_row = (Adw.ActionRow) target;
+                if (!target_row.activatable && target_row.activatable_widget == null) {
+                    var fallback_prefix = find_parent_prefix_row (target);
+                    if (fallback_prefix != null && fallback_prefix.activate_primary_action ()) {
+                        return;
+                    }
+                }
+            }
+
+            if (target is Gtk.Button) {
+                ((Gtk.Button) target).activate ();
+                return;
+            }
+
+            if (target is Adw.SwitchRow) {
+                var row = (Adw.SwitchRow) target;
+                row.active = !row.active;
+                return;
+            }
+
+            if (target is Adw.ExpanderRow) {
+                if (target is PrefixRowWidget) {
+                    ((PrefixRowWidget) target).activate_primary_action ();
+                } else {
+                    var row = (Adw.ExpanderRow) target;
+                    row.expanded = !row.expanded;
+                }
+                return;
+            }
+
+            if (target is Adw.ActionRow) {
+                var parent_expander = find_parent_expander (target);
+                ((Adw.ActionRow) target).activate ();
+                if (parent_expander != null && !parent_expander.expanded) {
+                    set_gamepad_focus_widget ((Gtk.Widget) parent_expander);
+                }
+                return;
+            }
+
+            target.activate ();
+        }
+
+        private Gtk.Widget? current_gamepad_target () {
+            var root = current_gamepad_root ();
+
+            if (gamepad_focus_widget != null &&
+                gamepad_focus_widget.get_visible () &&
+                gamepad_focus_widget.get_mapped () &&
+                is_descendant_of (gamepad_focus_widget, root)) {
+                return gamepad_focus_widget;
+            }
+
+            var focused = find_actionable_focus_widget (root);
+            if (focused != null) {
+                set_gamepad_focus_widget (focused);
+                return focused;
+            }
+
+            return null;
+        }
+
+        private void set_gamepad_focus_widget (Gtk.Widget target) {
+            if (gamepad_focus_widget == target) {
+                target.grab_focus ();
+                return;
+            }
+
+            if (gamepad_focus_widget != null) {
+                gamepad_focus_widget.remove_css_class ("gamepad-focus");
+            }
+
+            gamepad_focus_widget = target;
+            gamepad_focus_widget.add_css_class ("gamepad-focus");
+
+            gamepad_focus_widget.grab_focus ();
+        }
+
+        private Gee.ArrayList<Gtk.Widget> collect_gamepad_targets (Gtk.Widget root) {
+            var targets = new Gee.ArrayList<Gtk.Widget> ();
+
+            if (root == (Gtk.Widget) this) {
+                if (add_prefix_btn != null && add_prefix_btn.get_visible () && add_prefix_btn.sensitive) {
+                    add_target_if_missing (targets, add_prefix_btn);
+                }
+                if (preferences_btn != null && preferences_btn.get_visible () && preferences_btn.sensitive) {
+                    add_target_if_missing (targets, preferences_btn);
+                }
+            }
+
+            collect_gamepad_targets_from (root, root, targets);
+            return targets;
+        }
+
+        private void collect_gamepad_targets_from (
+            Gtk.Widget root,
+            Gtk.Widget widget,
+            Gee.ArrayList<Gtk.Widget> targets
+        ) {
+            if (!is_navigable_widget (root, widget)) return;
+
+            if (widget != root) {
+                if (widget is Adw.EntryRow) {
+                    add_target_if_missing (targets, widget);
+                    return;
+                }
+
+                if (widget is Gtk.Entry || widget is Gtk.TextView) {
+                    add_target_if_missing (targets, widget);
+                    return;
+                }
+
+                if (widget is Gtk.Button) {
+                    var button = (Gtk.Button) widget;
+                    if (!button.sensitive) return;
+                    if (has_view_switcher_ancestor (widget, root)) return;
+                    if (button.has_css_class ("titlebutton") || button.has_css_class ("close")) return;
+                    add_target_if_missing (targets, widget);
+                    return;
+                }
+
+                if (widget is Adw.SwitchRow) {
+                    add_target_if_missing (targets, widget);
+                    return;
+                }
+
+                if (widget is Adw.ExpanderRow) {
+                    add_target_if_missing (targets, widget);
+                } else if (widget is Adw.ActionRow) {
+                    var row = (Adw.ActionRow) widget;
+                    if ((row.activatable || row.activatable_widget != null) &&
+                        !is_expander_header_row (widget)) {
+                        add_target_if_missing (targets, widget);
+                        return;
+                    }
+                }
+            }
+
+            for (var child = widget.get_first_child (); child != null; child = child.get_next_sibling ()) {
+                collect_gamepad_targets_from (root, child, targets);
+            }
+        }
+
+        private Gtk.Widget? find_actionable_focus_widget (Gtk.Widget root) {
+            var focus = get_focus ();
+            if (focus == null || !is_descendant_of (focus, root)) return null;
+
+            for (var w = focus; w != null && w != root; w = w.get_parent ()) {
+                if (w is Adw.EntryRow) return w;
+                if (w is Gtk.Entry || w is Gtk.TextView) return w;
+                if (w is Gtk.Button) return w;
+                if (w is Adw.SwitchRow) return w;
+                if (w is Adw.ExpanderRow) return w;
+                if (w is Adw.ActionRow) {
+                    var row = (Adw.ActionRow) w;
+                    if (row.activatable || row.activatable_widget != null) return w;
+                }
+            }
+            return null;
+        }
+
+        private bool is_descendant_of (Gtk.Widget widget, Gtk.Widget ancestor) {
+            for (var w = widget; w != null; w = w.get_parent ()) {
+                if (w == ancestor) return true;
+            }
+            return false;
+        }
+
+        private bool is_navigable_widget (Gtk.Widget root, Gtk.Widget widget) {
+            if (!widget.get_visible ()) return false;
+            if (widget != root && !widget.get_mapped ()) return false;
+            return is_descendant_of (widget, root);
+        }
+
+        private bool is_expander_header_row (Gtk.Widget widget) {
+            for (var w = widget.get_parent (); w != null; w = w.get_parent ()) {
+                if (w is Gtk.Revealer) return false;
+                if (w is Adw.ExpanderRow) return true;
+            }
+            return false;
+        }
+
+        private bool has_view_switcher_ancestor (Gtk.Widget widget, Gtk.Widget root) {
+            for (var w = widget.get_parent (); w != null && w != root; w = w.get_parent ()) {
+                if (w is Adw.ViewSwitcherBar || w is Adw.ViewSwitcher) return true;
+            }
+            return false;
+        }
+
+        private void add_target_if_missing (Gee.ArrayList<Gtk.Widget> targets, Gtk.Widget widget) {
+            if (!targets.contains (widget)) {
+                targets.add (widget);
+            }
+        }
+
+        private Adw.ExpanderRow? find_parent_expander (Gtk.Widget widget) {
+            for (var w = widget.get_parent (); w != null; w = w.get_parent ()) {
+                if (w is Adw.ExpanderRow) return (Adw.ExpanderRow) w;
+            }
+            return null;
+        }
+
+        private PrefixRowWidget? find_parent_prefix_row (Gtk.Widget widget) {
+            for (var w = widget.get_parent (); w != null; w = w.get_parent ()) {
+                if (w is PrefixRowWidget) return (PrefixRowWidget) w;
+            }
+            return null;
+        }
+
+        private Adw.Dialog? find_dialog_from_focus () {
+            var focus = get_focus ();
+            if (focus == null) return null;
+            for (var w = focus; w != null && w != (Gtk.Widget) this; w = w.get_parent ()) {
+                if (w is Adw.Dialog) return (Adw.Dialog) w;
+            }
+            return null;
+        }
+
+        private bool on_close_request () {
+            if (allow_window_close) return false;
+            request_quit_confirmation ();
+            return true;
+        }
+
+        private void request_quit_confirmation () {
+            var dialog = new Adw.AlertDialog (
+                _("Quit Lumoria?"),
+                _("Any running Wine processes will continue in the background.")
+            );
+            dialog.add_response ("cancel", _("Cancel"));
+            dialog.add_response ("quit", _("Quit"));
+            dialog.set_response_appearance ("quit", Adw.ResponseAppearance.DESTRUCTIVE);
+            dialog.default_response = "cancel";
+            dialog.close_response = "cancel";
+            dialog.response.connect ((id) => {
+                if (id == "quit") {
+                    allow_window_close = true;
+                    this.close ();
+                }
+            });
+            dialog.present (this);
+        }
+
+        private void initialize_gamepad_focus () {
+            var targets = collect_gamepad_targets (this);
+            if (targets.size == 0) return;
+
+            if (global_play_btn != null && global_play_btn.sensitive && targets.contains (global_play_btn)) {
+                set_gamepad_focus_widget (global_play_btn);
+            } else {
+                set_gamepad_focus_widget (targets[0]);
+            }
+        }
+
+        private void handle_back_action () {
+            var root = current_gamepad_root ();
+            if (root is Adw.Dialog) {
+                ((Adw.Dialog) root).close ();
+            } else {
+                request_quit_confirmation ();
+            }
         }
     }
 }

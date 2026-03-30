@@ -84,7 +84,7 @@ namespace Lumoria.Widgets.Preferences {
 
             switch (tool.tool_kind) {
                 case Utils.ToolKind.RUNNER:
-                    var def_id = defaults.get_default_runner_id ();
+                    var def_id = defaults.runner_id;
                     var def_ver = defaults.get_default_runner_version ();
                     if (def_id == tool.tool_id) {
                         default_row.subtitle = def_ver;

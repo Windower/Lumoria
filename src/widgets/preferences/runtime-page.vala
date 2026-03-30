@@ -1,8 +1,10 @@
 namespace Lumoria.Widgets.Preferences {
 
     public class RuntimePage : Gtk.Box {
-        private Adw.ComboRow logging_combo;
+        private OptionListRow logging_combo;
         private Adw.SwitchRow wayland_row;
+        private OptionListRow sync_mode_combo;
+        private OptionListRow debug_combo;
         private Adw.SwitchRow laa_row;
         private Lumoria.Widgets.EnvVarsEditor global_env_editor;
         private Gtk.Label env_validation_label;
@@ -17,16 +19,14 @@ namespace Lumoria.Widgets.Preferences {
 
             var logging_group = SettingsShared.build_group (_("Logging"));
 
-            logging_combo = new Adw.ComboRow ();
+            logging_combo = new OptionListRow ();
             logging_combo.title = _("Runtime Launch Logs");
             logging_combo.model = SettingsShared.build_logging_mode_model ();
             logging_combo.selected = (uint) Utils.LoggingMode.from_value (prefs.logging_mode);
             logging_combo.notify["selected"].connect (() => {
-                var inst = Utils.Preferences.instance ();
-                var selected = (Utils.LoggingMode) logging_combo.selected;
-                var mode = selected.to_value ();
-                if (inst.logging_mode != mode) {
-                    inst.set_logging_mode (mode);
+                var mode = ((Utils.LoggingMode) logging_combo.selected).to_value ();
+                if (prefs.logging_mode != mode) {
+                    prefs.set_logging_mode (mode);
                 }
             });
             logging_group.add (logging_combo);
@@ -39,28 +39,45 @@ namespace Lumoria.Widgets.Preferences {
             wayland_row.subtitle = _("Use Wine's Wayland driver instead of X11 by default.");
             wayland_row.active = prefs.wine_wayland;
             wayland_row.notify["active"].connect (() => {
-                var inst = Utils.Preferences.instance ();
-                if (inst.wine_wayland != wayland_row.active) {
-                    inst.set_wine_wayland (wayland_row.active);
+                if (prefs.wine_wayland != wayland_row.active) {
+                    prefs.set_wine_wayland (wayland_row.active);
                 }
             });
             wine_group.add (wayland_row);
+
+            sync_mode_combo = Dialogs.RunnerSettingsShared.build_sync_combo (prefs.sync_mode);
+            sync_mode_combo.notify["selected"].connect (() => {
+                var mode = Dialogs.RunnerSettingsShared.sync_mode_value_for_index (sync_mode_combo.selected);
+                if (prefs.sync_mode != mode)
+                    prefs.set_sync_mode (mode);
+            });
+            wine_group.add (sync_mode_combo);
+
+            debug_combo = Dialogs.RunnerSettingsShared.build_debug_combo (prefs.wine_debug);
+            debug_combo.notify["selected"].connect (() => {
+                var debug_val = Runtime.wine_debug_value_for_index (debug_combo.selected);
+                if (prefs.wine_debug != debug_val)
+                    prefs.set_wine_debug (debug_val);
+            });
+            wine_group.add (debug_combo);
+
             append (wine_group);
 
-            var patches_group = SettingsShared.build_group (_("Patches"));
+            if (prefs.experimental_features) {
+                var patches_group = SettingsShared.build_group (_("Patches"));
 
-            laa_row = new Adw.SwitchRow ();
-            laa_row.title = _("Enable Large Address Aware");
-            laa_row.subtitle = _("Toggle the Large Address Aware flag on PlayOnline before launch by default.");
-            laa_row.active = prefs.large_address_aware;
-            laa_row.notify["active"].connect (() => {
-                var inst = Utils.Preferences.instance ();
-                if (inst.large_address_aware != laa_row.active) {
-                    inst.set_large_address_aware (laa_row.active);
-                }
-            });
-            patches_group.add (laa_row);
-            append (patches_group);
+                laa_row = new Adw.SwitchRow ();
+                laa_row.title = _("Enable Large Address Aware");
+                laa_row.subtitle = _("Toggle the Large Address Aware flag on PlayOnline before launch by default.");
+                laa_row.active = prefs.large_address_aware;
+                laa_row.notify["active"].connect (() => {
+                    if (prefs.large_address_aware != laa_row.active) {
+                        prefs.set_large_address_aware (laa_row.active);
+                    }
+                });
+                patches_group.add (laa_row);
+                append (patches_group);
+            }
 
             var env_group = SettingsShared.build_group (_("Global Runtime Variables"), 24, 12, 12);
 

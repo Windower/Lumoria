@@ -11,3 +11,52 @@
     -gtk-icon-style: symbolic;
     color: @theme_fg_color;
 }
+
+.gamepad-focus {
+    outline: 2px solid alpha(@accent_color, 0.9);
+    outline-offset: -2px;
+}
+
+button.gamepad-focus {
+    box-shadow: 0 0 0 2px alpha(@accent_color, 0.9);
+    background-color: alpha(@accent_bg_color, 0.28);
+    color: @accent_fg_color;
+}
+
+button.gamepad-focus image,
+button.gamepad-focus > box > image {
+    -gtk-icon-style: symbolic;
+    color: @accent_fg_color;
+}
+
+button.flat.gamepad-focus {
+    box-shadow: 0 0 0 2px alpha(@accent_color, 0.95);
+    background-color: alpha(@accent_bg_color, 0.38);
+    color: @accent_fg_color;
+    border-radius: 9999px;
+}
+
+button.launch-entry-play-btn.gamepad-focus {
+    box-shadow: 0 0 0 2px alpha(@accent_color, 1.0);
+    background-color: alpha(@accent_bg_color, 0.48);
+    color: @accent_fg_color;
+    padding: 4px;
+}
+
+button.launch-entry-play-btn.gamepad-focus image {
+    color: @accent_fg_color;
+}
+
+row.gamepad-focus,
+actionrow.gamepad-focus,
+expanderrow.gamepad-focus {
+    background-color: alpha(@accent_bg_color, 0.28);
+    box-shadow: inset 0 0 0 1px alpha(@accent_color, 0.55);
+}
+
+row.gamepad-focus image,
+actionrow.gamepad-focus image,
+expanderrow.gamepad-focus image {
+    -gtk-icon-style: symbolic;
+    color: @accent_color;
+}

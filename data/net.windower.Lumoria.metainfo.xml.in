@@ -4,17 +4,17 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
   <name>Lumoria</name>
-  <summary>A Linux native launcher for a classic MMORPG.</summary>
+  <summary>A Linux installer and launcher for a classic MMORPG.</summary>
 
   <description>
     <p>
-      Lumoria is a native Linux launcher for a classic MMORPG. Install the game,
-      manage Wine prefixes, configure runners and runtime components, and get
+      Lumoria is a native Linux installer and launcher for a classic MMORPG. Install the game,
+      manage Wine prefixes, configure wine runners, runtime components, and get
       playing ... all from a single app!
     </p>
     <p>
-      Supports DXVK, Windower 4, and multiple game installations with
-      independent configurations.
+      Supports DXVK, Windower 4, multiple game installations with
+      independent configurations, and supports gamepad navigation.
     </p>
   </description>
 
@@ -26,16 +26,29 @@
   <url type="vcs-browser">https://github.com/Windower/Lumoria</url>
 
   <developer id="net.windower">
-	  <name>rysas</name>
+    <name>Lumoria Contributors</name>
   </developer>
   <branding>
-    <color type="primary" scheme_preference="light">#472B57</color>
-    <color type="primary" scheme_preference="dark">#DFBCD7</color>
+    <color type="primary" scheme_preference="dark">#472B57</color>
+    <color type="primary" scheme_preference="light">#DFBCD7</color>
   </branding>
 
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.1.1" date="2026-03-29">
+      <description>
+        <p>
+          <ul>
+            <li>Add support for gamepad navigation.</li>
+            <li>Add support for prelaunch scripts.</li>
+            <li>Add support for custom launch entries.</li>
+            <li>Remove file browsing in gamescope sessions.</li>
+            <li>UI refactored to be more controller friendly.</li>
+          </ul>
+        </p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-03-01">
       <description>
         <p>Initial testing release of Lumoria.</p>

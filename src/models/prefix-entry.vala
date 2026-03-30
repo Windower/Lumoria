@@ -43,6 +43,10 @@ namespace Lumoria.Models {
         public bool? wine_wayland = null;
         public bool? large_address_aware = null;
         public string sync_mode { get; set; default = ""; }
+        public string prelaunch_script { get; set; default = ""; }
+        public Gee.ArrayList<Entrypoint> custom_entrypoints {
+            get; owned set; default = new Gee.ArrayList<Entrypoint> ();
+        }
         public Gee.HashMap<string, string> runtime_env_vars {
             get; owned set; default = new Gee.HashMap<string, string> ();
         }
@@ -106,6 +110,26 @@ namespace Lumoria.Models {
             if (wine_wayland != null) obj.set_boolean_member ("wine_wayland", (bool) wine_wayland);
             if (large_address_aware != null) obj.set_boolean_member ("large_address_aware", (bool) large_address_aware);
             if (sync_mode != "") obj.set_string_member ("sync_mode", sync_mode);
+            if (prelaunch_script != "") obj.set_string_member ("prelaunch_script", prelaunch_script);
+            if (custom_entrypoints.size > 0) {
+                var ep_arr = new Json.Array ();
+                foreach (var ep in custom_entrypoints) {
+                    var ep_obj = new Json.Object ();
+                    ep_obj.set_string_member ("id", ep.id);
+                    ep_obj.set_string_member ("name", ep.name);
+                    ep_obj.set_string_member ("exe", ep.exe);
+                    if (ep.args.size > 0) {
+                        var args_arr = new Json.Array ();
+                        foreach (var arg in ep.args) args_arr.add_string_element (arg);
+                        ep_obj.set_array_member ("args", args_arr);
+                    }
+                    if (ep.prelaunch_script != "") {
+                        ep_obj.set_string_member ("prelaunch_script", ep.prelaunch_script);
+                    }
+                    ep_arr.add_object_element (ep_obj);
+                }
+                obj.set_array_member ("custom_entrypoints", ep_arr);
+            }
             if (runtime_env_vars.size > 0) {
                 var env_obj = new Json.Object ();
                 foreach (var entry in runtime_env_vars.entries) {
@@ -139,6 +163,15 @@ namespace Lumoria.Models {
             e.wine_wayland = json_bool_nullable (obj, "wine_wayland");
             e.large_address_aware = json_bool_nullable (obj, "large_address_aware");
             e.sync_mode = json_string (obj, "sync_mode");
+            e.prelaunch_script = json_string (obj, "prelaunch_script");
+
+            if (obj.has_member ("custom_entrypoints")) {
+                var ep_arr = obj.get_array_member ("custom_entrypoints");
+                for (uint i = 0; i < ep_arr.get_length (); i++) {
+                    e.custom_entrypoints.add (Entrypoint.from_json (ep_arr.get_object_element (i)));
+                }
+            }
+
             e.runtime_env_vars = json_string_map (obj, "runtime_env_vars");
 
             if (obj.has_member ("runtime_component_overrides")) {

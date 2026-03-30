@@ -5,7 +5,9 @@
       "version": "latest"
     },
     "wine": {
-      "wayland": false
+      "wayland": false,
+      "sync_mode": "ntsync",
+      "debug": ""
     },
     "patches": {
       "large_address_aware": false

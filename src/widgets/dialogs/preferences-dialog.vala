@@ -16,13 +16,12 @@ namespace Lumoria.Widgets.Dialogs {
         }
 
         private void build_ui () {
+            string? restore_page = stack != null ? stack.visible_child_name : null;
+
             var toolbar = new Adw.ToolbarView ();
 
             stack = new Adw.ViewStack ();
             stack.vexpand = true;
-
-            //  var general_page = new Preferences.GeneralPage ();
-            //  SettingsShared.add_scrolled_settings_page (stack, general_page, SettingsShared.PAGE_GENERAL, _("General"));
 
             var runtime_page = new Preferences.RuntimePage ();
             SettingsShared.add_scrolled_settings_page (stack, runtime_page, SettingsShared.PAGE_RUNTIME, _("Runtime"));
@@ -37,7 +36,15 @@ namespace Lumoria.Widgets.Dialogs {
             var advanced_page = new Preferences.AdvancedPage ();
             advanced_page.toast_message.connect (show_toast);
             advanced_page.reset_requested.connect (on_reset_defaults);
+            advanced_page.experimental_changed.connect (() => build_ui ());
             SettingsShared.add_scrolled_settings_page (stack, advanced_page, SettingsShared.PAGE_ADVANCED, _("Advanced"));
+
+            var about_page = new Preferences.AboutPage ();
+            SettingsShared.add_scrolled_settings_page (stack, about_page, SettingsShared.PAGE_ABOUT, _("About"));
+
+            if (restore_page != null) {
+                stack.visible_child_name = restore_page;
+            }
 
             var header = new Adw.HeaderBar ();
             toolbar.add_top_bar (header);

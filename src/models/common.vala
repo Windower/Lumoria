@@ -4,6 +4,7 @@ namespace Lumoria.Models {
         public string exe { get; set; default = ""; }
         public Gee.ArrayList<string> args { get; owned set; default = new Gee.ArrayList<string> (); }
         public bool is_default { get; set; default = false; }
+        public string prelaunch_script { get; set; default = ""; }
 
         public static Entrypoint from_json (Json.Object obj) {
             var e = new Entrypoint ();
@@ -11,6 +12,7 @@ namespace Lumoria.Models {
             e.exe = json_string (obj, "exe");
             e.is_default = json_bool (obj, "default");
             e.args = json_string_array (obj, "args");
+            e.prelaunch_script = json_string (obj, "prelaunch_script");
             return e;
         }
     }

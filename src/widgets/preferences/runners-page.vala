@@ -45,7 +45,7 @@ namespace Lumoria.Widgets.Preferences {
 
         private void update_default_label () {
             var defaults = Utils.Preferences.instance ();
-            var def_id = defaults.get_default_runner_id ();
+            var def_id = defaults.runner_id;
             var def_ver = defaults.get_default_runner_version ();
             if (def_id != "") {
                 default_row.subtitle = "%s %s".printf (def_id, def_ver);

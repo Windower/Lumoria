@@ -5,7 +5,7 @@
 </h1>
 
 <p align="center">
-  <strong>A modern native Linux installer and launcher for Final Fantasy XI Online.</strong>
+  <strong>A native Linux launcher and installer for Final Fantasy XI.</strong>
 </p>
 
 ## What is this?

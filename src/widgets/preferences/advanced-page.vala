@@ -2,6 +2,7 @@ namespace Lumoria.Widgets.Preferences {
 
     public class AdvancedPage : Gtk.Box {
         public signal void reset_requested ();
+        public signal void experimental_changed ();
         public signal void toast_message (string message);
 
         public AdvancedPage () {
@@ -10,6 +11,22 @@ namespace Lumoria.Widgets.Preferences {
         }
 
         private void build_ui () {
+            var prefs = Utils.Preferences.instance ();
+
+            var experimental_group = SettingsShared.build_group (_("Experimental"));
+            var experimental_row = new Adw.SwitchRow ();
+            experimental_row.title = _("Experimental Features");
+            experimental_row.subtitle = _("Enable features that are still in development.");
+            experimental_row.active = prefs.experimental_features;
+            experimental_row.notify["active"].connect (() => {
+                if (prefs.experimental_features != experimental_row.active) {
+                    prefs.set_experimental_features (experimental_row.active);
+                    experimental_changed ();
+                }
+            });
+            experimental_group.add (experimental_row);
+            append (experimental_group);
+
             var reset_group = SettingsShared.build_group (_("Reset"));
 
             var reset_row = new Adw.ActionRow ();

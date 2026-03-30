@@ -13,15 +13,10 @@ namespace Lumoria.Widgets.Services {
             owned ToastCallback on_toast,
             owned CompletionCallback? on_complete = null
         ) {
-            run_launch_worker (
-                "launch-worker",
-                () => {
-                    var result = Runtime.run_prefix (entry, runner_specs, launcher_specs, entrypoint_id);
-                    return _("Launched (pid %d)").printf (result.pid);
-                },
-                on_toast,
-                on_complete
-            );
+            run_launch_worker ("launch-worker", () => {
+                var result = Runtime.run_prefix (entry, runner_specs, launcher_specs, entrypoint_id);
+                return _("Launched (pid %d)").printf (result.pid);
+            }, on_toast, on_complete);
         }
 
         public void launch_exe (
@@ -32,15 +27,10 @@ namespace Lumoria.Widgets.Services {
             owned ToastCallback on_toast,
             owned CompletionCallback? on_complete = null
         ) {
-            run_launch_worker (
-                "launch-exe-worker",
-                () => {
-                    var result = Runtime.run_prefix (entry, runner_specs, launcher_specs, "", exe_path);
-                    return _("Launched EXE (pid %d)").printf (result.pid);
-                },
-                on_toast,
-                on_complete
-            );
+            run_launch_worker ("launch-exe-worker", () => {
+                var result = Runtime.run_prefix (entry, runner_specs, launcher_specs, "", exe_path);
+                return _("Launched EXE (pid %d)").printf (result.pid);
+            }, on_toast, on_complete);
         }
 
         public void launch_wine_tool (
@@ -51,15 +41,13 @@ namespace Lumoria.Widgets.Services {
             owned ToastCallback on_toast,
             owned CompletionCallback? on_complete = null
         ) {
-            run_launch_worker (
-                "launch-tool-worker",
-                () => {
-                    var result = Runtime.run_prefix_command (entry, runner_specs, wine_args, label);
-                    return _("Launched %s (pid %d)").printf (label, result.pid);
-                },
-                on_toast,
-                on_complete
-            );
+            var args = new Gee.ArrayList<string> ();
+            foreach (var a in wine_args) args.add (a);
+
+            run_launch_worker ("launch-tool-worker", () => {
+                var result = Runtime.run_prefix_command (entry, runner_specs, args, label);
+                return _("Launched %s (pid %d)").printf (label, result.pid);
+            }, on_toast, on_complete);
         }
 
         public void stop_wineserver (
@@ -68,15 +56,10 @@ namespace Lumoria.Widgets.Services {
             owned ToastCallback on_toast,
             owned CompletionCallback? on_complete = null
         ) {
-            run_launch_worker (
-                "launch-stop-wineserver-worker",
-                () => {
-                    Runtime.stop_prefix_wineserver (entry, runner_specs);
-                    return _("Stopped wineserver.");
-                },
-                on_toast,
-                on_complete
-            );
+            run_launch_worker ("launch-stop-wineserver-worker", () => {
+                Runtime.stop_prefix_wineserver (entry, runner_specs);
+                return _("Stopped wineserver.");
+            }, on_toast, on_complete);
         }
 
         private void run_launch_worker (
@@ -102,12 +85,9 @@ namespace Lumoria.Widgets.Services {
             ToastCallback on_toast,
             CompletionCallback? on_complete
         ) {
-            var msg = message;
             Idle.add (() => {
-                on_toast (msg);
-                if (on_complete != null) {
-                    on_complete ();
-                }
+                on_toast (message);
+                if (on_complete != null) on_complete ();
                 return false;
             });
         }

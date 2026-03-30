@@ -9,21 +9,27 @@ namespace Lumoria.Widgets.Dialogs {
         private Gee.ArrayList<Models.RunnerSpec> runner_specs;
         private Gee.ArrayList<Models.LauncherSpec> launcher_specs;
 
-        private Adw.ComboRow runner_combo;
-        private Adw.ComboRow variant_combo;
-        private Adw.ComboRow version_combo;
-        private Adw.ComboRow sync_combo;
-        private Adw.ComboRow debug_combo;
-        private Adw.ComboRow wayland_combo;
-        private Adw.ComboRow laa_combo;
+        private OptionListRow runner_combo;
+        private OptionListRow variant_combo;
+        private OptionListRow version_combo;
+        private OptionListRow sync_combo;
+        private OptionListRow debug_combo;
+        private OptionListRow wayland_combo;
+        private OptionListRow laa_combo;
 
         private Gee.ArrayList<string> version_values;
         private Gee.ArrayList<Models.RunnerVariant> visible_variants;
-        private Gee.HashMap<string, Adw.ComboRow> component_mode_rows;
-        private Adw.ComboRow entrypoint_combo;
+        private Gee.HashMap<string, OptionListRow> component_mode_rows;
+        private OptionListRow entrypoint_combo;
         private Gee.ArrayList<string> entrypoint_values;
+        private Adw.ActionRow prelaunch_row;
+        private string prelaunch_script_path;
+        private Gee.ArrayList<Models.Entrypoint> custom_entries;
+        private Adw.PreferencesGroup custom_entries_group;
+        private Gee.ArrayList<Gtk.Widget> custom_entry_rows;
         private Lumoria.Widgets.EnvVarsEditor prefix_env_editor;
         private Gtk.Label env_validation_label;
+        private Adw.ToastOverlay toast_overlay;
 
         public ManagePrefixDialog (
             Gtk.Window parent,
@@ -42,7 +48,7 @@ namespace Lumoria.Widgets.Dialogs {
             this.runner_specs = runner_specs;
             this.launcher_specs = launcher_specs;
             visible_variants = new Gee.ArrayList<Models.RunnerVariant> ();
-            component_mode_rows = new Gee.HashMap<string, Adw.ComboRow> ();
+            component_mode_rows = new Gee.HashMap<string, OptionListRow> ();
             entrypoint_values = new Gee.ArrayList<string> ();
             build_ui ();
         }
@@ -84,7 +90,7 @@ namespace Lumoria.Widgets.Dialogs {
             default_btn.sensitive = !is_already_default;
             default_btn.clicked.connect (() => {
                 registry.default_prefix_id = entry.id;
-                default_btn.label = _("Default");
+                default_btn.label = _("Quick Launch");
                 default_btn.sensitive = false;
                 saved ();
             });
@@ -105,7 +111,7 @@ namespace Lumoria.Widgets.Dialogs {
                 entrypoint_values.add (ep.id);
             }
 
-            entrypoint_combo = new Adw.ComboRow ();
+            entrypoint_combo = new OptionListRow ();
             entrypoint_combo.title = _("Entrypoint");
             entrypoint_combo.model = entrypoint_model;
             int entrypoint_selected = 0;
@@ -119,38 +125,78 @@ namespace Lumoria.Widgets.Dialogs {
             launch_group.add (entrypoint_combo);
 
             general_content.append (launch_group);
+            
+            custom_entries = new Gee.ArrayList<Models.Entrypoint> ();
+            foreach (var ep in entry.custom_entrypoints) {
+                var copy = new Models.Entrypoint ();
+                copy.id = ep.id;
+                copy.name = ep.name;
+                copy.exe = ep.exe;
+                copy.args = new Gee.ArrayList<string> ();
+                copy.args.add_all (ep.args);
+                custom_entries.add (copy);
+            }
+            custom_entry_rows = new Gee.ArrayList<Gtk.Widget> ();
+
+            custom_entries_group = SettingsShared.build_group (_("Custom Launch Entries"), 12, 12);
+            rebuild_custom_entries_ui ();
+            general_content.append (custom_entries_group);
+
+            var prelaunch_group = SettingsShared.build_group (_("Prelaunch"), 12, 12);
+            prelaunch_script_path = entry.prelaunch_script;
+
+            prelaunch_row = new Adw.ActionRow ();
+            prelaunch_row.title = _("Prelaunch Script");
+            prelaunch_row.subtitle = prelaunch_script_path != ""
+                ? prelaunch_script_path
+                : _("None");
+
+            var prelaunch_browse_btn = new Gtk.Button.with_label (_("Browse\u2026"));
+            prelaunch_browse_btn.valign = Gtk.Align.CENTER;
+            prelaunch_browse_btn.clicked.connect (on_browse_prelaunch);
+            prelaunch_row.add_suffix (prelaunch_browse_btn);
+
+            if (prelaunch_script_path != "") {
+                var prelaunch_clear_btn = new Gtk.Button.from_icon_name (IconRegistry.CLOSE);
+                prelaunch_clear_btn.valign = Gtk.Align.CENTER;
+                prelaunch_clear_btn.tooltip_text = _("Clear");
+                prelaunch_clear_btn.add_css_class ("flat");
+                prelaunch_clear_btn.clicked.connect (() => {
+                    prelaunch_script_path = "";
+                    prelaunch_row.subtitle = _("None");
+                });
+                prelaunch_row.add_suffix (prelaunch_clear_btn);
+            }
+
+            prelaunch_group.add (prelaunch_row);
+            general_content.append (prelaunch_group);
+
 
             var runner_group = SettingsShared.build_group (_("Runner"), 12);
 
-            var runner_model = new Gtk.StringList (null);
-            for (int i = 0; i < runner_specs.size; i++) {
-                var spec = runner_specs[i];
-                runner_model.append (spec.display_label ());
-            }
-            runner_combo = new Adw.ComboRow ();
+            var runner_model = RunnerSettingsShared.build_runner_model (runner_specs);
+            runner_combo = new OptionListRow ();
             runner_combo.title = _("Runner");
             runner_combo.model = runner_model;
             runner_combo.selected = RunnerSettingsShared.select_runner_index (runner_specs, entry.runner_id);
             runner_combo.notify["selected"].connect (on_runner_changed);
             runner_group.add (runner_combo);
 
-            var variant_model = new Gtk.StringList (null);
-            variant_combo = new Adw.ComboRow ();
+            variant_combo = new OptionListRow ();
             variant_combo.title = _("Variant");
-            variant_combo.model = variant_model;
             runner_group.add (variant_combo);
             rebuild_variant_combo (entry.variant_id);
 
-            version_combo = new Adw.ComboRow ();
+            version_combo = new OptionListRow ();
             version_combo.title = _("Version");
             version_values = new Gee.ArrayList<string> ();
             runner_group.add (version_combo);
             rebuild_version_combo (entry.runner_version);
 
-            sync_combo = RunnerSettingsShared.build_sync_combo (entry.sync_mode);
+            sync_combo = RunnerSettingsShared.build_sync_override_combo (entry.sync_mode);
             runner_group.add (sync_combo);
 
-            debug_combo = RunnerSettingsShared.build_debug_combo (entry.wine_debug);
+            debug_combo = RunnerSettingsShared.build_debug_override_combo (entry.wine_debug);
             runner_group.add (debug_combo);
 
             wayland_combo = RunnerSettingsShared.build_wayland_combo (entry.wine_wayland);
@@ -214,17 +260,18 @@ namespace Lumoria.Widgets.Dialogs {
             env_group.add (env_validation_label);
             advanced_content.append (env_group);
 
-            var patches_group = SettingsShared.build_group (_("Patches"), 12, 12, 12);
-
-            var laa_default = Utils.Preferences.instance ().large_address_aware ? _("enabled") : _("disabled");
-            laa_combo = SettingsShared.build_toggle_override_combo (
-                _("Large Address Aware"),
-                entry.large_address_aware,
-                laa_default,
-                _("Toggle the Large Address Aware flag on PlayOnline before launch by default.")
-            );
-            patches_group.add (laa_combo);
-            advanced_content.append (patches_group);
+            if (Utils.Preferences.instance ().experimental_features) {
+                var patches_group = SettingsShared.build_group (_("Patches"), 12, 12, 12);
+                var laa_default = Utils.Preferences.instance ().large_address_aware ? _("enabled") : _("disabled");
+                laa_combo = SettingsShared.build_toggle_override_combo (
+                    _("Large Address Aware"),
+                    entry.large_address_aware,
+                    laa_default,
+                    _("Toggle the Large Address Aware flag on PlayOnline before launch by default.")
+                );
+                patches_group.add (laa_combo);
+                advanced_content.append (patches_group);
+            }
 
             var advanced_group = SettingsShared.build_group (_("Advanced"), 12, 12, 0);
 
@@ -276,7 +323,9 @@ namespace Lumoria.Widgets.Dialogs {
             actions.append (save_btn);
 
             container.append (actions);
-            toolbar.content = container;
+            toast_overlay = new Adw.ToastOverlay ();
+            toast_overlay.child = container;
+            toolbar.content = toast_overlay;
             this.child = toolbar;
         }
 
@@ -288,7 +337,7 @@ namespace Lumoria.Widgets.Dialogs {
             var runner_id = (sel_idx >= 0 && sel_idx < runner_specs.size) ? runner_specs[sel_idx].id : "";
 
             var defaults = Utils.Preferences.instance ();
-            var default_id = defaults.get_default_runner_id ();
+            var default_id = defaults.runner_id;
             var default_ver = defaults.get_default_runner_version ();
             var default_label = default_id != "" ? "%s %s".printf (default_id, default_ver) : default_ver;
             model.append (_("Use Global Default (%s)").printf (default_label));
@@ -333,6 +382,277 @@ namespace Lumoria.Widgets.Dialogs {
             rebuild_version_combo ();
         }
 
+        private void rebuild_custom_entries_ui () {
+            foreach (var w in custom_entry_rows) custom_entries_group.remove (w);
+            custom_entry_rows.clear ();
+
+            for (int i = 0; i < custom_entries.size; i++) {
+                var ep = custom_entries[i];
+                var row = new Adw.ActionRow ();
+                row.title = ep.name != "" ? ep.name : Path.get_basename (ep.exe);
+                row.subtitle = ep.exe;
+                if (ep.args.size > 0) {
+                    row.subtitle += "  " + string.joinv (" ", ep.args.to_array ());
+                }
+                row.activatable = true;
+                row.add_suffix (new Gtk.Image.from_icon_name ("go-next-symbolic"));
+
+                var idx = i;
+                row.activated.connect (() => show_custom_entry_editor (idx));
+
+                custom_entries_group.add (row);
+                custom_entry_rows.add (row);
+            }
+
+            var add_row = new Adw.ActionRow ();
+            add_row.title = _("Add Custom Entry");
+            add_row.activatable = true;
+            add_row.add_prefix (new Gtk.Image.from_icon_name (IconRegistry.ADD));
+            add_row.activated.connect (() => show_custom_entry_editor (-1));
+            custom_entries_group.add (add_row);
+            custom_entry_rows.add (add_row);
+        }
+
+        private void show_custom_entry_editor (int index) {
+            if (index < 0) {
+                if (SettingsShared.file_browse_blocked (toast_overlay)) return;
+                var file_dialog = build_file_dialog (_("Select Executable"), build_exe_filter ());
+                file_dialog.open.begin (null, null, (obj, res) => {
+                    try {
+                        var file = file_dialog.open.end (res);
+                        if (file == null) return;
+                        var path = file.get_path ();
+                        if (path == null || path == "") return;
+                        present_entry_editor (-1, path);
+                    } catch (Error e) {
+                        warning ("Browse failed: %s", e.message);
+                    }
+                });
+            } else {
+                present_entry_editor (index, null);
+            }
+        }
+
+        private void present_entry_editor (int index, string? initial_exe) {
+            Models.Entrypoint? existing = (index >= 0 && index < custom_entries.size)
+                ? custom_entries[index] : null;
+
+            var dialog = new Adw.Dialog ();
+            dialog.title = existing != null ? _("Edit Custom Entry") : _("Add Custom Entry");
+            dialog.content_width = 460;
+
+            var toolbar = new Adw.ToolbarView ();
+            var header = new Adw.HeaderBar ();
+            header.show_start_title_buttons = false;
+            header.show_end_title_buttons = true;
+            toolbar.add_top_bar (header);
+
+            var group = new Adw.PreferencesGroup ();
+            group.margin_start = 16;
+            group.margin_end = 16;
+            group.margin_top = 16;
+            group.margin_bottom = 8;
+
+            var name_row = new Adw.EntryRow ();
+            name_row.title = _("Name");
+            if (existing != null) {
+                name_row.text = existing.name;
+            } else if (initial_exe != null) {
+                name_row.text = Path.get_basename (initial_exe);
+            }
+            group.add (name_row);
+
+            var exe_path = initial_exe ?? (existing != null ? existing.exe : "");
+
+            var exe_row = new Adw.ActionRow ();
+            exe_row.title = _("Executable");
+            exe_row.subtitle = exe_path != "" ? exe_path : _("None selected");
+            exe_row.subtitle_lines = 2;
+
+            var browse_btn = new Gtk.Button.with_label (_("Browse\u2026"));
+            browse_btn.valign = Gtk.Align.CENTER;
+            browse_btn.clicked.connect (() => {
+                if (SettingsShared.file_browse_blocked (toast_overlay)) return;
+                var file_dialog = build_file_dialog (_("Select Executable"), build_exe_filter ());
+                file_dialog.open.begin (null, null, (obj, res) => {
+                    try {
+                        var file = file_dialog.open.end (res);
+                        if (file == null) return;
+                        var path = file.get_path ();
+                        if (path == null || path == "") return;
+                        exe_path = path;
+                        exe_row.subtitle = path;
+                        if (name_row.text.strip () == "") {
+                            name_row.text = Path.get_basename (path);
+                        }
+                    } catch (Error e) {
+                        warning ("Browse failed: %s", e.message);
+                    }
+                });
+            });
+            exe_row.add_suffix (browse_btn);
+            group.add (exe_row);
+
+            var args_row = new Adw.EntryRow ();
+            args_row.title = _("Arguments (space-separated)");
+            args_row.text = existing != null && existing.args.size > 0
+                ? string.joinv (" ", existing.args.to_array ()) : "";
+            group.add (args_row);
+
+            var entry_prelaunch_path = existing != null ? existing.prelaunch_script : "";
+
+            var entry_prelaunch_row = new Adw.ActionRow ();
+            entry_prelaunch_row.title = _("Prelaunch Script");
+            entry_prelaunch_row.subtitle = entry_prelaunch_path != "" ? entry_prelaunch_path : _("None");
+            entry_prelaunch_row.subtitle_lines = 2;
+
+            var ep_browse_btn = new Gtk.Button.with_label (_("Browse\u2026"));
+            ep_browse_btn.valign = Gtk.Align.CENTER;
+            ep_browse_btn.clicked.connect (() => {
+                if (SettingsShared.file_browse_blocked (toast_overlay)) return;
+                var fd = build_file_dialog (_("Select Prelaunch Script"), build_script_filter ());
+                fd.open.begin (null, null, (obj, res) => {
+                    try {
+                        var file = fd.open.end (res);
+                        if (file == null) return;
+                        var path = file.get_path ();
+                        if (path == null || path == "") return;
+                        entry_prelaunch_path = path;
+                        entry_prelaunch_row.subtitle = path;
+                    } catch (Error e) {
+                        warning ("Browse failed: %s", e.message);
+                    }
+                });
+            });
+            entry_prelaunch_row.add_suffix (ep_browse_btn);
+
+            var ep_clear_btn = new Gtk.Button.from_icon_name (IconRegistry.CLOSE);
+            ep_clear_btn.valign = Gtk.Align.CENTER;
+            ep_clear_btn.tooltip_text = _("Clear");
+            ep_clear_btn.add_css_class ("flat");
+            ep_clear_btn.clicked.connect (() => {
+                entry_prelaunch_path = "";
+                entry_prelaunch_row.subtitle = _("None");
+            });
+            entry_prelaunch_row.add_suffix (ep_clear_btn);
+            group.add (entry_prelaunch_row);
+
+            var actions = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8);
+            actions.margin_start = 16;
+            actions.margin_end = 16;
+            actions.margin_top = 8;
+            actions.margin_bottom = 16;
+            actions.homogeneous = true;
+
+            if (existing != null) {
+                var delete_btn = new Gtk.Button.with_label (_("Delete"));
+                delete_btn.add_css_class ("destructive-action");
+                delete_btn.clicked.connect (() => {
+                    custom_entries.remove_at (index);
+                    rebuild_custom_entries_ui ();
+                    dialog.close ();
+                });
+                actions.append (delete_btn);
+            }
+
+            var cancel_btn = new Gtk.Button.with_label (_("Cancel"));
+            cancel_btn.clicked.connect (() => dialog.close ());
+            actions.append (cancel_btn);
+
+            var save_btn = new Gtk.Button.with_label (existing != null ? _("Save") : _("Add"));
+            save_btn.add_css_class ("suggested-action");
+            save_btn.clicked.connect (() => {
+                if (exe_path == "") return;
+
+                var ep = existing ?? new Models.Entrypoint ();
+                ep.name = name_row.text.strip ();
+                ep.exe = exe_path;
+                ep.prelaunch_script = entry_prelaunch_path;
+                ep.args = new Gee.ArrayList<string> ();
+                foreach (var arg in args_row.text.split (" ")) {
+                    var a = arg.strip ();
+                    if (a != "") ep.args.add (a);
+                }
+                if (ep.id == "") {
+                    ep.id = "custom-%s".printf (Checksum.compute_for_string (ChecksumType.MD5, ep.exe));
+                }
+
+                if (index >= 0) {
+                    custom_entries[index] = ep;
+                } else {
+                    custom_entries.add (ep);
+                }
+                rebuild_custom_entries_ui ();
+                dialog.close ();
+            });
+            actions.append (save_btn);
+
+            var content = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
+            content.append (group);
+            content.append (actions);
+            toolbar.content = content;
+            dialog.child = toolbar;
+
+            dialog.present (this);
+        }
+
+        private void on_browse_prelaunch () {
+            if (SettingsShared.file_browse_blocked (toast_overlay)) return;
+            var dialog = build_file_dialog (_("Select prelaunch script"), build_script_filter ());
+            dialog.open.begin (null, null, (obj, res) => {
+                try {
+                    var file = dialog.open.end (res);
+                    if (file == null) return;
+                    var path = file.get_path ();
+                    if (path != null && path != "") {
+                        prelaunch_script_path = path;
+                        prelaunch_row.subtitle = path;
+                    }
+                } catch (Error e) {
+                    warning ("Failed to select prelaunch script: %s", e.message);
+                }
+            });
+        }
+
+        private Gtk.FileDialog build_file_dialog (string title, Gtk.FileFilter primary) {
+            var all = new Gtk.FileFilter ();
+            all.name = _("All Files");
+            all.add_pattern ("*");
+
+            var store = new GLib.ListStore (typeof (Gtk.FileFilter));
+            store.append (primary);
+            store.append (all);
+
+            var d = new Gtk.FileDialog ();
+            d.title = title;
+            d.modal = true;
+            d.filters = store;
+            d.default_filter = primary;
+            return d;
+        }
+
+        private Gtk.FileFilter build_exe_filter () {
+            var f = new Gtk.FileFilter ();
+            f.name = _("Windows Executables");
+            f.add_mime_type ("application/x-ms-dos-executable");
+            f.add_mime_type ("application/x-msi");
+            f.add_pattern ("*.exe");
+            f.add_pattern ("*.bat");
+            f.add_pattern ("*.msi");
+            f.add_pattern ("*.com");
+            return f;
+        }
+
+        private Gtk.FileFilter build_script_filter () {
+            var f = new Gtk.FileFilter ();
+            f.name = _("Shell Scripts");
+            f.add_mime_type ("application/x-shellscript");
+            f.add_mime_type ("text/x-shellscript");
+            f.add_pattern ("*.sh");
+            f.add_pattern ("*.bash");
+            return f;
+        }
+
         private void on_save () {
             var sel = (int) runner_combo.selected;
             if (sel < 0 || sel >= runner_specs.size) return;
@@ -363,14 +683,18 @@ namespace Lumoria.Widgets.Dialogs {
                 }
             }
 
-            registry.prefixes[prefix_index].sync_mode = RunnerSettingsShared.sync_mode_value_for_index (sync_combo.selected);
+            registry.prefixes[prefix_index].sync_mode = RunnerSettingsShared.sync_override_value_for_index (sync_combo.selected);
 
-            registry.prefixes[prefix_index].wine_debug = Runtime.wine_debug_value_for_index (debug_combo.selected);
+            registry.prefixes[prefix_index].wine_debug = RunnerSettingsShared.debug_override_value_for_index (debug_combo.selected);
 
             var wayland_override = RunnerSettingsShared.wayland_value_for_index (wayland_combo.selected);
             registry.prefixes[prefix_index].wine_wayland = wayland_override;
-            registry.prefixes[prefix_index].large_address_aware =
-                ((ToggleOverrideState) laa_combo.selected).to_nullable_bool ();
+            if (laa_combo != null) {
+                registry.prefixes[prefix_index].large_address_aware =
+                    ((ToggleOverrideState) laa_combo.selected).to_nullable_bool ();
+            }
+            registry.prefixes[prefix_index].prelaunch_script = prelaunch_script_path;
+            registry.prefixes[prefix_index].custom_entrypoints = custom_entries;
             registry.prefixes[prefix_index].runtime_env_vars = prefix_env_editor.values ();
             int ep_idx = (int) entrypoint_combo.selected;
             if (ep_idx < 0 || ep_idx >= entrypoint_values.size) ep_idx = 0;

@@ -10,12 +10,26 @@ namespace Lumoria.Widgets.Dialogs {
         public signal void open_winecfg_requested ();
 
         private bool tools_blocked;
+        private Gee.ArrayList<Gtk.Widget> gamepad_targets;
+        private Services.GamepadListNavigator? gamepad_navigator;
 
-        private Gtk.Button build_tool_button (string label) {
-            var btn = new Gtk.Button.with_label (label);
-            btn.halign = Gtk.Align.FILL;
-            btn.sensitive = !tools_blocked;
-            return btn;
+        private delegate void ToolAction ();
+
+        private Adw.ActionRow build_tool_row (string label, owned ToolAction on_activate) {
+            var row = new Adw.ActionRow ();
+            row.title = label;
+            row.activatable = true;
+            row.sensitive = !tools_blocked;
+            row.add_suffix (new Gtk.Image.from_icon_name ("go-next-symbolic"));
+            row.activated.connect (() => {
+                if (tools_blocked) return;
+                // Defer close so it doesn't free dialog children while this handler is on the stack.
+                // Prevents segfaults :/
+                Idle.add (() => { close (); return false; });
+                on_activate ();
+            });
+            if (row.sensitive) gamepad_targets.add (row);
+            return row;
         }
 
         public WineToolsDialog (Gtk.Window parent, bool tools_blocked) {
@@ -24,7 +38,9 @@ namespace Lumoria.Widgets.Dialogs {
                 content_width: 420
             );
             this.tools_blocked = tools_blocked;
+            gamepad_targets = new Gee.ArrayList<Gtk.Widget> ();
             build_ui ();
+            gamepad_navigator = new Services.GamepadListNavigator ((Gtk.Widget) this, gamepad_targets);
         }
 
         private void build_ui () {
@@ -73,38 +89,44 @@ namespace Lumoria.Widgets.Dialogs {
                 content.append (new Gtk.Separator (Gtk.Orientation.HORIZONTAL));
             }
 
-            var run_exe_btn = build_tool_button (_("Run EXE inside Wine prefix"));
-            run_exe_btn.clicked.connect (() => { close (); run_exe_requested (); });
-            content.append (run_exe_btn);
+            var primary_group = new Adw.PreferencesGroup ();
+            primary_group.add (build_tool_row (_("Run EXE inside Wine prefix"), () => run_exe_requested ()));
+            primary_group.add (build_tool_row (_("Open Bash terminal"), () => open_bash_requested ()));
+            primary_group.add (build_tool_row (_("Open Wine console"), () => open_wine_console_requested ()));
+            content.append (primary_group);
 
-            var bash_btn = build_tool_button (_("Open Bash terminal"));
-            bash_btn.clicked.connect (() => { close (); open_bash_requested (); });
-            content.append (bash_btn);
-
-            var cmd_btn = build_tool_button (_("Open Wine console"));
-            cmd_btn.clicked.connect (() => { close (); open_wine_console_requested (); });
-            content.append (cmd_btn);
-
-            content.append (new Gtk.Separator (Gtk.Orientation.HORIZONTAL));
-
-            var taskmgr_btn = build_tool_button (_("Wine Task Manager"));
-            taskmgr_btn.clicked.connect (() => { close (); open_taskmgr_requested (); });
-            content.append (taskmgr_btn);
-
-            var control_btn = build_tool_button (_("Wine Control Panel"));
-            control_btn.clicked.connect (() => { close (); open_control_requested (); });
-            content.append (control_btn);
-
-            var regedit_btn = build_tool_button (_("Wine registry"));
-            regedit_btn.clicked.connect (() => { close (); open_regedit_requested (); });
-            content.append (regedit_btn);
-
-            var winecfg_btn = build_tool_button (_("Wine configuration"));
-            winecfg_btn.clicked.connect (() => { close (); open_winecfg_requested (); });
-            content.append (winecfg_btn);
+            var tools_group = new Adw.PreferencesGroup ();
+            tools_group.add (build_tool_row (_("Wine Task Manager"), () => open_taskmgr_requested ()));
+            tools_group.add (build_tool_row (_("Wine Control Panel"), () => open_control_requested ()));
+            tools_group.add (build_tool_row (_("Wine registry"), () => open_regedit_requested ()));
+            tools_group.add (build_tool_row (_("Wine configuration"), () => open_winecfg_requested ()));
+            content.append (tools_group);
 
             toolbar.content = content;
             this.child = toolbar;
+        }
+
+        public bool handle_gamepad_action (Services.GamepadAction action) {
+            if (gamepad_navigator == null) return false;
+
+            switch (action) {
+                case Services.GamepadAction.NAVIGATE_UP:
+                case Services.GamepadAction.NAVIGATE_LEFT:
+                    return gamepad_navigator.move (-1);
+                case Services.GamepadAction.NAVIGATE_DOWN:
+                case Services.GamepadAction.NAVIGATE_RIGHT:
+                    return gamepad_navigator.move (1);
+                case Services.GamepadAction.ACTIVATE:
+                    if (!gamepad_navigator.activate_current ()) {
+                        return gamepad_navigator.focus_first ();
+                    }
+                    return true;
+                case Services.GamepadAction.BACK:
+                    close ();
+                    return true;
+                default:
+                    return false;
+            }
         }
     }
 }

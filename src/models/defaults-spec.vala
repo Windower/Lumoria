@@ -6,6 +6,8 @@ namespace Lumoria.Models {
         public string runner_id_sandbox { get; set; default = ""; }
         public string runner_version_sandbox { get; set; default = "latest"; }
         public bool wine_wayland { get; set; default = false; }
+        public string sync_mode { get; set; default = "ntsync"; }
+        public string wine_debug { get; set; default = ""; }
         public bool large_address_aware { get; set; default = false; }
         public Gee.HashMap<string, bool> component_enabled {
             get; owned set; default = new Gee.HashMap<string, bool> ();
@@ -24,6 +26,8 @@ namespace Lumoria.Models {
                 if (default_obj.has_member ("wine")) {
                     var wine_obj = default_obj.get_object_member ("wine");
                     spec.wine_wayland = json_bool (wine_obj, "wayland", false);
+                    spec.sync_mode = json_string (wine_obj, "sync_mode", "ntsync");
+                    spec.wine_debug = json_string (wine_obj, "debug", "");
                 }
                 if (default_obj.has_member ("patches")) {
                     var patch_obj = default_obj.get_object_member ("patches");

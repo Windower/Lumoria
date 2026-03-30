@@ -13,6 +13,11 @@ namespace Lumoria.Runtime {
         public WineEnv env { get; set; }
     }
 
+    private void require_prefix_path (Models.PrefixEntry entry) throws Error {
+        if (entry.path == "")
+            throw new IOError.FAILED ("Prefix path is required");
+    }
+
     public RunResult run_prefix (
         Models.PrefixEntry entry,
         Gee.ArrayList<Models.RunnerSpec> runner_specs,
@@ -21,8 +26,7 @@ namespace Lumoria.Runtime {
         string custom_exe = "",
         string[]? custom_wine_args = null
     ) throws Error {
-        if (entry.path == "")
-            throw new IOError.FAILED ("Prefix path is required");
+        require_prefix_path (entry);
 
         var session_id = generate_session_id ();
         var logger = RuntimeLog.for_run (entry.path, session_id);
@@ -45,10 +49,10 @@ namespace Lumoria.Runtime {
         var wine_path = to_wine_path (ctx.prefix_path, host_exe);
         var log_path = logger.log_path;
 
-        var argv = new Gee.ArrayList<string> ();
-        argv.add (ctx.paths.wine);
-        argv.add (wine_path);
-        foreach (var arg in wine_args) argv.add (arg);
+        var wine_argv = new Gee.ArrayList<string> ();
+        wine_argv.add (ctx.paths.wine);
+        wine_argv.add (wine_path);
+        foreach (var arg in wine_args) wine_argv.add (arg);
 
         var work_dir = Path.get_dirname (host_exe);
         if (!FileUtils.test (work_dir, FileTest.IS_DIR)) {
@@ -56,7 +60,7 @@ namespace Lumoria.Runtime {
         }
 
         if (logger.is_disk_enabled ()) {
-            write_run_log_header (logger, entry, host_exe, wine_path, work_dir, argv, ctx.env);
+            write_run_log_header (logger, entry, host_exe, wine_path, work_dir, wine_argv, ctx.env);
         }
 
         if (!FileUtils.test (host_exe, FileTest.EXISTS)) {
@@ -74,6 +78,19 @@ namespace Lumoria.Runtime {
             }
         }
 
+        string ep_prelaunch = "";
+        if (custom_exe == "") {
+            foreach (var ep in entry.custom_entrypoints) {
+                if (ep.id == entrypoint_id) {
+                    ep_prelaunch = ep.prelaunch_script;
+                    break;
+                }
+            }
+        }
+
+        var argv = wrap_with_prelaunch (ep_prelaunch, wine_argv);
+        argv = wrap_with_prelaunch (entry.prelaunch_script, argv);
+
         return spawn_tracked_process (
             host_exe, work_dir, argv, ctx.env, log_path
         );
@@ -82,11 +99,10 @@ namespace Lumoria.Runtime {
     public RunResult run_prefix_command (
         Models.PrefixEntry entry,
         Gee.ArrayList<Models.RunnerSpec> runner_specs,
-        string[] wine_args,
+        Gee.ArrayList<string> wine_args,
         string command_label
     ) throws Error {
-        if (entry.path == "")
-            throw new IOError.FAILED ("Prefix path is required");
+        require_prefix_path (entry);
 
         var session_id = generate_session_id ();
         var logger = RuntimeLog.for_run (entry.path, session_id);
@@ -95,7 +111,7 @@ namespace Lumoria.Runtime {
 
         var argv = new Gee.ArrayList<string> ();
         argv.add (ctx.paths.wine);
-        foreach (var arg in wine_args) argv.add (arg);
+        argv.add_all (wine_args);
 
         if (logger.is_disk_enabled ()) {
             write_run_command_log_header (logger, entry, command_label, argv, ctx.env);
@@ -120,8 +136,7 @@ namespace Lumoria.Runtime {
         Models.PrefixEntry entry,
         Gee.ArrayList<Models.RunnerSpec> runner_specs
     ) throws Error {
-        if (entry.path == "")
-            throw new IOError.FAILED ("Prefix path is required");
+        require_prefix_path (entry);
 
         var session_id = generate_session_id ();
         var logger = RuntimeLog.for_run (entry.path, session_id);
@@ -137,13 +152,30 @@ namespace Lumoria.Runtime {
         Models.PrefixEntry entry,
         Gee.ArrayList<Models.RunnerSpec> runner_specs
     ) throws Error {
-        if (entry.path == "")
-            throw new IOError.FAILED ("Prefix path is required");
+        require_prefix_path (entry);
 
         var session_id = generate_session_id ();
         var logger = RuntimeLog.for_run (entry.path, session_id);
         var ctx = prepare_runtime_context (entry, runner_specs, true, logger);
         shutdown_wineserver (ctx.paths, ctx.env, logger.emitter ());
+    }
+
+    private Gee.ArrayList<string> wrap_with_prelaunch (
+        string prelaunch_script,
+        Gee.ArrayList<string> wine_argv
+    ) {
+        if (prelaunch_script == "" || !FileUtils.test (prelaunch_script, FileTest.EXISTS)) {
+            return wine_argv;
+        }
+
+        var argv = new Gee.ArrayList<string> ();
+        argv.add ("bash");
+        argv.add ("-c");
+        argv.add ("source \"$1\" && shift && exec \"$@\"");
+        argv.add ("--");
+        argv.add (prelaunch_script);
+        foreach (var arg in wine_argv) argv.add (arg);
+        return argv;
     }
 
     private RuntimeContext prepare_runtime_context (
@@ -165,7 +197,9 @@ namespace Lumoria.Runtime {
         var env = build_wine_env (
             paths, runner_spec, entry.variant_id,
             pfx_path, variant.wine_arch,
-            entry.sync_mode, entry.wine_debug, false,
+            Utils.Preferences.resolve_sync_mode (entry.sync_mode),
+            Utils.Preferences.resolve_wine_debug (entry.wine_debug),
+            false,
             Utils.Preferences.resolve_wine_wayland (entry.wine_wayland)
         );
         if (disable_mscoree) {
@@ -336,23 +370,18 @@ namespace Lumoria.Runtime {
         var stdout_sb = new StringBuilder ();
         var stderr_sb = new StringBuilder ();
 
+        LogFunc write_to_log = (msg) => {
+            if (log_out == null) return;
+            try { log_out.write (msg.data); } catch (Error e) {
+                warning ("Failed to write to run log: %s", e.message);
+            }
+        };
+
         var stderr_thread = new Thread<void> ("stderr-drain", () => {
-            read_fd_to_log (stderr_fd, stderr_sb, (msg) => {
-                if (log_out != null) {
-                    try { log_out.write (msg.data); } catch (Error e) {
-                        warning ("Failed to write stderr to run log: %s", e.message);
-                    }
-                }
-            }, RuntimeLog.tag_prefix (LogType.STDERR));
+            read_fd_to_log (stderr_fd, stderr_sb, write_to_log, RuntimeLog.tag_prefix (LogType.STDERR));
         });
 
-        read_fd_to_log (stdout_fd, stdout_sb, (msg) => {
-            if (log_out != null) {
-                try { log_out.write (msg.data); } catch (Error e) {
-                    warning ("Failed to write stdout to run log: %s", e.message);
-                }
-            }
-        }, "");
+        read_fd_to_log (stdout_fd, stdout_sb, write_to_log, "");
 
         stderr_thread.join ();
 

@@ -34,7 +34,10 @@ lumoria_sources = files(
 
   'widgets/application.vala',
   'widgets/prefix-row-widget.vala',
+  'widgets/option-list-row.vala',
   'widgets/services/prefix-launch-service.vala',
+  'widgets/services/gamepad-service.vala',
+  'widgets/services/gamepad-list-navigator.vala',
   'widgets/icon-registry.vala',
   'widgets/settings-shared.vala',
   'widgets/window.vala',
@@ -49,6 +52,7 @@ lumoria_sources = files(
   'widgets/preferences/general-page.vala',
   'widgets/preferences/runtime-page.vala',
   'widgets/preferences/env-vars-editor.vala',
+  'widgets/preferences/about-page.vala',
   'widgets/preferences/advanced-page.vala',
   'widgets/preferences/runners-page.vala',
   'widgets/preferences/components-page.vala',
@@ -68,6 +72,7 @@ lumoria_deps = [
   dependency('gee-0.8'),
   dependency('libarchive'),
   dependency('vte-2.91-gtk4'),
+  dependency('manette-0.2'),
 ]
 
 cc = meson.get_compiler('c')

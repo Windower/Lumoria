@@ -44,14 +44,20 @@ namespace Lumoria.Utils {
         private bool _updates_components = true;
         private string _logging_mode = "keep";
         private bool _wine_wayland = false;
+        private string _sync_mode = "ntsync";
+        private string _wine_debug = "";
         private bool _large_address_aware = false;
+        private bool _experimental_features = false;
 
         public bool updates_lumoria { get { return _updates_lumoria; } }
         public bool updates_runners { get { return _updates_runners; } }
         public bool updates_components { get { return _updates_components; } }
         public string logging_mode { get { return _logging_mode; } }
         public bool wine_wayland { get { return _wine_wayland; } }
+        public string sync_mode { get { return _sync_mode; } }
+        public string wine_debug { get { return _wine_debug; } }
         public bool large_address_aware { get { return _large_address_aware; } }
+        public bool experimental_features { get { return _experimental_features; } }
 
         private Gee.HashMap<string, string> component_versions;
         private Gee.HashMap<string, bool?> component_enabled;
@@ -106,8 +112,23 @@ namespace Lumoria.Utils {
             save ();
         }
 
+        public void set_sync_mode (string mode) {
+            _sync_mode = mode;
+            save ();
+        }
+
+        public void set_wine_debug (string debug) {
+            _wine_debug = debug;
+            save ();
+        }
+
         public void set_large_address_aware (bool enabled) {
             _large_address_aware = enabled;
+            save ();
+        }
+
+        public void set_experimental_features (bool enabled) {
+            _experimental_features = enabled;
             save ();
         }
 
@@ -137,8 +158,14 @@ namespace Lumoria.Utils {
             return instance ().large_address_aware;
         }
 
-        public string get_default_runner_id () {
-            return runner_id;
+        public static string resolve_sync_mode (string prefix_value) {
+            if (prefix_value != "") return prefix_value;
+            return instance ().sync_mode;
+        }
+
+        public static string resolve_wine_debug (string prefix_value) {
+            if (prefix_value != "") return prefix_value;
+            return instance ().wine_debug;
         }
 
         public string get_default_runner_version () {
@@ -211,6 +238,7 @@ namespace Lumoria.Utils {
             runner_version = default_runner_version_for_env ();
             _wine_wayland = defaults_spec.wine_wayland;
             _large_address_aware = defaults_spec.large_address_aware;
+            _experimental_features = false;
 
             component_versions.clear ();
             component_enabled.clear ();
@@ -235,7 +263,7 @@ namespace Lumoria.Utils {
 
         private void load () {
             if (!FileUtils.test (file_path, FileTest.EXISTS)) {
-                if (seed_missing_defaults (false, false, false, false)) {
+                if (seed_missing_defaults (false, false, false, false, false, false)) {
                     save ();
                 }
                 return;
@@ -249,6 +277,8 @@ namespace Lumoria.Utils {
                 bool has_runner_id = false;
                 bool has_runner_version = false;
                 bool has_wine_wayland = false;
+                bool has_sync_mode = false;
+                bool has_wine_debug = false;
                 bool has_large_address_aware = false;
 
                 if (obj.has_member ("runner_id")) {
@@ -262,11 +292,16 @@ namespace Lumoria.Utils {
                 if (obj.has_member ("wine")) {
                     var wine_obj = obj.get_object_member ("wine");
                     has_wine_wayland = wine_obj.has_member ("wayland");
+                    has_sync_mode = wine_obj.has_member ("sync_mode");
+                    has_wine_debug = wine_obj.has_member ("debug");
                 }
                 if (obj.has_member ("patches")) {
                     var patch_obj = obj.get_object_member ("patches");
                     has_large_address_aware = patch_obj.has_member ("large_address_aware");
                 }
+                if (obj.has_member ("experimental_features"))
+                    _experimental_features = obj.get_boolean_member ("experimental_features");
+
                 load_updates (obj);
                 load_logging (obj);
                 load_wine (obj);
@@ -278,6 +313,8 @@ namespace Lumoria.Utils {
                     has_runner_id,
                     has_runner_version,
                     has_wine_wayland,
+                    has_sync_mode,
+                    has_wine_debug,
                     has_large_address_aware
                 )) {
                     save ();
@@ -291,6 +328,8 @@ namespace Lumoria.Utils {
             bool has_runner_id,
             bool has_runner_version,
             bool has_wine_wayland,
+            bool has_sync_mode,
+            bool has_wine_debug,
             bool has_large_address_aware
         ) {
             bool changed = false;
@@ -308,6 +347,14 @@ namespace Lumoria.Utils {
             }
             if (!has_wine_wayland) {
                 _wine_wayland = defaults_spec.wine_wayland;
+                changed = true;
+            }
+            if (!has_sync_mode) {
+                _sync_mode = defaults_spec.sync_mode;
+                changed = true;
+            }
+            if (!has_wine_debug) {
+                _wine_debug = defaults_spec.wine_debug;
                 changed = true;
             }
             if (!has_large_address_aware) {
@@ -362,6 +409,10 @@ namespace Lumoria.Utils {
             var wine_obj = obj.get_object_member ("wine");
             if (wine_obj.has_member ("wayland"))
                 _wine_wayland = wine_obj.get_boolean_member ("wayland");
+            if (wine_obj.has_member ("sync_mode"))
+                _sync_mode = wine_obj.get_string_member ("sync_mode");
+            if (wine_obj.has_member ("debug"))
+                _wine_debug = wine_obj.get_string_member ("debug");
         }
 
         private void load_components (Json.Object obj) {
@@ -407,6 +458,7 @@ namespace Lumoria.Utils {
 
                 obj.set_string_member ("runner_id", runner_id);
                 obj.set_string_member ("runner_version", runner_version);
+                obj.set_boolean_member ("experimental_features", _experimental_features);
 
                 var upd = new Json.Object ();
                 upd.set_boolean_member ("lumoria", _updates_lumoria);
@@ -420,6 +472,8 @@ namespace Lumoria.Utils {
 
                 var wine_obj = new Json.Object ();
                 wine_obj.set_boolean_member ("wayland", _wine_wayland);
+                wine_obj.set_string_member ("sync_mode", _sync_mode);
+                wine_obj.set_string_member ("debug", _wine_debug);
                 obj.set_object_member ("wine", wine_obj);
 
                 var patches_obj = new Json.Object ();

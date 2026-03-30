@@ -141,7 +141,10 @@ namespace Lumoria.Runtime {
 
             var env = build_wine_env (
                 paths, runner_spec, opts.variant_id,
-                pfx_path, wine_arch, "ntsync", opts.wine_debug, false,
+                pfx_path, wine_arch,
+                Utils.Preferences.resolve_sync_mode (opts.prefix_entry != null ? opts.prefix_entry.sync_mode : ""),
+                Utils.Preferences.resolve_wine_debug (opts.wine_debug),
+                false,
                 Utils.Preferences.resolve_wine_wayland (opts.wine_wayland)
             );
             apply_env_overrides (env, prefs.get_runtime_env_vars ());

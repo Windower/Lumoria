@@ -8,14 +8,15 @@ namespace Lumoria.Widgets.Dialogs {
         private Gee.ArrayList<Models.LauncherSpec> launcher_specs;
 
         private Adw.EntryRow name_entry;
+        private Adw.ToastOverlay toast_overlay;
         private Adw.ActionRow dir_row;
-        private Adw.ComboRow runner_combo;
-        private Adw.ComboRow variant_combo;
-        private Adw.ComboRow sync_combo;
-        private Adw.ComboRow debug_combo;
-        private Adw.ComboRow wayland_combo;
-        private Adw.ComboRow laa_combo;
-        private Adw.ComboRow launcher_combo;
+        private OptionListRow runner_combo;
+        private OptionListRow variant_combo;
+        private OptionListRow sync_combo;
+        private OptionListRow debug_combo;
+        private OptionListRow wayland_combo;
+        private OptionListRow laa_combo;
+        private OptionListRow launcher_combo;
         private Gtk.Button create_btn;
         private Gee.ArrayList<Models.RunnerVariant> visible_variants;
 
@@ -59,7 +60,6 @@ namespace Lumoria.Widgets.Dialogs {
             var stack = new Adw.ViewStack ();
             stack.vexpand = true;
 
-            // General page
             var general_content = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
 
             var general_group = SettingsShared.build_group (_("General"), 12);
@@ -99,26 +99,20 @@ namespace Lumoria.Widgets.Dialogs {
 
             SettingsShared.add_scrolled_settings_page (stack, general_content, SettingsShared.PAGE_GENERAL, _("General"));
 
-            // Runner page
             var runner_content = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
 
             var runner_group = SettingsShared.build_group (_("Wine Runner"), 12);
 
-            var runner_model = new Gtk.StringList (null);
-            for (int i = 0; i < runner_specs.size; i++) {
-                runner_model.append (runner_specs[i].display_label ());
-            }
-            runner_combo = new Adw.ComboRow ();
+            var runner_model = RunnerSettingsShared.build_runner_model (runner_specs);
+            runner_combo = new OptionListRow ();
             runner_combo.title = _("Runner");
             runner_combo.model = runner_model;
             runner_combo.selected = RunnerSettingsShared.select_runner_index (runner_specs);
             runner_combo.notify["selected"].connect (on_runner_changed);
             runner_group.add (runner_combo);
 
-            var variant_model = new Gtk.StringList (null);
-            variant_combo = new Adw.ComboRow ();
+            variant_combo = new OptionListRow ();
             variant_combo.title = _("Variant");
-            variant_combo.model = variant_model;
             runner_group.add (variant_combo);
             rebuild_variant_combo ();
 
@@ -126,20 +120,19 @@ namespace Lumoria.Widgets.Dialogs {
 
             var runner_opts_group = SettingsShared.build_group (_("Runner Options"), 12, 12);
 
-            sync_combo = RunnerSettingsShared.build_sync_combo ();
+            sync_combo = RunnerSettingsShared.build_sync_override_combo ();
             runner_opts_group.add (sync_combo);
 
             wayland_combo = RunnerSettingsShared.build_wayland_combo ();
             runner_opts_group.add (wayland_combo);
 
-            debug_combo = RunnerSettingsShared.build_debug_combo ();
+            debug_combo = RunnerSettingsShared.build_debug_override_combo ();
             runner_opts_group.add (debug_combo);
 
             runner_content.append (runner_opts_group);
 
             SettingsShared.add_scrolled_settings_page (stack, runner_content, SettingsShared.PAGE_RUNNERS, _("Runner"));
 
-            // Game page
             var game_content = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
 
             if (launcher_specs.size > 0) {
@@ -151,7 +144,7 @@ namespace Lumoria.Widgets.Dialogs {
                     launcher_model.append (launcher_specs[i].display_label ());
                     if (launcher_specs[i].is_default) default_launcher = i + 1;
                 }
-                launcher_combo = new Adw.ComboRow ();
+                launcher_combo = new OptionListRow ();
                 launcher_combo.title = _("Launcher");
                 launcher_combo.model = launcher_model;
                 launcher_combo.selected = default_launcher;
@@ -159,17 +152,17 @@ namespace Lumoria.Widgets.Dialogs {
                 game_content.append (launcher_group);
             }
 
-            var patches_group = SettingsShared.build_group (_("Patches"), 12, 12);
-
-            var laa_default = Utils.Preferences.instance ().large_address_aware ? "enabled" : "disabled";
-            laa_combo = SettingsShared.build_toggle_override_combo (
-                _("Large Address Aware"),
-                null,
-                laa_default
-            );
-            patches_group.add (laa_combo);
-
-            game_content.append (patches_group);
+            if (Utils.Preferences.instance ().experimental_features) {
+                var patches_group = SettingsShared.build_group (_("Patches"), 12, 12);
+                var laa_default = Utils.Preferences.instance ().large_address_aware ? _("enabled") : _("disabled");
+                laa_combo = SettingsShared.build_toggle_override_combo (
+                    _("Large Address Aware"),
+                    null,
+                    laa_default
+                );
+                patches_group.add (laa_combo);
+                game_content.append (patches_group);
+            }
 
             SettingsShared.add_scrolled_settings_page (stack, game_content, SettingsShared.PAGE_LAUNCH, _("Game"));
 
@@ -180,7 +173,9 @@ namespace Lumoria.Widgets.Dialogs {
             var body = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
             body.append (switcher_bar);
             body.append (stack);
-            toolbar.content = body;
+            toast_overlay = new Adw.ToastOverlay ();
+            toast_overlay.child = body;
+            toolbar.content = toast_overlay;
 
             create_btn = new Gtk.Button.with_label (_("Create"));
             create_btn.add_css_class ("suggested-action");
@@ -211,6 +206,7 @@ namespace Lumoria.Widgets.Dialogs {
         }
 
         private void on_browse () {
+            if (SettingsShared.file_browse_blocked (toast_overlay)) return;
             var dialog = new Gtk.FileDialog ();
             dialog.title = _("Choose prefix directory");
             dialog.modal = true;
@@ -299,10 +295,12 @@ namespace Lumoria.Widgets.Dialogs {
                 }
             }
 
-            var sync_mode = RunnerSettingsShared.sync_mode_value_for_index (sync_combo.selected);
-            var wine_debug = Runtime.wine_debug_value_for_index (debug_combo.selected);
+            var sync_mode = RunnerSettingsShared.sync_override_value_for_index (sync_combo.selected);
+            var wine_debug = RunnerSettingsShared.debug_override_value_for_index (debug_combo.selected);
             var wine_wayland = RunnerSettingsShared.wayland_value_for_index (wayland_combo.selected);
-            var large_address_aware = ((ToggleOverrideState) laa_combo.selected).to_nullable_bool ();
+            bool? large_address_aware = laa_combo != null
+                ? ((ToggleOverrideState) laa_combo.selected).to_nullable_bool ()
+                : null;
 
             var launcher_id = "";
             if (launcher_combo != null && launcher_combo.selected > 0) {

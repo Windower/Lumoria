@@ -31,6 +31,7 @@ namespace Lumoria.Widgets {
         public const string PAGE_COMPONENTS = "components";
         public const string PAGE_LAUNCH = "launch";
         public const string PAGE_ADVANCED = "advanced";
+        public const string PAGE_ABOUT = "about";
 
         public static Adw.ViewStackPage add_settings_page (
             Adw.ViewStack stack,
@@ -81,25 +82,31 @@ namespace Lumoria.Widgets {
             return model;
         }
 
-        public static Adw.ComboRow build_toggle_override_combo (
+        public static OptionListRow build_toggle_override_combo (
             string title,
             bool? current_value,
             string default_label,
             string subtitle = ""
         ) {
-            var combo = new Adw.ComboRow ();
-            combo.title = title;
-            if (subtitle != "") combo.subtitle = subtitle;
-            combo.model = build_toggle_override_model (default_label);
-            combo.selected = (uint) ToggleOverrideState.from_nullable_bool (current_value);
-            return combo;
+            var row = new OptionListRow ();
+            row.title = title;
+            if (subtitle != "") row.subtitle = subtitle;
+            row.model = build_toggle_override_model (default_label);
+            row.selected = (uint) ToggleOverrideState.from_nullable_bool (current_value);
+            return row;
         }
 
         public static Gtk.StringList build_logging_mode_model () {
             var model = new Gtk.StringList (null);
-            model.append (_("Don\u2019t Keep"));
+            model.append (_("Don't Keep"));
             model.append (_("Keep (prefix-path/logs)"));
             return model;
+        }
+
+        public static bool file_browse_blocked (Adw.ToastOverlay overlay) {
+            if (!Utils.EnvironmentInfo.is_gamescope ()) return false;
+            overlay.add_toast (new Adw.Toast (_("File browsing is not available in a gamescope session.")));
+            return true;
         }
 
         public static void present_alert (Gtk.Widget parent, string title, string body) {
