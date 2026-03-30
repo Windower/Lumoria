@@ -55,6 +55,7 @@ namespace Lumoria.Widgets.Dialogs {
 
         private void build_ui () {
             var entry = registry.prefixes[prefix_index];
+            var is_gamescope = Utils.EnvironmentInfo.is_gamescope ();
 
             var toolbar = new Adw.ToolbarView ();
             var header = new Adw.HeaderBar ();
@@ -153,6 +154,7 @@ namespace Lumoria.Widgets.Dialogs {
 
             var prelaunch_browse_btn = new Gtk.Button.with_label (_("Browse\u2026"));
             prelaunch_browse_btn.valign = Gtk.Align.CENTER;
+            prelaunch_browse_btn.sensitive = !is_gamescope;
             prelaunch_browse_btn.clicked.connect (on_browse_prelaunch);
             prelaunch_row.add_suffix (prelaunch_browse_btn);
 
@@ -169,6 +171,11 @@ namespace Lumoria.Widgets.Dialogs {
             }
 
             prelaunch_group.add (prelaunch_row);
+            var prelaunch_note_row = new Adw.ActionRow ();
+            prelaunch_note_row.title = _("Prelaunch scripts are skipped in gamescope sessions");
+            prelaunch_note_row.subtitle = _("They still run when launching from desktop mode.");
+            prelaunch_note_row.activatable = false;
+            prelaunch_group.add (prelaunch_note_row);
             general_content.append (prelaunch_group);
 
 
@@ -339,8 +346,12 @@ namespace Lumoria.Widgets.Dialogs {
             var defaults = Utils.Preferences.instance ();
             var default_id = defaults.runner_id;
             var default_ver = defaults.get_default_runner_version ();
-            var default_label = default_id != "" ? "%s %s".printf (default_id, default_ver) : default_ver;
-            model.append (_("Use Global Default (%s)").printf (default_label));
+            if (runner_id != "" && runner_id != default_id) {
+                model.append (_("Use Runner Default (%s latest)").printf (runner_id));
+            } else {
+                var default_label = default_id != "" ? "%s %s".printf (default_id, default_ver) : default_ver;
+                model.append (_("Use Global Default (%s)").printf (default_label));
+            }
             version_values.add ("default");
 
             model.append (_("Latest (always newest)"));
@@ -349,6 +360,7 @@ namespace Lumoria.Widgets.Dialogs {
             if (runner_id != "") {
                 var base_dir = Path.build_filename (Utils.runner_dir (), runner_id);
                 var installed = Utils.list_dirs (base_dir);
+                installed.sort ((a, b) => strcmp (b, a));
                 foreach (var dir_name in installed) {
                     model.append (dir_name);
                     version_values.add (dir_name);
@@ -436,6 +448,7 @@ namespace Lumoria.Widgets.Dialogs {
         private void present_entry_editor (int index, string? initial_exe) {
             Models.Entrypoint? existing = (index >= 0 && index < custom_entries.size)
                 ? custom_entries[index] : null;
+            var is_gamescope = Utils.EnvironmentInfo.is_gamescope ();
 
             var dialog = new Adw.Dialog ();
             dialog.title = existing != null ? _("Edit Custom Entry") : _("Add Custom Entry");
@@ -508,6 +521,7 @@ namespace Lumoria.Widgets.Dialogs {
 
             var ep_browse_btn = new Gtk.Button.with_label (_("Browse\u2026"));
             ep_browse_btn.valign = Gtk.Align.CENTER;
+            ep_browse_btn.sensitive = !is_gamescope;
             ep_browse_btn.clicked.connect (() => {
                 if (SettingsShared.file_browse_blocked (toast_overlay)) return;
                 var fd = build_file_dialog (_("Select Prelaunch Script"), build_script_filter ());
@@ -536,6 +550,11 @@ namespace Lumoria.Widgets.Dialogs {
             });
             entry_prelaunch_row.add_suffix (ep_clear_btn);
             group.add (entry_prelaunch_row);
+            var entry_prelaunch_note = new Adw.ActionRow ();
+            entry_prelaunch_note.title = _("Prelaunch scripts are skipped in gamescope sessions");
+            entry_prelaunch_note.subtitle = _("They still run when launching from desktop mode.");
+            entry_prelaunch_note.activatable = false;
+            group.add (entry_prelaunch_note);
 
             var actions = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8);
             actions.margin_start = 16;

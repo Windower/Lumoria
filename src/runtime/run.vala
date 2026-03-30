@@ -88,8 +88,11 @@ namespace Lumoria.Runtime {
             }
         }
 
-        var argv = wrap_with_prelaunch (ep_prelaunch, wine_argv);
-        argv = wrap_with_prelaunch (entry.prelaunch_script, argv);
+        var argv = wine_argv;
+        if (!Utils.EnvironmentInfo.is_gamescope ()) {
+            argv = wrap_with_prelaunch (ep_prelaunch, argv);
+            argv = wrap_with_prelaunch (entry.prelaunch_script, argv);
+        }
 
         return spawn_tracked_process (
             host_exe, work_dir, argv, ctx.env, log_path
@@ -143,7 +146,7 @@ namespace Lumoria.Runtime {
         var ctx = prepare_runtime_context (entry, runner_specs, false, logger);
 
         var result = new TerminalContext ();
-        result.working_directory = ctx.prefix_path;
+        result.working_directory = entry.resolved_path ();
         result.env_vars = ctx.env.snapshot_vars ();
         return result;
     }
@@ -243,15 +246,25 @@ namespace Lumoria.Runtime {
     ) {
         var lines = new Gee.ArrayList<string> ();
         var now = new DateTime.now_local ();
+        var sandbox_kind = Utils.EnvironmentInfo.is_flatpak () ? "flatpak" : "none";
         lines.add ("=== Lumoria Run Log ===");
         lines.add ("Started: %s".printf (now.format ("%F %T")));
         lines.add ("Prefix: %s".printf (entry.path));
+        lines.add ("Context: gamescope=%s sandbox=%s".printf (
+            Utils.EnvironmentInfo.is_gamescope () ? "yes" : "no",
+            sandbox_kind
+        ));
+        lines.add ("Session: DESKTOP_SESSION=%s XDG_SESSION_DESKTOP=%s XDG_CURRENT_DESKTOP=%s".printf (
+            Environment.get_variable ("DESKTOP_SESSION") ?? "",
+            Environment.get_variable ("XDG_SESSION_DESKTOP") ?? "",
+            Environment.get_variable ("XDG_CURRENT_DESKTOP") ?? ""
+        ));
         foreach (var line in detail_lines) {
             lines.add (line);
         }
         lines.add (RuntimeLog.tagged_line (LogType.CMD, cmd_line));
         foreach (var key in LOG_ENV_KEYS) {
-            var val = env.get_var (key);
+            var val = env.get_var (key) ?? Environment.get_variable (key);
             if (val != null) {
                 lines.add (RuntimeLog.tagged_line (LogType.ENV, "%s=%s".printf (key, val)));
             }

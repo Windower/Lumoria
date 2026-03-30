@@ -14,6 +14,7 @@ namespace Lumoria.Widgets {
         private Adw.ActionRow default_row;
         private Adw.ActionRow wine_tools_row;
         private Adw.ActionRow path_row;
+        private Adw.ActionRow browse_row;
 
         public PrefixRowWidget (
             Models.PrefixEntry entry,
@@ -60,7 +61,7 @@ namespace Lumoria.Widgets {
             play_btn.add_css_class ("suggested-action");
             play_btn.valign = Gtk.Align.CENTER;
             play_btn.focusable = true;
-            play_btn.sensitive = entry.runner_id != "" && !is_gamescope;
+            play_btn.sensitive = entry.runner_id != "";
             play_btn.clicked.connect (() => play_requested (prefix_index));
             add_suffix (play_btn);
 
@@ -83,7 +84,7 @@ namespace Lumoria.Widgets {
             default_row.activatable_widget = default_btn;
             add_row (default_row);
 
-            var has_runner = entry.runner_id != "" && !is_gamescope;
+            var has_runner = entry.runner_id != "";
 
             var entrypoints = Runtime.list_entrypoints (entry, launcher_specs);
             if (entrypoints.size > 0) {
@@ -129,16 +130,16 @@ namespace Lumoria.Widgets {
             wine_tools_row.subtitle = _("Run Wine utilities in this prefix");
             wine_tools_row.add_prefix (new Gtk.Image.from_icon_name (IconRegistry.TOOLS));
             wine_tools_row.activatable = true;
-            wine_tools_row.sensitive = has_runner;
             wine_tools_row.add_suffix (new Gtk.Image.from_icon_name ("go-next-symbolic"));
             wine_tools_row.activated.connect (() => wine_tools_requested (prefix_index));
             add_row (wine_tools_row);
 
-            var browse_row = new Adw.ActionRow ();
+            browse_row = new Adw.ActionRow ();
             browse_row.title = _("Browse Prefix");
             browse_row.subtitle = _("Open the prefix root directory");
             browse_row.add_prefix (new Gtk.Image.from_icon_name (IconRegistry.OPEN_FOLDER));
             browse_row.activatable = true;
+            browse_row.sensitive = !is_gamescope;
             browse_row.add_suffix (new Gtk.Image.from_icon_name ("go-next-symbolic"));
             browse_row.activated.connect (() => open_logs_requested (prefix_index));
             add_row (browse_row);
@@ -167,9 +168,10 @@ namespace Lumoria.Widgets {
             default_row.subtitle = default_action_subtitle (is_default);
             default_btn.label = is_default ? _("Quick Launch") : _("Set as Quick Launch");
             default_btn.sensitive = !is_default;
-            var has_runner = entry.runner_id != "" && !is_gamescope;
+            var has_runner = entry.runner_id != "";
             play_btn.sensitive = has_runner;
-            wine_tools_row.sensitive = has_runner;
+            wine_tools_row.sensitive = has_runner && !is_gamescope;
+            browse_row.sensitive = !is_gamescope;
         }
 
         public bool activate_primary_action () {

@@ -30,7 +30,8 @@ namespace Lumoria.Runtime {
     const string[] LOG_ENV_KEYS = {
         "WINEPREFIX", "WINEARCH", "WINEDLLOVERRIDES", "WINEDEBUG",
         "WINEESYNC", "WINEFSYNC", "WINENTSYNC",
-        "PATH", "LD_LIBRARY_PATH", "WINEDLLPATH"
+        "PATH", "LD_LIBRARY_PATH", "WINEDLLPATH",
+        "DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"
     };
 
     public class WineEnv : Object {
@@ -112,7 +113,7 @@ namespace Lumoria.Runtime {
         public void log_wine_vars (LogFunc emit) {
             var logged = new Gee.HashSet<string> ();
             foreach (var key in LOG_ENV_KEYS) {
-                var val = get_var (key);
+                var val = get_var (key) ?? Environment.get_variable (key);
                 if (val != null) {
                     RuntimeLog.emit_typed (emit, LogType.ENV, "%s=%s".printf (key, val));
                     logged.add (key);
@@ -173,21 +174,20 @@ namespace Lumoria.Runtime {
         env.set_var ("WINEPREFIX", runtime_prefix);
         env.add_dll_override ("winemenubuilder", DLL_DISABLED);
 
+        var display = Environment.get_variable ("DISPLAY");
+        var wayland_display = Environment.get_variable ("WAYLAND_DISPLAY");
+        var has_x11 = display != null && display.strip () != "";
+        var has_wayland = wayland_display != null && wayland_display.strip () != "";
+
         if (headless) {
             env.add_dll_override ("winex11.drv", DLL_DISABLED);
             env.add_dll_override ("winewayland.drv", DLL_DISABLED);
-        } else if (Utils.EnvironmentInfo.is_gamescope ()) {
-            // Gamescope provides its own display (Xwayland or Wayland);
-            // don't disable either driver so Wine can negotiate with the compositor.
-        } else if (wayland_enabled) {
+        } else if (wayland_enabled && has_wayland) {
             env.add_dll_override ("winex11.drv", DLL_DISABLED);
-        } else {
-            var display = Environment.get_variable ("DISPLAY");
-            if (display != null && display.strip () != "") {
-                env.add_dll_override ("winewayland.drv", DLL_DISABLED);
-            } else {
-                env.add_dll_override ("winex11.drv", DLL_DISABLED);
-            }
+        } else if (has_x11) {
+            env.add_dll_override ("winewayland.drv", DLL_DISABLED);
+        } else if (has_wayland) {
+            env.add_dll_override ("winex11.drv", DLL_DISABLED);
         }
 
         if (wine_debug != "" && wine_debug != "off") {

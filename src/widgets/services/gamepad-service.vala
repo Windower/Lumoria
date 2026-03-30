@@ -9,7 +9,8 @@ namespace Lumoria.Widgets.Services {
         TAB_NEXT,
         ACTIVATE,
         BACK,
-        GLOBAL_PLAY
+        GLOBAL_PLAY,
+        OPEN_PREFERENCES
     }
 
     public class GamepadService : Object {
@@ -147,6 +148,7 @@ namespace Lumoria.Widgets.Services {
             switch (button) {
                 case 0: case 304: return GamepadAction.ACTIVATE;
                 case 1: case 305: return GamepadAction.BACK;
+                case 6: case 314: return GamepadAction.OPEN_PREFERENCES;
                 case 11: case 544: return GamepadAction.NAVIGATE_UP;
                 case 12: case 545: return GamepadAction.NAVIGATE_DOWN;
                 case 13: case 546: return GamepadAction.NAVIGATE_LEFT;

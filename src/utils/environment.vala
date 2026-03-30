@@ -11,7 +11,22 @@ namespace Lumoria.Utils {
         }
 
         public static bool is_gamescope () {
-            return Environment.get_variable ("DESKTOP_SESSION") == "gamescope-wayland";
+            var desktop_session = (Environment.get_variable ("DESKTOP_SESSION") ?? "").down ();
+            if (desktop_session == "gamescope-wayland" ||
+                desktop_session == "gamescope-session" ||
+                desktop_session == "gamescope") {
+                return true;
+            }
+
+            var session_desktop = (Environment.get_variable ("XDG_SESSION_DESKTOP") ?? "").down ();
+            if (session_desktop == "gamescope") return true;
+
+            var current_desktop = Environment.get_variable ("XDG_CURRENT_DESKTOP") ?? "";
+            foreach (var part in current_desktop.split (":")) {
+                if (part.down ().strip () == "gamescope") return true;
+            }
+
+            return false;
         }
 
         public static bool is_sandboxed () {

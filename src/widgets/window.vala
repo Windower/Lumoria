@@ -214,7 +214,7 @@ namespace Lumoria.Widgets {
 
         private void update_global_play_sensitivity () {
             var def = registry.default_prefix ();
-            global_play_btn.sensitive = def != null && def.runner_id != "" && !Utils.EnvironmentInfo.is_gamescope ();
+            global_play_btn.sensitive = def != null && def.runner_id != "";
         }
 
         public void show_toast (string message) {
@@ -464,6 +464,9 @@ namespace Lumoria.Widgets {
                     break;
                 case Services.GamepadAction.GLOBAL_PLAY:
                     on_global_play ();
+                    break;
+                case Services.GamepadAction.OPEN_PREFERENCES:
+                    show_preferences ();
                     break;
             }
         }
@@ -720,7 +723,7 @@ namespace Lumoria.Widgets {
                     var button = (Gtk.Button) widget;
                     if (!button.sensitive) return;
                     if (has_view_switcher_ancestor (widget, root)) return;
-                    if (button.has_css_class ("titlebutton") || button.has_css_class ("close")) return;
+                    if (should_ignore_gamepad_button (button)) return;
                     add_target_if_missing (targets, widget);
                     return;
                 }
@@ -754,7 +757,7 @@ namespace Lumoria.Widgets {
             for (var w = focus; w != null && w != root; w = w.get_parent ()) {
                 if (w is Adw.EntryRow) return w;
                 if (w is Gtk.Entry || w is Gtk.TextView) return w;
-                if (w is Gtk.Button) return w;
+                if (w is Gtk.Button && !should_ignore_gamepad_button ((Gtk.Button) w)) return w;
                 if (w is Adw.SwitchRow) return w;
                 if (w is Adw.ExpanderRow) return w;
                 if (w is Adw.ActionRow) {
@@ -769,6 +772,12 @@ namespace Lumoria.Widgets {
             for (var w = widget; w != null; w = w.get_parent ()) {
                 if (w == ancestor) return true;
             }
+            return false;
+        }
+
+        private bool should_ignore_gamepad_button (Gtk.Button button) {
+            if (button == close_btn) return true;
+            if (button.has_css_class ("titlebutton") || button.has_css_class ("close")) return true;
             return false;
         }
 
