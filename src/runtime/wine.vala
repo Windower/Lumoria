@@ -176,18 +176,16 @@ namespace Lumoria.Runtime {
         if (headless) {
             env.add_dll_override ("winex11.drv", DLL_DISABLED);
             env.add_dll_override ("winewayland.drv", DLL_DISABLED);
+        } else if (Utils.EnvironmentInfo.is_gamescope ()) {
+            // Gamescope provides its own display (Xwayland or Wayland);
+            // don't disable either driver so Wine can negotiate with the compositor.
         } else if (wayland_enabled) {
-            // Disable X11 driver to force Wayland when user enables it.
             env.add_dll_override ("winex11.drv", DLL_DISABLED);
         } else {
-            // Force X11/Xwayland when disabled for this prefix, but only if
-            // an X11 display is available in the current runtime/session.
             var display = Environment.get_variable ("DISPLAY");
             if (display != null && display.strip () != "") {
                 env.add_dll_override ("winewayland.drv", DLL_DISABLED);
             } else {
-                // Keep Wayland enabled to avoid immediate startup failure
-                // in environments that only expose Wayland (e.g. fallback-x11 inside of Flatpak).
                 env.add_dll_override ("winex11.drv", DLL_DISABLED);
             }
         }

@@ -125,8 +125,8 @@ namespace Lumoria.Widgets.Dialogs {
 
             var row = new OptionListRow ();
             row.title = _("Sync Mode");
-            row.selected = sync_override_index_for_value (prefix_sync_mode);
             row.model = model;
+            row.selected = sync_override_index_for_value (prefix_sync_mode);
             return row;
         }
 
@@ -152,8 +152,8 @@ namespace Lumoria.Widgets.Dialogs {
 
             var row = new OptionListRow ();
             row.title = _("Debug Level");
-            row.selected = debug_override_index_for_value (prefix_wine_debug);
             row.model = model;
+            row.selected = debug_override_index_for_value (prefix_wine_debug);
             return row;
         }
 
