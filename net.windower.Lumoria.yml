@@ -17,9 +17,8 @@ finish-args:
   - --filesystem=/run/udev:ro
   - --socket=wayland
   - --socket=fallback-x11
-  - --socket=pulseaudio
   - --allow=multiarch
-  - --allow=devel
+  - --socket=pulseaudio
   - --share=network
   - --share=ipc
 
@@ -80,5 +79,12 @@ modules:
     builddir: true
     buildsystem: meson
     sources:
-      - type: dir
-        path: .
+      - type: git
+        url: https://github.com/Windower/Lumoria.git
+        tag: v0.1.2
+        commit: b1c1d81721eb97577799110009a652370fc99438
+        x-checker-data:
+          type: git
+          tag-pattern: ^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.\-]+)?)$
+          version-scheme: semantic
+          is-main-source: true
