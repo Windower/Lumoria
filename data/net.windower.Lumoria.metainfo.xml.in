@@ -41,9 +41,12 @@
     <display_length compare="ge">600</display_length>
   </requires>
 
+  <requires>
+      <control>pointing</control>
+      <control>keyboard</control>
+  </requires>
+  
   <supports>
-    <control>pointing</control>
-    <control>keyboard</control>
     <control>gamepad</control>
   </supports>
 
