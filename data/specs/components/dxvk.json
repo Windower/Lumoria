@@ -6,7 +6,6 @@
   "checksum_regex": "dxvk-.*\\.(sha256|sha256sum|sha512|sha512sum)$",
   "default_version": "latest",
   "system_env_defaults": {
-    "DXVK_HUD": "fps"
   },
   "overrides": {
     "d3d8": "n,b",
