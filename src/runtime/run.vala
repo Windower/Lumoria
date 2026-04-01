@@ -1,5 +1,4 @@
 namespace Lumoria.Runtime {
-
     public class RunResult : Object {
         public int pid { get; set; default = 0; }
         public string executable { get; set; default = ""; }
@@ -47,8 +46,6 @@ namespace Lumoria.Runtime {
 
         var host_exe = resolve_host_path (exe, ctx.prefix_path);
         var wine_path = to_wine_path (ctx.prefix_path, host_exe);
-        var log_path = logger.log_path;
-
         var wine_argv = new Gee.ArrayList<string> ();
         wine_argv.add (ctx.paths.wine);
         wine_argv.add (wine_path);
@@ -59,13 +56,11 @@ namespace Lumoria.Runtime {
             work_dir = ctx.prefix_path;
         }
 
-        if (logger.is_disk_enabled ()) {
-            write_run_log_header (logger, entry, host_exe, wine_path, work_dir, wine_argv, ctx.env);
-        }
+        write_run_log_header (logger, entry, host_exe, wine_path, work_dir, wine_argv, ctx.env);
 
         if (!FileUtils.test (host_exe, FileTest.EXISTS)) {
             var err_msg = "Executable not found: %s".printf (host_exe);
-            logger.append_line (RuntimeLog.tagged_line (LogType.ERROR, err_msg));
+            logger.typed (LogType.ERROR, err_msg);
             throw new IOError.FAILED ("%s", err_msg);
         }
 
@@ -73,7 +68,7 @@ namespace Lumoria.Runtime {
             try {
                 apply_prelaunch_patches (entry, host_exe, logger);
             } catch (Error e) {
-                logger.append_line (RuntimeLog.tagged_line (LogType.ERROR, e.message));
+                logger.typed (LogType.ERROR, e.message);
                 throw e;
             }
         }
@@ -95,7 +90,7 @@ namespace Lumoria.Runtime {
         }
 
         return spawn_tracked_process (
-            host_exe, work_dir, argv, ctx.env, log_path
+            host_exe, work_dir, argv, ctx.env, logger
         );
     }
 
@@ -110,15 +105,11 @@ namespace Lumoria.Runtime {
         var session_id = generate_session_id ();
         var logger = RuntimeLog.for_run (entry.path, session_id);
         var ctx = prepare_runtime_context (entry, runner_specs, true, logger);
-        var log_path = logger.log_path;
-
         var argv = new Gee.ArrayList<string> ();
         argv.add (ctx.paths.wine);
         argv.add_all (wine_args);
 
-        if (logger.is_disk_enabled ()) {
-            write_run_command_log_header (logger, entry, command_label, argv, ctx.env);
-        }
+        write_run_command_log_header (logger, entry, command_label, argv, ctx.env);
 
         var work_dir = ctx.prefix_path;
         if (!FileUtils.test (work_dir, FileTest.IS_DIR)) {
@@ -126,7 +117,7 @@ namespace Lumoria.Runtime {
         }
 
         return spawn_tracked_process (
-            command_label, work_dir, argv, ctx.env, log_path
+            command_label, work_dir, argv, ctx.env, logger
         );
     }
 
@@ -160,7 +151,7 @@ namespace Lumoria.Runtime {
         var session_id = generate_session_id ();
         var logger = RuntimeLog.for_run (entry.path, session_id);
         var ctx = prepare_runtime_context (entry, runner_specs, true, logger);
-        shutdown_wineserver (ctx.paths, ctx.env, logger.emitter ());
+        shutdown_wineserver (ctx.paths, ctx.env, logger);
     }
 
     private Gee.ArrayList<string> wrap_with_prelaunch (
@@ -191,7 +182,7 @@ namespace Lumoria.Runtime {
         var runner_version = Utils.Preferences.resolve_version (entry.runner_id, entry.runner_version);
 
         var result = download_and_extract_runner (
-            runner_spec, entry.variant_id, runner_version, null
+            runner_spec, entry.variant_id, runner_version, null, logger
         );
         var paths = resolve_wine_paths (result.extracted_to, runner_spec, entry.variant_id);
         var variant = runner_spec.effective_variant (entry.variant_id);
@@ -211,12 +202,12 @@ namespace Lumoria.Runtime {
 
         var prefs = Utils.Preferences.instance ();
         try {
-            var comp_result = apply_enabled_components (pfx_path, entry, null);
+            var comp_result = apply_enabled_components (pfx_path, entry, logger);
             foreach (var ov in comp_result.dll_overrides.entries) {
                 env.add_dll_override (ov.key, ov.value);
             }
         } catch (Error comp_err) {
-            logger.warn ("Component application failed: %s".printf (comp_err.message));
+            logger.typed (LogType.WARN, "Component application failed: %s".printf (comp_err.message));
         }
         apply_env_overrides (env, prefs.get_runtime_env_vars ());
         apply_env_overrides (env, entry.runtime_env_vars);
@@ -244,33 +235,26 @@ namespace Lumoria.Runtime {
         string cmd_line,
         WineEnv env
     ) {
-        var lines = new Gee.ArrayList<string> ();
         var now = new DateTime.now_local ();
         var sandbox_kind = Utils.EnvironmentInfo.is_flatpak () ? "flatpak" : "none";
-        lines.add ("=== Lumoria Run Log ===");
-        lines.add ("Started: %s".printf (now.format ("%F %T")));
-        lines.add ("Prefix: %s".printf (entry.path));
-        lines.add ("Context: gamescope=%s sandbox=%s".printf (
+        logger.banner ("Lumoria Run Log", false);
+        logger.emit_line ("Started: %s\n".printf (now.format ("%F %T")));
+        logger.emit_line ("Prefix: %s\n".printf (entry.path));
+        logger.emit_line ("Context: gamescope=%s sandbox=%s\n".printf (
             Utils.EnvironmentInfo.is_gamescope () ? "yes" : "no",
             sandbox_kind
         ));
-        lines.add ("Session: DESKTOP_SESSION=%s XDG_SESSION_DESKTOP=%s XDG_CURRENT_DESKTOP=%s".printf (
+        logger.emit_line ("Session: DESKTOP_SESSION=%s XDG_SESSION_DESKTOP=%s XDG_CURRENT_DESKTOP=%s\n".printf (
             Environment.get_variable ("DESKTOP_SESSION") ?? "",
             Environment.get_variable ("XDG_SESSION_DESKTOP") ?? "",
             Environment.get_variable ("XDG_CURRENT_DESKTOP") ?? ""
         ));
         foreach (var line in detail_lines) {
-            lines.add (line);
+            logger.emit_line ("%s\n".printf (line));
         }
-        lines.add (RuntimeLog.tagged_line (LogType.CMD, cmd_line));
-        foreach (var key in LOG_ENV_KEYS) {
-            var val = env.get_var (key) ?? Environment.get_variable (key);
-            if (val != null) {
-                lines.add (RuntimeLog.tagged_line (LogType.ENV, "%s=%s".printf (key, val)));
-            }
-        }
-        lines.add ("");
-        logger.overwrite_lines (lines);
+        logger.typed (LogType.CMD, cmd_line);
+        env.log_wine_vars (logger);
+        logger.emit_line ("\n");
     }
 
     private void write_run_log_header (
@@ -314,7 +298,7 @@ namespace Lumoria.Runtime {
         string work_dir,
         Gee.ArrayList<string> argv,
         WineEnv env,
-        string log_path
+        RuntimeLog logger
     ) throws Error {
         var spawn_argv = Utils.arraylist_to_strv (argv);
 
@@ -325,7 +309,7 @@ namespace Lumoria.Runtime {
             work_dir,
             spawn_argv,
             env.to_spawn_strv (),
-            SpawnFlags.SEARCH_PATH | SpawnFlags.DO_NOT_REAP_CHILD,
+            CHILD_SPAWN_FLAGS,
             null,
             out child_pid,
             null,
@@ -333,35 +317,17 @@ namespace Lumoria.Runtime {
             out stderr_fd
         );
 
-        if (log_path != "") {
-            var log_path_copy = log_path;
-            var pid_copy = child_pid;
-            new Thread<bool> ("run-logger", () => {
-                drain_pipes_to_log (log_path_copy, stdout_fd, stderr_fd, pid_copy);
-                return true;
-            });
-        } else {
-            var pid_copy = child_pid;
-            var sfd = stdout_fd;
-            var efd = stderr_fd;
-            new Thread<bool> ("run-reaper", () => {
-                try { new IOChannel.unix_new (sfd).shutdown (false); } catch (Error e) {
-                    warning ("IOChannel stdout shutdown failed: %s", e.message);
-                }
-                try { new IOChannel.unix_new (efd).shutdown (false); } catch (Error e) {
-                    warning ("IOChannel stderr shutdown failed: %s", e.message);
-                }
-                int status;
-                Posix.waitpid (pid_copy, out status, 0);
-                Process.close_pid (pid_copy);
-                return true;
-            });
-        }
+        var logger_copy = logger;
+        var pid_copy = child_pid;
+        new Thread<bool> ("run-logger", () => {
+            drain_pipes_to_log (logger_copy, stdout_fd, stderr_fd, pid_copy);
+            return true;
+        });
 
         var run_result = new RunResult ();
         run_result.pid = child_pid;
         run_result.executable = executable_label;
-        run_result.log_path = log_path;
+        run_result.log_path = logger.log_path;
         return run_result;
     }
 
@@ -372,45 +338,25 @@ namespace Lumoria.Runtime {
         );
     }
 
-    private void drain_pipes_to_log (string log_path, int stdout_fd, int stderr_fd, int child_pid) {
-        OutputStream? log_out = null;
-        try {
-            log_out = File.new_for_path (log_path).append_to (FileCreateFlags.NONE);
-        } catch (Error e) {
-            warning ("Failed to open run log for appending: %s", e.message);
-        }
+    private void drain_pipes_to_log (RuntimeLog logger, int stdout_fd, int stderr_fd, int child_pid) {
 
         var stdout_sb = new StringBuilder ();
         var stderr_sb = new StringBuilder ();
 
         LogFunc write_to_log = (msg) => {
-            if (log_out == null) return;
-            try { log_out.write (msg.data); } catch (Error e) {
-                warning ("Failed to write to run log: %s", e.message);
-            }
+            logger.emit_line (msg);
         };
 
-        var stderr_thread = new Thread<void> ("stderr-drain", () => {
-            read_fd_to_log (stderr_fd, stderr_sb, write_to_log, RuntimeLog.tag_prefix (LogType.STDERR));
-        });
-
-        read_fd_to_log (stdout_fd, stdout_sb, write_to_log, "");
-
-        stderr_thread.join ();
-
-        int status;
-        Posix.waitpid (child_pid, out status, 0);
-        Process.close_pid (child_pid);
-
-        int exit_code = Process.if_exited (status) ? Process.exit_status (status) : -1;
-
-        if (log_out != null) {
-            try {
-                log_out.write (("\n%s\n".printf (RuntimeLog.tagged_line (LogType.EXIT, "code=%d".printf (exit_code)))).data);
-                log_out.close ();
-            } catch (Error e) {
-                warning ("Failed to write exit code or close run log: %s", e.message);
-            }
-        }
+        int exit_code = drain_spawned_process (
+            child_pid,
+            stdout_fd,
+            stderr_fd,
+            stdout_sb,
+            stderr_sb,
+            write_to_log
+        );
+        logger.emit_line ("\n");
+        logger.typed (LogType.EXIT, "code=%d".printf (exit_code));
+        logger.close ();
     }
 }

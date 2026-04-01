@@ -29,8 +29,7 @@ namespace Lumoria.Runtime {
         var target_exe = resolve_playonline_host_exe (entry);
 
         if (Path.get_basename (launched_host_exe).down () != "pol.exe") {
-            append_patch_log (
-                logger,
+            logger.typed (LogType.PATCH,
                 "checking large_address_aware on %s before launching %s".printf (
                     Path.get_basename (target_exe),
                     Path.get_basename (launched_host_exe)
@@ -41,19 +40,19 @@ namespace Lumoria.Runtime {
         var result = set_large_address_aware_state (target_exe, desired_enabled);
         switch (result) {
             case LargeAddressAwarePatchResult.PATCHED_ENABLED:
-                append_patch_log (logger, "enabled large_address_aware on %s".printf (target_exe));
+                logger.typed (LogType.PATCH, "enabled large_address_aware on %s".printf (target_exe));
                 break;
             case LargeAddressAwarePatchResult.PATCHED_DISABLED:
-                append_patch_log (logger, "disabled large_address_aware on %s".printf (target_exe));
+                logger.typed (LogType.PATCH, "disabled large_address_aware on %s".printf (target_exe));
                 break;
             case LargeAddressAwarePatchResult.ALREADY_ENABLED:
-                append_patch_log (logger, "large_address_aware already enabled on %s".printf (target_exe));
+                logger.typed (LogType.PATCH, "large_address_aware already enabled on %s".printf (target_exe));
                 break;
             case LargeAddressAwarePatchResult.ALREADY_DISABLED:
-                append_patch_log (logger, "large_address_aware already disabled on %s".printf (target_exe));
+                logger.typed (LogType.PATCH, "large_address_aware already disabled on %s".printf (target_exe));
                 break;
             case LargeAddressAwarePatchResult.SKIPPED:
-                append_patch_log (logger, "skip large_address_aware on %s".printf (target_exe));
+                logger.typed (LogType.PATCH, "skip large_address_aware on %s".printf (target_exe));
                 break;
             default:
                 break;
@@ -141,10 +140,5 @@ namespace Lumoria.Runtime {
     private void write_le16 (uint8[] data, int offset, uint16 value) {
         data[offset] = (uint8) (value & 0xff);
         data[offset + 1] = (uint8) ((value >> 8) & 0xff);
-    }
-
-    private void append_patch_log (RuntimeLog logger, string message) {
-        if (!logger.is_disk_enabled ()) return;
-        logger.append_line (RuntimeLog.tagged_line (LogType.PATCH, message));
     }
 }

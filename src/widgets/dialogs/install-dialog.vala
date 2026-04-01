@@ -192,6 +192,7 @@ namespace Lumoria.Widgets.Dialogs {
 
         public void start_install (Runtime.InstallOptions opts) {
             this.prefix_path = opts.prefix_path;
+            open_logs_btn.sensitive = Utils.LoggingMode.from_settings () == Utils.LoggingMode.KEEP;
             if (Utils.is_prefixes_root_path (opts.prefix_path)) {
                 append_log (_("You cannot install directly into the prefixes root.\n"));
                 append_log (_("Choose a subdirectory inside: %s\n").printf (Utils.default_prefix_dir ()));
@@ -222,11 +223,7 @@ namespace Lumoria.Widgets.Dialogs {
 
             install_progress.log_message.connect ((msg) => {
                 Idle.add (() => {
-                    var buf = log_view.buffer;
-                    Gtk.TextIter end_iter;
-                    buf.get_end_iter (out end_iter);
-                    buf.insert (ref end_iter, msg, msg.length);
-                    scroll_log_to_bottom ();
+                    append_log (msg);
                     return false;
                 });
             });
@@ -309,9 +306,9 @@ namespace Lumoria.Widgets.Dialogs {
         private void on_open_logs () {
             var log_dir = Path.build_filename (prefix_path, "logs");
             Utils.ensure_dir (log_dir);
-            var file = File.new_for_path (log_dir);
-            var launcher = new Gtk.FileLauncher (file);
-            launcher.launch.begin (null, null);
+            SettingsShared.open_directory (null, log_dir, (message) => {
+                SettingsShared.present_alert (this, _("Could not open log directory"), message);
+            });
         }
 
         private void on_copy_log () {

@@ -10,36 +10,28 @@ namespace Lumoria.Utils {
         var pattern = checksum_regex.strip ();
         if (pattern == "") return "";
 
-        GitHubAsset? checksum_asset = null;
         try {
-            var re = new Regex (pattern);
-            foreach (var a in release.assets) {
-                if (re.match (a.name)) {
-                    checksum_asset = a;
-                    break;
+            var checksum_asset = find_github_asset_by_regex (release, pattern);
+            if (checksum_asset == null) {
+                warning ("No checksum asset found for %s release %s; continuing with size validation", context, release.tag_name);
+                return "";
+            }
+
+            var checksum_path = Path.build_filename (cache_root, checksum_asset.name);
+            if (!FileUtils.test (checksum_path, FileTest.EXISTS)) {
+                try {
+                    download_file_sync (checksum_asset.browser_download_url, checksum_path, null);
+                } catch (Error e) {
+                    warning ("Failed checksum download for %s: %s", context, e.message);
+                    return "";
                 }
             }
+
+            return parse_checksum_for_asset (checksum_path, asset_name, context);
         } catch (RegexError e) {
             warning ("Invalid checksum regex for %s: %s", context, e.message);
             return "";
         }
-
-        if (checksum_asset == null) {
-            warning ("No checksum asset found for %s release %s; continuing with size validation", context, release.tag_name);
-            return "";
-        }
-
-        var checksum_path = Path.build_filename (cache_root, checksum_asset.name);
-        if (!FileUtils.test (checksum_path, FileTest.EXISTS)) {
-            try {
-                download_file_sync (checksum_asset.browser_download_url, checksum_path, null);
-            } catch (Error e) {
-                warning ("Failed checksum download for %s: %s", context, e.message);
-                return "";
-            }
-        }
-
-        return parse_checksum_for_asset (checksum_path, asset_name, context);
     }
 
     public bool validate_downloaded_file (

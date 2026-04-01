@@ -13,7 +13,8 @@ namespace Lumoria.Runtime {
         Models.RunnerSpec spec,
         string variant_id,
         string version,
-        DownloadProgress? progress
+        DownloadProgress? progress,
+        RuntimeLog logger
     ) throws Error {
         var v = spec.effective_variant (variant_id);
         var cache_root = Path.build_filename (Utils.cache_dir (), "runners", spec.id);
@@ -24,7 +25,7 @@ namespace Lumoria.Runtime {
         var releases_path = Path.build_filename (cache_root, "releases.json");
         var releases = Utils.fetch_github_releases_sync (spec.github_repo, releases_path, 6 * 3600);
 
-        Utils.GitHubRelease? release = select_release (releases, version);
+        Utils.GitHubRelease? release = select_release (releases, version, logger);
         if (release == null) {
             throw new IOError.FAILED ("No release found for version: %s", version);
         }
@@ -34,7 +35,7 @@ namespace Lumoria.Runtime {
         if (FileUtils.test (extract_to, FileTest.IS_DIR)) {
             var result = new DownloadResult ();
             result.version = release.tag_name;
-            result.extracted_to = normalize_runner_root (extract_to);
+            result.extracted_to = normalize_runner_root (extract_to, logger);
             return result;
         }
 
@@ -42,11 +43,11 @@ namespace Lumoria.Runtime {
         if (alt_path != extract_to && FileUtils.test (alt_path, FileTest.IS_DIR)) {
             var result = new DownloadResult ();
             result.version = release.tag_name;
-            result.extracted_to = normalize_runner_root (alt_path);
+            result.extracted_to = normalize_runner_root (alt_path, logger);
             return result;
         }
 
-        var asset = find_asset (release, v.asset_regex);
+        var asset = find_asset (release, v.asset_regex, logger);
         if (asset == null) {
             throw new IOError.FAILED ("No asset matching regex '%s' in release %s", v.asset_regex, release.tag_name);
         }
@@ -76,34 +77,36 @@ namespace Lumoria.Runtime {
         var result = new DownloadResult ();
         result.version = release.tag_name;
         result.archive_path = archive_path;
-        result.extracted_to = normalize_runner_root (extract_to);
+        result.extracted_to = normalize_runner_root (extract_to, logger);
         return result;
     }
 
-    private Utils.GitHubRelease? select_release (Gee.ArrayList<Utils.GitHubRelease> releases, string version) {
+    private Utils.GitHubRelease? select_release (
+        Gee.ArrayList<Utils.GitHubRelease> releases,
+        string version,
+        RuntimeLog logger
+    ) {
         if (releases.size == 0) return null;
         if (version == "" || version == "latest") return releases[0];
         foreach (var r in releases) {
             if (r.tag_name == version) return r;
         }
-        warning ("No release matching tag '%s'; %d releases available", version, releases.size);
+        logger.typed (LogType.WARN, "No release matching tag '%s'; %d releases available".printf (
+            version, releases.size
+        ));
         return null;
     }
 
-    private Utils.GitHubAsset? find_asset (Utils.GitHubRelease release, string regex) {
-        if (regex == "") return null;
+    private Utils.GitHubAsset? find_asset (Utils.GitHubRelease release, string regex, RuntimeLog logger) {
         try {
-            var re = new Regex (regex);
-            foreach (var asset in release.assets) {
-                if (re.match (asset.name)) return asset;
-            }
+            return Utils.find_github_asset_by_regex (release, regex);
         } catch (RegexError e) {
-            warning ("Invalid asset regex '%s': %s", regex, e.message);
+            logger.typed (LogType.WARN, "Invalid asset regex '%s': %s".printf (regex, e.message));
+            return null;
         }
-        return null;
     }
 
-    private string normalize_runner_root (string root) {
+    private string normalize_runner_root (string root, RuntimeLog logger) {
         try {
             var dir = Dir.open (root);
             string? first_name = null;
@@ -128,7 +131,7 @@ namespace Lumoria.Runtime {
                 }
             }
         } catch (FileError e) {
-            warning ("Failed to normalize runner root: %s", e.message);
+            logger.typed (LogType.WARN, "Failed to normalize runner root: %s".printf (e.message));
         }
         return root;
     }

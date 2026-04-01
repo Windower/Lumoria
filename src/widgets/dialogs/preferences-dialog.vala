@@ -69,22 +69,17 @@ namespace Lumoria.Widgets.Dialogs {
         }
 
         private void on_reset_defaults () {
-            var dialog = new Adw.AlertDialog (
+            SettingsShared.present_destructive_confirmation (
+                this,
                 _("Reset to Defaults?"),
-                _("This will reset global runner defaults, component defaults, runtime environment settings, and global Wine/patch preferences.")
-            );
-            dialog.add_response ("cancel", _("Cancel"));
-            dialog.add_response ("reset", _("Reset"));
-            dialog.set_response_appearance ("reset", Adw.ResponseAppearance.DESTRUCTIVE);
-            dialog.default_response = "cancel";
-            dialog.close_response = "cancel";
-            dialog.response.connect ((response) => {
-                if (response != "reset") return;
+                _("This will reset global runner defaults, component defaults, runtime environment settings, and global Wine/patch preferences."),
+                "reset",
+                _("Reset"),
+                () => {
                 Utils.Preferences.instance ().reset_to_defaults ();
                 build_ui ();
                 show_toast (_("Preferences reset to defaults."));
             });
-            dialog.present (this);
         }
     }
 }

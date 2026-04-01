@@ -1,4 +1,11 @@
 namespace Lumoria.Runtime {
+    private class ResolvedComponentSelection : Object {
+        public Models.ComponentSpec spec { get; set; }
+        public string version { get; set; default = "latest"; }
+        public Models.ComponentToolAdapter adapter { get; set; }
+        public Models.ToolVersion version_obj { get; set; }
+        public string installed_path { get; set; default = ""; }
+    }
 
     public class ComponentResult : Object {
         public Gee.HashMap<string, string> dll_overrides {
@@ -8,28 +15,20 @@ namespace Lumoria.Runtime {
 
     public int predownload_enabled_components (
         Models.PrefixEntry? entry,
-        LogFunc? emit
+        RuntimeLog logger
     ) throws Error {
         int downloaded = 0;
-        var specs = Models.ComponentSpec.load_all_from_resource ();
-        var defaults = Utils.Preferences.instance ();
-
-        foreach (var spec in specs) {
-            bool enabled = is_component_active (spec, entry, defaults);
-            if (!enabled) continue;
-
-            var version = resolve_component_version (spec, entry, defaults);
-            var adapter = new Models.ComponentToolAdapter (spec);
-            var ver_obj = version == "latest"
-                ? new Models.ToolVersion.latest ("")
-                : new Models.ToolVersion (version);
-
-            if (!adapter.is_installed (ver_obj)) {
-                if (emit != null) RuntimeLog.emit_typed (emit, LogType.COMPONENT, "%s %s not installed, predownloading...".printf (spec.id, version));
-                adapter.install_version (ver_obj, null);
+        foreach (var component in resolve_component_selections (entry)) {
+            if (!component.adapter.is_installed (component.version_obj)) {
+                logger.typed (LogType.COMPONENT, "%s %s not installed, predownloading...".printf (
+                    component.spec.id, component.version
+                ));
+                component.adapter.install_version (component.version_obj, null);
                 downloaded++;
-            } else if (emit != null) {
-                RuntimeLog.emit_typed (emit, LogType.COMPONENT, "%s %s already cached/installed".printf (spec.id, version));
+            } else {
+                logger.typed (LogType.COMPONENT, "%s %s already cached/installed".printf (
+                    component.spec.id, component.version
+                ));
             }
         }
 
@@ -39,40 +38,30 @@ namespace Lumoria.Runtime {
     public ComponentResult apply_enabled_components (
         string pfx_path,
         Models.PrefixEntry? entry,
-        LogFunc? emit
+        RuntimeLog logger
     ) throws Error {
         var result = new ComponentResult ();
 
-        var specs = Models.ComponentSpec.load_all_from_resource ();
-        var defaults = Utils.Preferences.instance ();
+        foreach (var component in resolve_component_selections (entry)) {
+            logger.typed (LogType.COMPONENT, "%s: enabled, version=%s".printf (
+                component.spec.id, component.version
+            ));
 
-        foreach (var spec in specs) {
-            bool enabled = is_component_active (spec, entry, defaults);
-            if (!enabled) {
-                if (emit != null) RuntimeLog.emit_typed (emit, LogType.COMPONENT, "%s: disabled, skipping".printf (spec.id));
+            if (component.installed_path == "" || !FileUtils.test (component.installed_path, FileTest.IS_DIR)) {
+                logger.typed (LogType.COMPONENT, "%s: installed path not found (predownload required), skipping steps".printf (
+                    component.spec.id
+                ));
                 continue;
             }
 
-            var version = resolve_component_version (spec, entry, defaults);
-            if (emit != null) RuntimeLog.emit_typed (emit, LogType.COMPONENT, "%s: enabled, version=%s".printf (spec.id, version));
-
-            var adapter = new Models.ComponentToolAdapter (spec);
-            var ver_obj = version == "latest"
-                ? new Models.ToolVersion.latest ("")
-                : new Models.ToolVersion (version);
-
-            var component_path = adapter.installed_path (ver_obj);
-            if (component_path == "" || !FileUtils.test (component_path, FileTest.IS_DIR)) {
-                if (emit != null) RuntimeLog.emit_typed (emit, LogType.COMPONENT, "%s: installed path not found (predownload required), skipping steps".printf (spec.id));
+            if (!run_component_steps (component.spec, component.installed_path, pfx_path, logger)) {
+                logger.typed (LogType.COMPONENT, "%s: component steps failed, skipping overrides/env".printf (
+                    component.spec.id
+                ));
                 continue;
             }
 
-            if (!run_component_steps (spec, component_path, pfx_path, emit)) {
-                if (emit != null) RuntimeLog.emit_typed (emit, LogType.COMPONENT, "%s: component steps failed, skipping overrides/env".printf (spec.id));
-                continue;
-            }
-
-            foreach (var ov_entry in spec.overrides.entries) {
+            foreach (var ov_entry in component.spec.overrides.entries) {
                 result.dll_overrides[ov_entry.key] = ov_entry.value;
             }
         }
@@ -89,31 +78,42 @@ namespace Lumoria.Runtime {
         Models.PrefixEntry? entry
     ) {
         var merged = new Gee.HashMap<string, string> ();
-        var specs = Models.ComponentSpec.load_all_from_resource ();
-        var defaults = Utils.Preferences.instance ();
-
-        foreach (var spec in specs) {
-            bool enabled = is_component_active (spec, entry, defaults);
-            if (!enabled) continue;
-
-            var version = resolve_component_version (spec, entry, defaults);
-            var adapter = new Models.ComponentToolAdapter (spec);
-            var ver_obj = version == "latest"
-                ? new Models.ToolVersion.latest ("")
-                : new Models.ToolVersion (version);
-
-            var component_path = adapter.installed_path (ver_obj);
-            if (component_path == "" || !FileUtils.test (component_path, FileTest.IS_DIR)) continue;
+        foreach (var component in resolve_component_selections (entry)) {
+            if (component.installed_path == "" || !FileUtils.test (component.installed_path, FileTest.IS_DIR)) {
+                continue;
+            }
 
             var vars = new Gee.HashMap<string, string> ();
-            vars["COMPONENT"] = component_path;
+            vars["COMPONENT"] = component.installed_path;
             vars["PREFIX"] = pfx_path;
-            foreach (var env_entry in spec.system_env_defaults.entries) {
+            foreach (var env_entry in component.spec.system_env_defaults.entries) {
                 merged[env_entry.key] = Utils.expand_vars (env_entry.value, vars);
             }
         }
 
         return merged;
+    }
+
+    private Gee.ArrayList<ResolvedComponentSelection> resolve_component_selections (Models.PrefixEntry? entry) {
+        var selections = new Gee.ArrayList<ResolvedComponentSelection> ();
+        var specs = Models.ComponentSpec.load_all_from_resource ();
+        var defaults = Utils.Preferences.instance ();
+
+        foreach (var spec in specs) {
+            if (!is_component_active (spec, entry, defaults)) continue;
+
+            var selection = new ResolvedComponentSelection ();
+            selection.spec = spec;
+            selection.version = resolve_component_version (spec, entry, defaults);
+            selection.adapter = new Models.ComponentToolAdapter (spec);
+            selection.version_obj = selection.version == "latest"
+                ? new Models.ToolVersion.latest ("")
+                : new Models.ToolVersion (selection.version);
+            selection.installed_path = selection.adapter.installed_path (selection.version_obj);
+            selections.add (selection);
+        }
+
+        return selections;
     }
 
     private bool is_component_active (
@@ -144,7 +144,7 @@ namespace Lumoria.Runtime {
         Models.ComponentSpec spec,
         string component_path,
         string pfx_path,
-        LogFunc? emit
+        RuntimeLog logger
     ) throws Error {
         bool ok = true;
         var vars = new Gee.HashMap<string, string> ();
@@ -154,14 +154,14 @@ namespace Lumoria.Runtime {
             var src = resolve_component_src (step.src, vars);
             var dst = Utils.expand_vars (step.dst, vars);
 
-            if (emit != null) RuntimeLog.emit_typed (emit, LogType.COMPONENT, "%s: %s %s -> %s".printf (spec.id, step.step_type, src, dst));
+            logger.typed (LogType.COMPONENT, "%s: %s %s -> %s".printf (spec.id, step.step_type, src, dst));
 
             switch (step.step_type) {
                 case "copy":
-                    if (!copy_component_files (src, dst, emit)) ok = false;
+                    if (!copy_component_files (src, dst, logger)) ok = false;
                     break;
                 default:
-                    if (emit != null) RuntimeLog.emit_typed (emit, LogType.COMPONENT, "%s: unknown step type '%s', skipping".printf (spec.id, step.step_type));
+                    logger.typed (LogType.COMPONENT, "%s: unknown step type '%s', skipping".printf (spec.id, step.step_type));
                     break;
             }
         }
@@ -173,8 +173,7 @@ namespace Lumoria.Runtime {
         var src = Utils.expand_vars (step_src, vars);
         if (FileUtils.test (src, FileTest.EXISTS)) return src;
 
-        // Some component archives extract into a nested top-level directory
-        // (e.g. dxvk-<ver>/x32). Try that shape automatically.
+        // Some archives add one extra top-level directory before the real payload.
         if (!src.has_prefix (component_path + "/")) return src;
 
         string? nested = single_child_dir (component_path);
@@ -200,13 +199,13 @@ namespace Lumoria.Runtime {
         return only;
     }
 
-    private bool copy_component_files (string src, string dst, LogFunc? emit) throws Error {
+    private bool copy_component_files (string src, string dst, RuntimeLog logger) throws Error {
         if (!FileUtils.test (src, FileTest.EXISTS)) {
-            if (emit != null) RuntimeLog.emit_typed (emit, LogType.COMPONENT, "source not found: %s".printf (src));
+            logger.typed (LogType.COMPONENT, "source not found: %s".printf (src));
             return false;
         }
         Utils.copy_path (src, dst, (copied_src, _) => {
-            if (emit != null) RuntimeLog.emit_typed (emit, LogType.COMPONENT, "  copied %s".printf (Path.get_basename (copied_src)));
+            logger.typed (LogType.COMPONENT, "  copied %s".printf (Path.get_basename (copied_src)));
         });
         return true;
     }

@@ -49,6 +49,18 @@ namespace Lumoria.Utils {
         }
     }
 
+    public GitHubAsset? find_github_asset_by_regex (GitHubRelease release, string regex) throws RegexError {
+        var pattern = regex.strip ();
+        if (pattern == "") return null;
+        var re = new Regex (pattern);
+        foreach (var asset in release.assets) {
+            if (re.match (asset.name)) {
+                return asset;
+            }
+        }
+        return null;
+    }
+
     public Gee.ArrayList<GitHubRelease> fetch_github_releases_sync (
         string repo,
         string cache_path,

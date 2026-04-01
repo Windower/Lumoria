@@ -12,9 +12,13 @@ namespace Lumoria.Models {
             s.parse_installable (obj);
             s.prefix = json_string (obj, "prefix");
             s.is_default = json_bool (obj, "default");
-            s.variables = json_string_map (obj, "variables");
-            s.entrypoints = parse_entrypoints (obj);
-            s.redists = json_string_array (obj, "redists");
+            Gee.HashMap<string, string> variables;
+            Gee.ArrayList<Entrypoint> entrypoints;
+            Gee.ArrayList<string> redists;
+            s.parse_installable_supporting_fields (obj, out variables, out entrypoints, out redists);
+            s.variables = variables;
+            s.entrypoints = entrypoints;
+            s.redists = redists;
             return s;
         }
 

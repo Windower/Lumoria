@@ -24,11 +24,14 @@ namespace Lumoria.Widgets.Services {
         private const double STICK_DEADZONE = 0.7;
         private const uint STICK_REPEAT_INITIAL_MS = 500;
         private const uint STICK_REPEAT_MS = 200;
+        private const int64 BUTTON_DEBOUNCE_US = 150000;
 
         private GamepadAction? stick_held_action = null;
         private uint stick_repeat_source = 0;
         private double stick_x = 0.0;
         private double stick_y = 0.0;
+        private GamepadAction? last_button_action = null;
+        private int64 last_button_action_time_us = 0;
 
         private GamepadService () {
             devices = new Gee.ArrayList<Manette.Device> ();
@@ -72,7 +75,7 @@ namespace Lumoria.Widgets.Services {
 
             var action = map_button (button);
             if (action != null) {
-                action_pressed ((GamepadAction) action);
+                emit_button_action ((GamepadAction) action);
             }
         }
 
@@ -142,6 +145,32 @@ namespace Lumoria.Widgets.Services {
                 Source.remove (stick_repeat_source);
                 stick_repeat_source = 0;
             }
+        }
+
+        private void emit_button_action (GamepadAction action) {
+            if (should_debounce_button_action (action)) {
+                return;
+            }
+            action_pressed (action);
+        }
+
+        private bool should_debounce_button_action (GamepadAction action) {
+            switch (action) {
+                case GamepadAction.ACTIVATE:
+                case GamepadAction.BACK:
+                    break;
+                default:
+                    last_button_action = action;
+                    last_button_action_time_us = GLib.get_monotonic_time ();
+                    return false;
+            }
+
+            int64 now = GLib.get_monotonic_time ();
+            bool debounced = last_button_action == action &&
+                (now - last_button_action_time_us) < BUTTON_DEBOUNCE_US;
+            last_button_action = action;
+            last_button_action_time_us = now;
+            return debounced;
         }
 
         private GamepadAction? map_button (uint16 button) {

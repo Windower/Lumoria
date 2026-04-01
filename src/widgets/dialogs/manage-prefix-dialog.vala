@@ -428,17 +428,18 @@ namespace Lumoria.Widgets.Dialogs {
         private void show_custom_entry_editor (int index) {
             if (index < 0) {
                 if (SettingsShared.file_browse_blocked (toast_overlay)) return;
-                var file_dialog = build_file_dialog (_("Select Executable"), build_exe_filter ());
-                file_dialog.open.begin (null, null, (obj, res) => {
-                    try {
-                        var file = file_dialog.open.end (res);
-                        if (file == null) return;
-                        var path = file.get_path ();
-                        if (path == null || path == "") return;
-                        present_entry_editor (-1, path);
-                    } catch (Error e) {
-                        warning ("Browse failed: %s", e.message);
+                var file_dialog = SettingsShared.build_file_dialog (
+                    _("Select Executable"),
+                    SettingsShared.build_windows_executable_filter ()
+                );
+                SettingsShared.open_file_dialog (null, file_dialog, null, (path) => {
+                    if (!SettingsShared.is_windows_executable_path (path)) {
+                        toast_overlay.add_toast (new Adw.Toast (_("Please choose a Windows executable file.")));
+                        return;
                     }
+                    present_entry_editor (-1, path);
+                }, (message) => {
+                    toast_overlay.add_toast (new Adw.Toast (_("Browse failed: %s").printf (message)));
                 });
             } else {
                 present_entry_editor (index, null);
@@ -486,21 +487,22 @@ namespace Lumoria.Widgets.Dialogs {
             browse_btn.valign = Gtk.Align.CENTER;
             browse_btn.clicked.connect (() => {
                 if (SettingsShared.file_browse_blocked (toast_overlay)) return;
-                var file_dialog = build_file_dialog (_("Select Executable"), build_exe_filter ());
-                file_dialog.open.begin (null, null, (obj, res) => {
-                    try {
-                        var file = file_dialog.open.end (res);
-                        if (file == null) return;
-                        var path = file.get_path ();
-                        if (path == null || path == "") return;
-                        exe_path = path;
-                        exe_row.subtitle = path;
-                        if (name_row.text.strip () == "") {
-                            name_row.text = Path.get_basename (path);
-                        }
-                    } catch (Error e) {
-                        warning ("Browse failed: %s", e.message);
+                var file_dialog = SettingsShared.build_file_dialog (
+                    _("Select Executable"),
+                    SettingsShared.build_windows_executable_filter ()
+                );
+                SettingsShared.open_file_dialog (null, file_dialog, null, (path) => {
+                    if (!SettingsShared.is_windows_executable_path (path)) {
+                        toast_overlay.add_toast (new Adw.Toast (_("Please choose a Windows executable file.")));
+                        return;
                     }
+                    exe_path = path;
+                    exe_row.subtitle = path;
+                    if (name_row.text.strip () == "") {
+                        name_row.text = Path.get_basename (path);
+                    }
+                }, (message) => {
+                    toast_overlay.add_toast (new Adw.Toast (_("Browse failed: %s").printf (message)));
                 });
             });
             exe_row.add_suffix (browse_btn);
@@ -524,18 +526,15 @@ namespace Lumoria.Widgets.Dialogs {
             ep_browse_btn.sensitive = !is_gamescope;
             ep_browse_btn.clicked.connect (() => {
                 if (SettingsShared.file_browse_blocked (toast_overlay)) return;
-                var fd = build_file_dialog (_("Select Prelaunch Script"), build_script_filter ());
-                fd.open.begin (null, null, (obj, res) => {
-                    try {
-                        var file = fd.open.end (res);
-                        if (file == null) return;
-                        var path = file.get_path ();
-                        if (path == null || path == "") return;
-                        entry_prelaunch_path = path;
-                        entry_prelaunch_row.subtitle = path;
-                    } catch (Error e) {
-                        warning ("Browse failed: %s", e.message);
-                    }
+                var fd = SettingsShared.build_file_dialog (
+                    _("Select Prelaunch Script"),
+                    SettingsShared.build_shell_script_filter ()
+                );
+                SettingsShared.open_file_dialog (null, fd, null, (path) => {
+                    entry_prelaunch_path = path;
+                    entry_prelaunch_row.subtitle = path;
+                }, (message) => {
+                    toast_overlay.add_toast (new Adw.Toast (_("Browse failed: %s").printf (message)));
                 });
             });
             entry_prelaunch_row.add_suffix (ep_browse_btn);
@@ -617,59 +616,16 @@ namespace Lumoria.Widgets.Dialogs {
 
         private void on_browse_prelaunch () {
             if (SettingsShared.file_browse_blocked (toast_overlay)) return;
-            var dialog = build_file_dialog (_("Select prelaunch script"), build_script_filter ());
-            dialog.open.begin (null, null, (obj, res) => {
-                try {
-                    var file = dialog.open.end (res);
-                    if (file == null) return;
-                    var path = file.get_path ();
-                    if (path != null && path != "") {
-                        prelaunch_script_path = path;
-                        prelaunch_row.subtitle = path;
-                    }
-                } catch (Error e) {
-                    warning ("Failed to select prelaunch script: %s", e.message);
-                }
+            var dialog = SettingsShared.build_file_dialog (
+                _("Select prelaunch script"),
+                SettingsShared.build_shell_script_filter ()
+            );
+            SettingsShared.open_file_dialog (null, dialog, null, (path) => {
+                prelaunch_script_path = path;
+                prelaunch_row.subtitle = path;
+            }, (message) => {
+                toast_overlay.add_toast (new Adw.Toast (_("Failed to select prelaunch script: %s").printf (message)));
             });
-        }
-
-        private Gtk.FileDialog build_file_dialog (string title, Gtk.FileFilter primary) {
-            var all = new Gtk.FileFilter ();
-            all.name = _("All Files");
-            all.add_pattern ("*");
-
-            var store = new GLib.ListStore (typeof (Gtk.FileFilter));
-            store.append (primary);
-            store.append (all);
-
-            var d = new Gtk.FileDialog ();
-            d.title = title;
-            d.modal = true;
-            d.filters = store;
-            d.default_filter = primary;
-            return d;
-        }
-
-        private Gtk.FileFilter build_exe_filter () {
-            var f = new Gtk.FileFilter ();
-            f.name = _("Windows Executables");
-            f.add_mime_type ("application/x-ms-dos-executable");
-            f.add_mime_type ("application/x-msi");
-            f.add_pattern ("*.exe");
-            f.add_pattern ("*.bat");
-            f.add_pattern ("*.msi");
-            f.add_pattern ("*.com");
-            return f;
-        }
-
-        private Gtk.FileFilter build_script_filter () {
-            var f = new Gtk.FileFilter ();
-            f.name = _("Shell Scripts");
-            f.add_mime_type ("application/x-shellscript");
-            f.add_mime_type ("text/x-shellscript");
-            f.add_pattern ("*.sh");
-            f.add_pattern ("*.bash");
-            return f;
         }
 
         private void on_save () {
@@ -751,17 +707,13 @@ namespace Lumoria.Widgets.Dialogs {
         }
 
         private void on_reset_prefix () {
-            var dialog = new Adw.AlertDialog (
+            SettingsShared.present_destructive_confirmation (
+                this,
                 _("Reset to Global Defaults?"),
-                _("This will reset the prefix to the global default settings.")
-            );
-            dialog.add_response ("cancel", _("Cancel"));
-            dialog.add_response ("reset", _("Reset"));
-            dialog.set_response_appearance ("reset", Adw.ResponseAppearance.DESTRUCTIVE);
-            dialog.default_response = "cancel";
-            dialog.close_response = "cancel";
-            dialog.response.connect ((response) => {
-                if (response != "reset") return;
+                _("This will reset the prefix to the global default settings."),
+                "reset",
+                _("Reset"),
+                () => {
                 var entry = registry.prefixes[prefix_index];
                 entry.runner_version = "default";
                 entry.launch_entrypoint_id = "";
@@ -774,7 +726,6 @@ namespace Lumoria.Widgets.Dialogs {
                 saved ();
                 close ();
             });
-            dialog.present (this);
         }
 
         private void on_remove_prefix () {

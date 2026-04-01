@@ -1,5 +1,27 @@
 namespace Lumoria.Widgets.Services {
 
+    public class GamepadFocus : Object {
+        private const string CSS_CLASS = "gamepad-focus";
+
+        public static void clear (Gtk.Widget? widget) {
+            if (widget != null) {
+                widget.remove_css_class (CSS_CLASS);
+            }
+        }
+
+        public static void apply (Gtk.Widget widget) {
+            widget.add_css_class (CSS_CLASS);
+            widget.grab_focus ();
+        }
+
+        public static bool is_descendant_of (Gtk.Widget widget, Gtk.Widget ancestor) {
+            for (var current = widget; current != null; current = current.get_parent ()) {
+                if (current == ancestor) return true;
+            }
+            return false;
+        }
+    }
+
     public class GamepadListNavigator : Object {
         private Gee.ArrayList<Gtk.Widget> targets;
         private Gtk.Widget? focused_widget;
@@ -40,13 +62,15 @@ namespace Lumoria.Widgets.Services {
 
         public void clear_focus () {
             if (focused_widget != null) {
-                focused_widget.remove_css_class ("gamepad-focus");
+                GamepadFocus.clear (focused_widget);
                 focused_widget = null;
             }
         }
 
         private Gtk.Widget? current_target () {
-            if (focused_widget != null && focused_widget.get_visible () && is_descendant_of (focused_widget, root)) {
+            if (focused_widget != null
+                && focused_widget.get_visible ()
+                && GamepadFocus.is_descendant_of (focused_widget, root)) {
                 return focused_widget;
             }
             return null;
@@ -54,18 +78,10 @@ namespace Lumoria.Widgets.Services {
 
         private void set_focus (Gtk.Widget widget) {
             if (focused_widget != null && focused_widget != widget) {
-                focused_widget.remove_css_class ("gamepad-focus");
+                GamepadFocus.clear (focused_widget);
             }
             focused_widget = widget;
-            focused_widget.add_css_class ("gamepad-focus");
-            focused_widget.grab_focus ();
-        }
-
-        private bool is_descendant_of (Gtk.Widget widget, Gtk.Widget ancestor) {
-            for (var w = widget; w != null; w = w.get_parent ()) {
-                if (w == ancestor) return true;
-            }
-            return false;
+            GamepadFocus.apply (focused_widget);
         }
     }
 }

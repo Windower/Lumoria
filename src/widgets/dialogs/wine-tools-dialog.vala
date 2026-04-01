@@ -23,8 +23,7 @@ namespace Lumoria.Widgets.Dialogs {
             row.add_suffix (new Gtk.Image.from_icon_name ("go-next-symbolic"));
             row.activated.connect (() => {
                 if (tools_blocked) return;
-                // Defer close so it doesn't free dialog children while this handler is on the stack.
-                // Prevents segfaults :/
+                // Close after the handler returns to avoid freeing dialog children mid-signal.
                 Idle.add (() => { close (); return false; });
                 on_activate ();
             });

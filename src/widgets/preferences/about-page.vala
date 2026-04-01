@@ -42,16 +42,14 @@ namespace Lumoria.Widgets.Preferences {
 
             add_credit_row (credits_group, _("Windower project maintainers"), "");
             add_credit_row (credits_group, _("Wine, Proton, and DXVK contributors"), "");
-            add_credit_row (credits_group, _("ProtonPlus, Lutris and Winetricks"), _("Heavy inspiration"));
-
-            add_credit_row (credits_group, "Thorny", _("LargeAddressAware reference"));
+            add_credit_row (credits_group, _("ProtonPlus, Lutris and Winetrick "), _(""));
 
             append (credits_group);
 
             var community_group = SettingsShared.build_group (_("Special Thanks"), 24, 12, 12);
 
             var community_row = new Adw.ActionRow ();
-            community_row.title = _("💖 The Windower Linux Community");
+            community_row.title = _("💖 The Windower Community");
             community_group.add (community_row);
 
             append (community_group);

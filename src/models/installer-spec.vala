@@ -21,9 +21,13 @@ namespace Lumoria.Models {
             var s = new InstallerSpec ();
             s.parse_installable (obj);
             s.version = json_string (obj, "version");
-            s.variables = json_string_map (obj, "variables");
-            s.entrypoints = parse_entrypoints (obj);
-            s.redists = json_string_array (obj, "redists");
+            Gee.HashMap<string, string> variables;
+            Gee.ArrayList<Entrypoint> entrypoints;
+            Gee.ArrayList<string> redists;
+            s.parse_installable_supporting_fields (obj, out variables, out entrypoints, out redists);
+            s.variables = variables;
+            s.entrypoints = entrypoints;
+            s.redists = redists;
             return s;
         }
     }

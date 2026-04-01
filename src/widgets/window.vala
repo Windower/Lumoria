@@ -315,13 +315,8 @@ namespace Lumoria.Widgets {
             if (entry == null) return;
 
             var prefix_dir = entry.resolved_path ();
-            var launcher = new Gtk.FileLauncher (File.new_for_path (prefix_dir));
-            launcher.launch.begin (this, null, (obj, res) => {
-                try {
-                    launcher.launch.end (res);
-                } catch (Error e) {
-                    show_toast (_("Could not open prefix directory: %s").printf (e.message));
-                }
+            SettingsShared.open_directory (this, prefix_dir, (message) => {
+                show_toast (_("Could not open prefix directory: %s").printf (message));
             });
         }
 
@@ -331,29 +326,18 @@ namespace Lumoria.Widgets {
             var entry = require_runnable (index);
             if (entry == null) return;
 
-            var dialog = new Gtk.FileDialog ();
-            dialog.title = _("Launch EXE In Prefix");
-            dialog.modal = true;
-
-            var initial = entry.resolved_path ();
-            if (FileUtils.test (initial, FileTest.IS_DIR)) {
-                dialog.initial_folder = File.new_for_path (initial);
-            }
-
-            dialog.open.begin (this, null, (obj, res) => {
-                try {
-                    var file = dialog.open.end (res);
-                    if (file == null) return;
-                    var exe_path = file.get_path ();
-                    if (exe_path == null || exe_path == "") return;
-                    if (!exe_path.down ().has_suffix (".exe")) {
-                        show_toast (_("Please choose a .exe file."));
-                        return;
-                    }
-                    launch_prefix_exe (index, exe_path);
-                } catch (Error e) {
-                    warning ("Failed to select EXE file: %s", e.message);
+            var dialog = SettingsShared.build_file_dialog (
+                _("Launch EXE In Prefix"),
+                SettingsShared.build_windows_executable_filter ()
+            );
+            SettingsShared.open_file_dialog (this, dialog, entry.resolved_path (), (path) => {
+                if (!SettingsShared.is_windows_executable_path (path)) {
+                    show_toast (_("Please choose a Windows executable file."));
+                    return;
                 }
+                launch_prefix_exe (index, path);
+            }, (message) => {
+                show_toast (_("Failed to select executable: %s").printf (message));
             });
         }
 
@@ -476,8 +460,9 @@ namespace Lumoria.Widgets {
             dialog.closed.connect (() => {
                 active_dialogs.remove (dialog);
                 var root = current_gamepad_root ();
-                if (gamepad_focus_widget != null && !is_descendant_of (gamepad_focus_widget, root)) {
-                    gamepad_focus_widget.remove_css_class ("gamepad-focus");
+                if (gamepad_focus_widget != null
+                    && !Services.GamepadFocus.is_descendant_of (gamepad_focus_widget, root)) {
+                    Services.GamepadFocus.clear (gamepad_focus_widget);
                     gamepad_focus_widget = null;
                 }
             });
@@ -549,7 +534,7 @@ namespace Lumoria.Widgets {
 
             stack.set_visible_child_name (next_page.name);
             if (gamepad_focus_widget != null) {
-                gamepad_focus_widget.remove_css_class ("gamepad-focus");
+                Services.GamepadFocus.clear (gamepad_focus_widget);
                 gamepad_focus_widget = null;
             }
             move_gamepad_focus (1);
@@ -656,7 +641,7 @@ namespace Lumoria.Widgets {
             if (gamepad_focus_widget != null &&
                 gamepad_focus_widget.get_visible () &&
                 gamepad_focus_widget.get_mapped () &&
-                is_descendant_of (gamepad_focus_widget, root)) {
+                Services.GamepadFocus.is_descendant_of (gamepad_focus_widget, root)) {
                 return gamepad_focus_widget;
             }
 
@@ -676,13 +661,11 @@ namespace Lumoria.Widgets {
             }
 
             if (gamepad_focus_widget != null) {
-                gamepad_focus_widget.remove_css_class ("gamepad-focus");
+                Services.GamepadFocus.clear (gamepad_focus_widget);
             }
 
             gamepad_focus_widget = target;
-            gamepad_focus_widget.add_css_class ("gamepad-focus");
-
-            gamepad_focus_widget.grab_focus ();
+            Services.GamepadFocus.apply (gamepad_focus_widget);
         }
 
         private Gee.ArrayList<Gtk.Widget> collect_gamepad_targets (Gtk.Widget root) {
@@ -752,11 +735,10 @@ namespace Lumoria.Widgets {
 
         private Gtk.Widget? find_actionable_focus_widget (Gtk.Widget root) {
             var focus = get_focus ();
-            if (focus == null || !is_descendant_of (focus, root)) return null;
+            if (focus == null || !Services.GamepadFocus.is_descendant_of (focus, root)) return null;
 
             for (var w = focus; w != null && w != root; w = w.get_parent ()) {
-                if (w is Adw.EntryRow) return w;
-                if (w is Gtk.Entry || w is Gtk.TextView) return w;
+                if (is_text_input_widget (w)) return w;
                 if (w is Gtk.Button && !should_ignore_gamepad_button ((Gtk.Button) w)) return w;
                 if (w is Adw.SwitchRow) return w;
                 if (w is Adw.ExpanderRow) return w;
@@ -768,11 +750,8 @@ namespace Lumoria.Widgets {
             return null;
         }
 
-        private bool is_descendant_of (Gtk.Widget widget, Gtk.Widget ancestor) {
-            for (var w = widget; w != null; w = w.get_parent ()) {
-                if (w == ancestor) return true;
-            }
-            return false;
+        private bool is_text_input_widget (Gtk.Widget widget) {
+            return widget is Adw.EntryRow || widget is Gtk.Entry || widget is Gtk.TextView;
         }
 
         private bool should_ignore_gamepad_button (Gtk.Button button) {
@@ -784,7 +763,7 @@ namespace Lumoria.Widgets {
         private bool is_navigable_widget (Gtk.Widget root, Gtk.Widget widget) {
             if (!widget.get_visible ()) return false;
             if (widget != root && !widget.get_mapped ()) return false;
-            return is_descendant_of (widget, root);
+            return Services.GamepadFocus.is_descendant_of (widget, root);
         }
 
         private bool is_expander_header_row (Gtk.Widget widget) {
@@ -838,22 +817,17 @@ namespace Lumoria.Widgets {
         }
 
         private void request_quit_confirmation () {
-            var dialog = new Adw.AlertDialog (
+            SettingsShared.present_destructive_confirmation (
+                this,
                 _("Quit Lumoria?"),
-                _("Any running Wine processes will continue in the background.")
-            );
-            dialog.add_response ("cancel", _("Cancel"));
-            dialog.add_response ("quit", _("Quit"));
-            dialog.set_response_appearance ("quit", Adw.ResponseAppearance.DESTRUCTIVE);
-            dialog.default_response = "cancel";
-            dialog.close_response = "cancel";
-            dialog.response.connect ((id) => {
-                if (id == "quit") {
+                _("Any running Wine processes will continue in the background."),
+                "quit",
+                _("Quit"),
+                () => {
                     allow_window_close = true;
                     this.close ();
                 }
-            });
-            dialog.present (this);
+            );
         }
 
         private void initialize_gamepad_focus () {
@@ -869,6 +843,10 @@ namespace Lumoria.Widgets {
 
         private void handle_back_action () {
             var root = current_gamepad_root ();
+            var target = current_gamepad_target ();
+            if (target != null && is_text_input_widget (target)) {
+                return;
+            }
             if (root is Adw.Dialog) {
                 ((Adw.Dialog) root).close ();
             } else {

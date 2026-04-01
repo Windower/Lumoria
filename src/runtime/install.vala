@@ -28,14 +28,16 @@ namespace Lumoria.Runtime {
             progress.log_message (msg);
         });
         var log_path = logger.log_path;
-        LogFunc emit = logger.emitter ();
 
         try {
 
             logger.banner ("Lumoria Install Log", false);
-            emit ("Prefix: %s\n".printf (opts.prefix_path));
-            emit ("Runner: %s variant=%s version=%s\n".printf (opts.runner_id, opts.variant_id, opts.runner_version));
-            emit ("Log file: %s\n\n".printf (log_path));
+            logger.emit_line ("Prefix: %s\n".printf (opts.prefix_path));
+            logger.emit_line ("Runner: %s variant=%s version=%s\n".printf (opts.runner_id, opts.variant_id, opts.runner_version));
+            if (logger.is_disk_enabled ()) {
+                logger.emit_line ("Log file: %s\n".printf (log_path));
+            }
+            logger.emit_line ("\n");
 
             var installer_spec = Models.InstallerSpec.load_from_resource ();
             Models.LauncherSpec? launcher = null;
@@ -102,7 +104,7 @@ namespace Lumoria.Runtime {
             var runner_spec = Models.RunnerSpec.find_or_default (runner_specs, opts.runner_id);
 
             var resolved_version = Utils.Preferences.resolve_version (opts.runner_id, opts.runner_version);
-            emit ("Using runner: %s %s\n".printf (runner_spec.display_label (), resolved_version));
+            logger.emit_line ("Using runner: %s %s\n".printf (runner_spec.display_label (), resolved_version));
 
             check_cancelled (cancellable);
 
@@ -116,17 +118,18 @@ namespace Lumoria.Runtime {
                     if (total > 0) {
                         progress.progress_changed (dl_base + (double) downloaded / (double) total * dl_range);
                     }
-                }
+                },
+                logger
             );
-            emit ("Runner extracted to: %s\n".printf (result.extracted_to));
+            logger.emit_line ("Runner extracted to: %s\n".printf (result.extracted_to));
 
             check_cancelled (cancellable);
 
             var paths = resolve_wine_paths (result.extracted_to, runner_spec, opts.variant_id);
-            emit ("Wine binary: %s\n".printf (paths.wine));
-            emit ("Wineboot: via wine wineboot\n");
-            emit ("Wineserver: %s\n".printf (paths.wineserver));
-            emit ("Runner root: %s\n\n".printf (paths.root));
+            logger.emit_line ("Wine binary: %s\n".printf (paths.wine));
+            logger.emit_line ("Wineboot: via wine wineboot\n");
+            logger.emit_line ("Wineserver: %s\n".printf (paths.wineserver));
+            logger.emit_line ("Runner root: %s\n\n".printf (paths.root));
 
             var variant = runner_spec.effective_variant (opts.variant_id);
             var wine_arch = opts.wine_arch;
@@ -156,11 +159,11 @@ namespace Lumoria.Runtime {
             Utils.ensure_dir (cache_root);
             var vars = build_prefix_vars (pfx_path, cache_root, installer_spec.variables);
 
-            emit ("Installer variables:\n");
+            logger.emit_line ("Installer variables:\n");
             foreach (var e in vars.entries) {
-                emit ("  %s = %s\n".printf (e.key, e.value));
+                logger.emit_line ("  %s = %s\n".printf (e.key, e.value));
             }
-            emit ("\n");
+            logger.emit_line ("\n");
 
             Gee.HashMap<string, string>? launcher_vars = null;
             if (launcher != null) {
@@ -176,7 +179,7 @@ namespace Lumoria.Runtime {
                 step_idx++;
                 var dest = expand_path (dl.dest, vars);
 
-                ensure_download_item (dl, dest, step_idx, total_steps, progress, emit);
+                ensure_download_item (dl, dest, step_idx, total_steps, progress, logger);
             }
 
             if (launcher_vars != null) {
@@ -186,7 +189,7 @@ namespace Lumoria.Runtime {
 
                         step_idx++;
                         var dest = expand_path (dl.dest, launcher_vars);
-                        ensure_download_item (dl, dest, step_idx, total_steps, progress, emit);
+                        ensure_download_item (dl, dest, step_idx, total_steps, progress, logger);
                     }
                 }
 
@@ -195,7 +198,7 @@ namespace Lumoria.Runtime {
 
                     step_idx++;
                     var dest = expand_path (dl.dest, launcher_vars);
-                    ensure_download_item (dl, dest, step_idx, total_steps, progress, emit);
+                    ensure_download_item (dl, dest, step_idx, total_steps, progress, logger);
                 }
             }
 
@@ -204,7 +207,7 @@ namespace Lumoria.Runtime {
             progress.step_changed ("(%d/%d) Predownloading enabled components\u2026".printf (step_idx, total_steps));
             progress.progress_changed ((double) (step_idx - 1) / total_steps);
             logger.banner ("Predownloading enabled components");
-            predownload_enabled_components (null, emit);
+            predownload_enabled_components (null, logger);
 
             check_cancelled (cancellable);
 
@@ -222,9 +225,8 @@ namespace Lumoria.Runtime {
             }
 
             logger.banner ("Creating wine prefix");
-            var wine_emit = RuntimeLog.tagged_emitter (emit, LogType.WINE);
-            create_wine_prefix (paths, env, wine_emit, cancellable);
-            emit ("Wine prefix created at: %s\n\n".printf (pfx_path));
+            create_wine_prefix (paths, env, logger, cancellable);
+            logger.emit_line ("Wine prefix created at: %s\n\n".printf (pfx_path));
 
             logger.phase ("Apply components");
             step_idx++;
@@ -233,7 +235,7 @@ namespace Lumoria.Runtime {
             logger.banner ("Applying enabled components");
             string? component_warning = null;
             try {
-                var comp_result = apply_enabled_components (pfx_path, prefix_entry, emit);
+                var comp_result = apply_enabled_components (pfx_path, prefix_entry, logger);
                 foreach (var ov in comp_result.dll_overrides.entries) {
                     env.add_dll_override (ov.key, ov.value);
                 }
@@ -248,7 +250,7 @@ namespace Lumoria.Runtime {
                     var reg = Models.PrefixRegistry.load (Utils.prefix_registry_path ());
                     reg.update_entry (prefix_entry);
                     reg.save (Utils.prefix_registry_path ());
-                    emit ("Seeded %d component env default(s) into prefix runtime_env_vars\n".printf (comp_env_defaults.size));
+                    logger.emit_line ("Seeded %d component env default(s) into prefix runtime_env_vars\n".printf (comp_env_defaults.size));
                 }
 
                 apply_env_overrides (env, prefs.get_runtime_env_vars ());
@@ -256,7 +258,7 @@ namespace Lumoria.Runtime {
                     apply_env_overrides (env, prefix_entry.runtime_env_vars);
                 }
             } catch (Error comp_err) {
-                logger.warn ("Component application failed: %s".printf (comp_err.message));
+                logger.typed (LogType.WARN, "Component application failed: %s".printf (comp_err.message));
                 component_warning = "Component setup failed: %s".printf (comp_err.message);
             }
 
@@ -269,7 +271,7 @@ namespace Lumoria.Runtime {
                 progress.progress_changed ((double) (step_idx - 1) / total_steps);
                 logger.step (step_idx, total_steps, step.description, step.step_type);
 
-                run_install_step (step, vars, paths, env, emit, cancellable);
+                run_install_step (step, vars, paths, env, logger, cancellable);
             }
 
             if (launcher_vars != null) {
@@ -284,7 +286,7 @@ namespace Lumoria.Runtime {
                         progress.step_changed ("(%d/%d) %s".printf (step_idx, total_steps, step.description));
                         progress.progress_changed ((double) (step_idx - 1) / total_steps);
                         logger.step (step_idx, total_steps, step.description, step.step_type);
-                        run_install_step (step, launcher_vars, paths, env, emit, cancellable);
+                        run_install_step (step, launcher_vars, paths, env, logger, cancellable);
                     }
                 }
 
@@ -296,15 +298,13 @@ namespace Lumoria.Runtime {
                     progress.progress_changed ((double) (step_idx - 1) / total_steps);
                     logger.banner ("Redist: %s (code)".printf (rid));
 
-                    var redist_opts = new RedistOptions ();
-                    redist_opts.cache_dir = Utils.cache_dir ();
-                    redist_opts.prefix_path = launcher_vars.has_key ("PREFIX") ? launcher_vars["PREFIX"] : "";
-                    redist_opts.wine_arch = env.get_var ("WINEARCH") ?? "win64";
-                    redist_opts.wine_bin = paths.wine;
-                    redist_opts.wine_env = env;
-                    redist_opts.paths = paths;
-                    redist_opts.cancellable = cancellable;
-                    install_redist (rid, redist_opts, emit);
+                    var redist_opts = build_redist_options (
+                        launcher_vars.has_key ("PREFIX") ? launcher_vars["PREFIX"] : "",
+                        paths,
+                        env,
+                        cancellable
+                    );
+                    install_redist (rid, redist_opts, logger);
                 }
 
                 foreach (var step in launcher.steps) {
@@ -314,11 +314,11 @@ namespace Lumoria.Runtime {
                     progress.step_changed ("(%d/%d) %s".printf (step_idx, total_steps, step.description));
                     progress.progress_changed ((double) (step_idx - 1) / total_steps);
                     logger.step (step_idx, total_steps, step.description, step.step_type);
-                    run_install_step (step, launcher_vars, paths, env, emit, cancellable);
+                    run_install_step (step, launcher_vars, paths, env, logger, cancellable);
                 }
             }
 
-            shutdown_wineserver (paths, env, wine_emit);
+            shutdown_wineserver (paths, env, logger);
             progress.progress_changed (1.0);
             if (component_warning != null) {
                 logger.banner ("Install completed with warnings");
@@ -330,11 +330,11 @@ namespace Lumoria.Runtime {
 
         } catch (IOError.CANCELLED e) {
             logger.banner ("INSTALL CANCELLED");
-            emit ("%s\n".printf (e.message));
+            logger.emit_line ("%s\n".printf (e.message));
             progress.install_finished (false, "Installation cancelled.");
         } catch (Error e) {
             logger.banner ("INSTALL FAILED");
-            emit ("%s\n".printf (e.message));
+            logger.emit_line ("%s\n".printf (e.message));
             progress.install_finished (false, e.message);
         } finally {
             logger.close ();
@@ -347,20 +347,20 @@ namespace Lumoria.Runtime {
         int step_idx,
         int total_steps,
         InstallProgress progress,
-        LogFunc emit
+        RuntimeLog logger
     ) throws Error {
         Utils.ensure_dir (Path.get_dirname (dest));
         progress.step_changed ("(%d/%d) Downloading %s\u2026".printf (step_idx, total_steps, dl.id));
 
-        if (download_item_is_valid (dl, dest, emit)) {
+        if (download_item_is_valid (dl, dest, logger)) {
             progress.progress_changed ((double) step_idx / total_steps);
-            RuntimeLog.emit_typed (emit, LogType.CACHED, dest);
+            logger.typed (LogType.CACHED, dest);
             return;
         }
 
         var s_base = (double) (step_idx - 1) / total_steps;
         var s_range = 1.0 / total_steps;
-        emit ("Downloading: %s\n  -> %s\n".printf (dl.url, dest));
+        logger.emit_line ("Downloading: %s\n  -> %s\n".printf (dl.url, dest));
         Utils.ensure_downloaded_file (
             dl.url,
             dest,
@@ -373,14 +373,14 @@ namespace Lumoria.Runtime {
                 }
             }
         );
-        RuntimeLog.emit_typed (emit, LogType.DONE, dl.id);
+        logger.typed (LogType.DONE, dl.id);
     }
 
-    private bool download_item_is_valid (Models.DownloadItem dl, string path, LogFunc emit) {
+    private bool download_item_is_valid (Models.DownloadItem dl, string path, RuntimeLog logger) {
         if (!FileUtils.test (path, FileTest.EXISTS)) return false;
 
         if (dl.sha256 == "") {
-            RuntimeLog.emit_typed (emit, LogType.WARN, "%s has no checksum; using size-only cache validation".printf (dl.id));
+            logger.typed (LogType.WARN, "%s has no checksum; using size-only cache validation".printf (dl.id));
         }
 
         var valid = Utils.validate_downloaded_file (path, 0, dl.sha256, dl.id);
@@ -395,14 +395,14 @@ namespace Lumoria.Runtime {
         Gee.HashMap<string, string> vars,
         WinePaths paths,
         WineEnv env,
-        LogFunc emit,
+        RuntimeLog logger,
         Cancellable? cancellable = null
     ) throws Error {
         check_cancelled (cancellable);
 
         if (step.condition != "") {
-            if (!evaluate_condition (step.condition, env)) {
-                RuntimeLog.emit_typed (emit, LogType.SKIP, "condition '%s' not met".printf (step.condition));
+            if (!evaluate_condition (step.condition, env, logger)) {
+                logger.typed (LogType.SKIP, "condition '%s' not met".printf (step.condition));
                 return;
             }
         }
@@ -410,7 +410,7 @@ namespace Lumoria.Runtime {
         foreach (var skip in step.skip_if_exists) {
             var expanded = expand_path (skip, vars);
             if (FileUtils.test (expanded, FileTest.EXISTS)) {
-                RuntimeLog.emit_typed (emit, LogType.SKIP, "%s exists, skipping step".printf (expanded));
+                logger.typed (LogType.SKIP, "%s exists, skipping step".printf (expanded));
                 return;
             }
         }
@@ -421,56 +421,54 @@ namespace Lumoria.Runtime {
                     var pfx = vars.has_key ("PREFIX") ? vars["PREFIX"] : "";
                     var drive_c = pfx != "" ? Path.build_filename (pfx, "drive_c") : "";
                     if (drive_c != "" && FileUtils.test (drive_c, FileTest.EXISTS)) {
-                        RuntimeLog.emit_typed (emit, LogType.SKIP, "wine prefix already exists: %s".printf (pfx));
+                        logger.typed (LogType.SKIP, "wine prefix already exists: %s".printf (pfx));
                         break;
                     }
-                    create_wine_prefix (paths, env, emit, cancellable);
+                    create_wine_prefix (paths, env, logger, cancellable);
                 } else {
                     throw new IOError.FAILED ("Unknown task: %s", step.command);
                 }
                 break;
 
             case "wineexec":
-                run_wineexec_step (step, vars, paths, env, emit, cancellable);
+                run_wineexec_step (step, vars, paths, env, logger, cancellable);
                 break;
 
             case "copy":
                 var src = expand_path (step.src, vars);
                 var dst = expand_path (step.dst, vars);
-                RuntimeLog.emit_typed (emit, LogType.COPY, "%s -> %s".printf (src, dst));
+                logger.typed (LogType.COPY, "%s -> %s".printf (src, dst));
                 Utils.copy_path (src, dst, null);
                 break;
 
             case "link":
-                run_link_step (step, vars, emit);
+                run_link_step (step, vars, logger);
                 break;
 
             case "redist":
-                var redist_opts = new RedistOptions ();
-                redist_opts.cache_dir = Utils.cache_dir ();
-                redist_opts.prefix_path = vars.has_key ("PREFIX") ? vars["PREFIX"] : "";
-                redist_opts.wine_arch = env.get_var ("WINEARCH") ?? "win64";
-                redist_opts.wine_bin = paths.wine;
-                redist_opts.wine_env = env;
-                redist_opts.paths = paths;
-                redist_opts.cancellable = cancellable;
-                install_redist (step.command, redist_opts, emit);
+                var redist_opts = build_redist_options (
+                    vars.has_key ("PREFIX") ? vars["PREFIX"] : "",
+                    paths,
+                    env,
+                    cancellable
+                );
+                install_redist (step.command, redist_opts, logger);
                 break;
 
             case "extract":
                 var src = expand_path (step.src, vars);
                 var dst = expand_path (step.dst, vars);
-                RuntimeLog.emit_typed (emit, LogType.EXTRACT, "%s -> %s".printf (src, dst));
+                logger.typed (LogType.EXTRACT, "%s -> %s".printf (src, dst));
                 Utils.extract_archive (src, dst);
                 verify_step_paths (step.verify_paths, vars);
                 break;
 
             case "extract_multi":
-                run_extract_multi_step (step, vars, emit);
+                run_extract_multi_step (step, vars, logger);
                 break;
 
             case "fonts":
-                install_fonts_step (step, vars, paths, env, emit, cancellable);
+                install_fonts_step (step, vars, paths, env, logger, cancellable);
                 break;
 
             case "cabextract":
@@ -480,21 +478,21 @@ namespace Lumoria.Runtime {
                 if (!FileUtils.test (cab_src, FileTest.EXISTS) || Utils.file_size_or_zero (cab_src) <= 0) {
                     throw new IOError.FAILED ("cabextract source missing or empty: %s", cab_src);
                 }
-                RuntimeLog.emit_typed (emit, LogType.CABEXTRACT, "%s -> %s".printf (Path.get_basename (cab_src), cab_dst));
-                cabextract_file (cab_src, cab_filter, cab_dst, emit);
+                logger.typed (LogType.CABEXTRACT, "%s -> %s".printf (Path.get_basename (cab_src), cab_dst));
+                cabextract_file (cab_src, cab_filter, cab_dst, logger);
                 break;
 
             case "dll_override":
                 var dll = step.command;
                 var mode = step.mode;
-                RuntimeLog.emit_typed (emit, LogType.DLL_OVERRIDE, "%s=%s".printf (dll, mode));
+                logger.typed (LogType.DLL_OVERRIDE, "%s=%s".printf (dll, mode));
                 try {
                     run_wine_command (paths.wine,
                         { "reg", "add", "HKCU\\Software\\Wine\\DllOverrides",
                           "/v", dll, "/t", "REG_SZ", "/d", mode, "/f" },
-                        env, null, emit, cancellable);
+                        env, null, logger, cancellable);
                 } catch (Error e) {
-                    warning ("DLL override reg command failed: %s", e.message);
+                    logger.typed (LogType.WARN, "DLL override reg command failed: %s".printf (e.message));
                 }
                 break;
 
@@ -508,89 +506,101 @@ namespace Lumoria.Runtime {
         Gee.HashMap<string, string> vars,
         WinePaths paths,
         WineEnv env,
-        LogFunc emit,
+        RuntimeLog logger,
         Cancellable? cancellable
     ) throws Error {
-        var exe = expand_path (step.command, vars);
-        bool is_msiexec = exe == "msiexec";
+        var raw_exe = expand_path (step.command, vars);
+        bool is_builtin_command = is_builtin_wine_command (raw_exe);
+        bool is_msiexec = raw_exe == "msiexec";
+        string? host_exe = null;
+        var exe = raw_exe;
+        if (!is_builtin_command) {
+            host_exe = normalize_wineexec_host_path (raw_exe, vars);
+            exe = to_wine_path (vars["PREFIX"], host_exe);
+        }
         var expanded_args = new Gee.ArrayList<string> ();
         for (int i = 0; i < step.args.size; i++) {
             expanded_args.add (expand_path (step.args[i], vars));
         }
-        if (is_msiexec && !has_msiexec_logging_flag (expanded_args)) {
+        if (is_msiexec && !has_msiexec_logging_flag (expanded_args) && logger.is_disk_enabled ()) {
             var msi_log_path = create_msiexec_log_path (step, vars);
             expanded_args.add ("/l*v");
             expanded_args.add (msi_log_path);
-            RuntimeLog.emit_typed (emit, LogType.WINEEXEC, "msi_log=%s".printf (msi_log_path));
+            logger.typed (LogType.WINEEXEC, "msi_log=%s".printf (msi_log_path));
         }
         var args = new string[expanded_args.size + 1];
         args[0] = exe;
         for (int i = 0; i < expanded_args.size; i++) {
             args[i + 1] = expanded_args[i];
         }
-        var working = step.working_dir != "" ? expand_path (step.working_dir, vars) : null;
+        var working = step.working_dir != ""
+            ? normalize_wineexec_host_path (expand_path (step.working_dir, vars), vars)
+            : null;
 
-        RuntimeLog.emit_typed (emit, LogType.WINEEXEC, "exe=%s".printf (exe));
-        for (int i = 0; i < expanded_args.size; i++) {
-            RuntimeLog.emit_typed (emit, LogType.WINEEXEC, "arg[%d]=%s".printf (i, expanded_args[i]));
+        logger.typed (LogType.WINEEXEC, "exe=%s".printf (raw_exe));
+        if (host_exe != null) {
+            logger.typed (LogType.WINEEXEC, "resolved_exe=%s".printf (host_exe));
         }
-        if (working != null) RuntimeLog.emit_typed (emit, LogType.WINEEXEC, "cwd=%s".printf (working));
+        for (int i = 0; i < expanded_args.size; i++) {
+            logger.typed (LogType.WINEEXEC, "arg[%d]=%s".printf (i, expanded_args[i]));
+        }
+        if (working != null) logger.typed (LogType.WINEEXEC, "cwd=%s".printf (working));
 
-        if (exe != "msiexec" && exe != "regedit" && exe != "regsvr32" && exe != "wineboot") {
-            if (!FileUtils.test (exe, FileTest.EXISTS)) {
-                throw new IOError.FAILED ("wineexec: exe not found on host: %s", exe);
+        if (!is_builtin_command) {
+            if (host_exe == null || !FileUtils.test (host_exe, FileTest.EXISTS)) {
+                throw new IOError.FAILED ("wineexec: exe not found on host: %s", host_exe ?? raw_exe);
             }
         }
-        validate_wineexec_file_args (args, emit);
+        validate_wineexec_file_args (args, logger);
 
         try {
-            run_wine_command (paths.wine, args, env, working, emit, cancellable);
+            run_wine_command (paths.wine, args, env, working, logger, cancellable);
         } catch (Error e) {
             if (e is IOError.CANCELLED) throw e;
-            bool all_verified = verify_paths_with_logging (step.verify_paths, vars, emit);
+            bool all_verified = verify_paths_with_logging (step.verify_paths, vars, logger);
             if (!all_verified && is_msiexec) {
-                RuntimeLog.emit_typed (emit, LogType.WARN, "msiexec failed; retrying once after wineserver shutdown");
-                shutdown_wineserver (paths, env, emit);
+                logger.typed (LogType.WARN, "msiexec failed; retrying once after wineserver shutdown");
+                shutdown_wineserver (paths, env, logger);
                 Thread.usleep (750000);
                 try {
-                    run_wine_command (paths.wine, args, env, working, emit, cancellable);
+                    run_wine_command (paths.wine, args, env, working, logger, cancellable);
                 } catch (Error retry_e) {
                     if (retry_e is IOError.CANCELLED) throw retry_e;
-                    all_verified = verify_paths_with_logging (step.verify_paths, vars, emit);
+                    all_verified = verify_paths_with_logging (step.verify_paths, vars, logger);
                     if (!all_verified) throw retry_e;
-                    RuntimeLog.emit_typed (emit, LogType.WARN, "retry failed (exit non-zero) but verify_paths all exist, continuing");
+                    logger.typed (LogType.WARN, "retry failed (exit non-zero) but verify_paths all exist, continuing");
                     return;
                 }
             }
             if (!all_verified) {
-                all_verified = verify_paths_with_logging (step.verify_paths, vars, emit);
+                all_verified = verify_paths_with_logging (step.verify_paths, vars, logger);
             }
             if (!all_verified) throw e;
-            RuntimeLog.emit_typed (emit, LogType.WARN, "command failed (exit non-zero) but verify_paths all exist, continuing");
+            logger.typed (LogType.WARN, "command failed (exit non-zero) but verify_paths all exist, continuing");
         }
     }
 
-    private void validate_wineexec_file_args (string[] args, LogFunc emit) throws Error {
+    private void validate_wineexec_file_args (string[] args, RuntimeLog logger) throws Error {
         foreach (var arg in args) {
             if (arg == null || !arg.has_prefix ("/")) continue;
             if (!arg.has_suffix (".msi") && !arg.has_suffix (".exe") && !arg.has_suffix (".reg")) continue;
             if (FileUtils.test (arg, FileTest.EXISTS)) continue;
 
-            RuntimeLog.emit_typed (emit, LogType.ERROR, "file argument does not exist: %s".printf (arg));
+            logger.typed (LogType.ERROR, "file argument does not exist: %s".printf (arg));
             var parent = Path.get_dirname (arg);
             if (FileUtils.test (parent, FileTest.IS_DIR)) {
-                RuntimeLog.emit_typed (emit, LogType.DEBUG, "contents of %s:".printf (parent));
+                logger.typed (LogType.DEBUG, "contents of %s:".printf (parent));
                 try {
                     var dir = Dir.open (parent);
                     string? name;
                     while ((name = dir.read_name ()) != null) {
-                        emit ("  %s\n".printf (name));
+                        logger.emit_line ("  %s\n".printf (name));
                     }
                 } catch (FileError fe) {
-                    emit ("  (could not list: %s)\n".printf (fe.message));
+                    logger.emit_line ("  (could not list: %s)\n".printf (fe.message));
                 }
             } else {
-                RuntimeLog.emit_typed (emit, LogType.DEBUG, "parent directory does not exist: %s".printf (parent));
+                logger.typed (LogType.DEBUG, "parent directory does not exist: %s".printf (parent));
             }
             throw new IOError.FAILED ("wineexec: file argument not found: %s", arg);
         }
@@ -599,7 +609,7 @@ namespace Lumoria.Runtime {
     private void run_link_step (
         Models.InstallStep step,
         Gee.HashMap<string, string> vars,
-        LogFunc emit
+        RuntimeLog logger
     ) throws Error {
         var dst = expand_path (step.dst, vars);
         Utils.ensure_dir (dst);
@@ -609,11 +619,11 @@ namespace Lumoria.Runtime {
             var name = Path.get_basename (src);
             var target = Path.build_filename (dst, name);
             if (FileUtils.test (target, FileTest.EXISTS) || FileUtils.test (target, FileTest.IS_SYMLINK)) {
-                RuntimeLog.emit_typed (emit, LogType.LINK, "%s already exists, replacing".printf (target));
+                logger.typed (LogType.LINK, "%s already exists, replacing".printf (target));
                 FileUtils.remove (target);
             }
             var src_exists = FileUtils.test (src, FileTest.EXISTS);
-            RuntimeLog.emit_typed (emit, LogType.LINK, "%s %s -> %s (source %s)".printf (
+            logger.typed (LogType.LINK, "%s %s -> %s (source %s)".printf (
                 mode, src, target, src_exists ? "exists" : "MISSING"));
             if (!src_exists) {
                 throw new IOError.FAILED ("Link source missing: %s", src);
@@ -634,7 +644,7 @@ namespace Lumoria.Runtime {
     private void run_extract_multi_step (
         Models.InstallStep step,
         Gee.HashMap<string, string> vars,
-        LogFunc emit
+        RuntimeLog logger
     ) throws Error {
         var dst = expand_path (step.dst, vars);
         var volumes = new Gee.ArrayList<string> ();
@@ -653,10 +663,10 @@ namespace Lumoria.Runtime {
             if (!FileUtils.test (vol, FileTest.EXISTS) || Utils.file_size_or_zero (vol) <= 0) {
                 throw new IOError.FAILED ("extract_multi volume missing or empty: %s", vol);
             }
-            RuntimeLog.emit_typed (emit, LogType.EXTRACT, "volume: %s".printf (vol));
+            logger.typed (LogType.EXTRACT, "volume: %s".printf (vol));
         }
 
-        RuntimeLog.emit_typed (emit, LogType.EXTRACT, "multi-volume -> %s".printf (dst));
+        logger.typed (LogType.EXTRACT, "multi-volume -> %s".printf (dst));
         Utils.extract_archive_multi (Utils.arraylist_to_strv (volumes), dst);
         verify_step_paths (step.verify_paths, vars);
     }
@@ -666,7 +676,7 @@ namespace Lumoria.Runtime {
         Gee.HashMap<string, string> vars,
         WinePaths paths,
         WineEnv env,
-        LogFunc emit,
+        RuntimeLog logger,
         Cancellable? cancellable
     ) throws Error {
         var fonts_dir = expand_path (step.dst, vars);
@@ -683,7 +693,7 @@ namespace Lumoria.Runtime {
             var extract_dir = Path.build_filename (tmp_dir, basename);
             Utils.ensure_dir (extract_dir);
 
-            RuntimeLog.emit_typed (emit, LogType.FONTS, "extracting %s".printf (Path.get_basename (exe_path)));
+            logger.typed (LogType.FONTS, "extracting %s".printf (Path.get_basename (exe_path)));
             Utils.extract_archive (exe_path, extract_dir);
 
             bool copied_any = false;
@@ -699,10 +709,10 @@ namespace Lumoria.Runtime {
                     FileUtils.set_data (dst, data);
                     copied_any = true;
                     fonts_copied_total++;
-                    RuntimeLog.emit_typed (emit, LogType.FONTS, "copied %s".printf (dst));
+                    logger.typed (LogType.FONTS, "copied %s".printf (dst));
                 }
             } catch (Error e) {
-                RuntimeLog.emit_typed (emit, LogType.FONTS, "warning: %s".printf (e.message));
+                logger.typed (LogType.FONTS, "warning: %s".printf (e.message));
             }
 
             if (!copied_any) {
@@ -711,26 +721,22 @@ namespace Lumoria.Runtime {
         }
 
         Utils.remove_recursive (tmp_dir);
-        RuntimeLog.emit_typed (
-            emit,
-            LogType.FONTS,
-            "summary: packages=%d, fonts_copied=%d".printf (packages_processed, fonts_copied_total)
-        );
-        RuntimeLog.emit_typed (emit, LogType.FONTS, "installed to %s".printf (fonts_dir));
+        logger.typed (LogType.FONTS, "summary: packages=%d, fonts_copied=%d".printf (packages_processed, fonts_copied_total));
+        logger.typed (LogType.FONTS, "installed to %s".printf (fonts_dir));
     }
 
-    private bool evaluate_condition (string condition, WineEnv env) {
+    private bool evaluate_condition (string condition, WineEnv env, RuntimeLog logger) {
         if (condition.has_prefix ("arch:")) {
             var expected = condition.substring (5).down ().strip ();
             var actual_arch = env.get_var ("WINEARCH") ?? "win64";
             var norm = (actual_arch == "win32") ? "win32" : "win64";
             return norm == expected;
         }
-        warning ("Unknown condition: %s — skipping step", condition);
+        logger.typed (LogType.WARN, "Unknown condition: %s; skipping step".printf (condition));
         return false;
     }
 
-    private void cabextract_file (string archive, string cab_filter, string dest, LogFunc? emit) throws Error {
+    private void cabextract_file (string archive, string cab_filter, string dest, RuntimeLog logger) throws Error {
         var decomp = new MsPack.CabDecompressor ();
 
         var cab = decomp.search (archive);
@@ -765,24 +771,22 @@ namespace Lumoria.Runtime {
         }
 
         if (match == null) {
-            if (emit != null) {
-                RuntimeLog.emit_typed (emit, LogType.MSPACK, "filter: %s".printf (filter_normalized));
-                RuntimeLog.emit_typed (emit, LogType.MSPACK, "scanned %d cab(s), %d file(s) in %s".printf (cab_count, file_count, Path.get_basename (archive)));
-                int shown = 0;
-                for (unowned var c = cab; c != null; c = c.get_next ()) {
-                    for (unowned var f = c.get_files (); f != null; f = f.get_next ()) {
-                        var fname = f.get_filename ();
-                        if (fname != null) {
-                            RuntimeLog.emit_typed (emit, LogType.MSPACK, "  %s".printf (fname));
-                        }
-                        shown++;
-                        if (shown >= 50) {
-                            RuntimeLog.emit_typed (emit, LogType.MSPACK, "  ... (%d more)".printf (file_count - shown));
-                            break;
-                        }
+            logger.typed (LogType.MSPACK, "filter: %s".printf (filter_normalized));
+            logger.typed (LogType.MSPACK, "scanned %d cab(s), %d file(s) in %s".printf (cab_count, file_count, Path.get_basename (archive)));
+            int shown = 0;
+            for (unowned var c = cab; c != null; c = c.get_next ()) {
+                for (unowned var f = c.get_files (); f != null; f = f.get_next ()) {
+                    var fname = f.get_filename ();
+                    if (fname != null) {
+                        logger.typed (LogType.MSPACK, "  %s".printf (fname));
                     }
-                    if (shown >= 50) break;
+                    shown++;
+                    if (shown >= 50) {
+                        logger.typed (LogType.MSPACK, "  ... (%d more)".printf (file_count - shown));
+                        break;
+                    }
                 }
+                if (shown >= 50) break;
             }
             decomp.close (cab);
             throw new IOError.FAILED ("mspack: %s not found in %s", cab_filter, archive);
@@ -859,14 +863,14 @@ namespace Lumoria.Runtime {
     private bool verify_paths_with_logging (
         Gee.ArrayList<string> verify_paths,
         Gee.HashMap<string, string> vars,
-        LogFunc emit
+        RuntimeLog logger
     ) {
         if (verify_paths.size == 0) return false;
         bool all_verified = true;
         foreach (var vp in verify_paths) {
             var expanded = expand_path (vp, vars);
             var exists = FileUtils.test (expanded, FileTest.EXISTS);
-            RuntimeLog.emit_typed (emit, LogType.VERIFY, "%s -> %s".printf (expanded, exists ? "EXISTS" : "MISSING"));
+            logger.typed (LogType.VERIFY, "%s -> %s".printf (expanded, exists ? "EXISTS" : "MISSING"));
             if (!exists) all_verified = false;
         }
         return all_verified;
@@ -903,6 +907,35 @@ namespace Lumoria.Runtime {
 
     private string expand_path (string input, Gee.HashMap<string, string> vars) {
         return Utils.expand_vars (input, vars);
+    }
+
+    private bool is_builtin_wine_command (string command) {
+        switch (command) {
+            case "msiexec":
+            case "regedit":
+            case "regsvr32":
+            case "wineboot":
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private string normalize_wineexec_host_path (string value, Gee.HashMap<string, string> vars) {
+        if (value == "") return value;
+        if (Path.is_absolute (value)) return value;
+        if (!vars.has_key ("PREFIX")) return value;
+
+        var lower = value.down ();
+        if (lower.has_prefix ("drive_c/")
+            || lower.has_prefix ("drive_c\\")
+            || lower.has_prefix ("c:\\")
+            || lower.has_prefix ("c:/")
+            || lower == "c:") {
+            return resolve_host_path (value, vars["PREFIX"]);
+        }
+
+        return value;
     }
 
 }

@@ -1,5 +1,17 @@
 namespace Lumoria.Models {
 
+    public class DefaultRuntimeSettings : Object {
+        public string runner_id { get; set; default = ""; }
+        public string runner_version { get; set; default = "latest"; }
+        public bool wine_wayland { get; set; default = false; }
+        public string sync_mode { get; set; default = "ntsync"; }
+        public string wine_debug { get; set; default = ""; }
+        public bool large_address_aware { get; set; default = false; }
+        public Gee.HashMap<string, bool> component_enabled {
+            get; owned set; default = new Gee.HashMap<string, bool> ();
+        }
+    }
+
     public class DefaultsSpec : Object {
         public string runner_id { get; set; default = ""; }
         public string runner_version { get; set; default = "latest"; }
@@ -55,7 +67,6 @@ namespace Lumoria.Models {
                 }
             }
 
-            // If sandbox runner is absent, keep base runner defaults.
             if (spec.runner_id_sandbox == "") {
                 spec.runner_id_sandbox = spec.runner_id;
                 spec.runner_version_sandbox = spec.runner_version;
@@ -73,6 +84,25 @@ namespace Lumoria.Models {
                 },
                 new DefaultsSpec ()
             );
+        }
+
+        public DefaultRuntimeSettings resolve_for_env (bool sandboxed) {
+            var resolved = new DefaultRuntimeSettings ();
+            resolved.runner_id = sandboxed && runner_id_sandbox != "" ? runner_id_sandbox : runner_id;
+            resolved.runner_version = sandboxed && runner_id_sandbox != ""
+                ? runner_version_sandbox
+                : runner_version;
+            if (resolved.runner_version == "") {
+                resolved.runner_version = "latest";
+            }
+            resolved.wine_wayland = wine_wayland;
+            resolved.sync_mode = sync_mode;
+            resolved.wine_debug = wine_debug;
+            resolved.large_address_aware = large_address_aware;
+            foreach (var entry in component_enabled.entries) {
+                resolved.component_enabled[entry.key] = entry.value;
+            }
+            return resolved;
         }
     }
 }

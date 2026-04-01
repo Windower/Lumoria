@@ -24,6 +24,9 @@ namespace Lumoria.Widgets {
 
     public class SettingsShared : Object {
         public delegate void PrefixRemoveCallback (bool deleted_files);
+        public delegate void PathSelectedCallback (string path);
+        public delegate void ErrorMessageCallback (string message);
+        public delegate void ConfirmationCallback ();
 
         public const string PAGE_GENERAL = "general";
         public const string PAGE_RUNTIME = "runtime";
@@ -98,8 +101,8 @@ namespace Lumoria.Widgets {
 
         public static Gtk.StringList build_logging_mode_model () {
             var model = new Gtk.StringList (null);
-            model.append (_("Don't Keep"));
-            model.append (_("Keep (prefix-path/logs)"));
+            model.append (_("Don't Keep Files"));
+            model.append (_("Keep Files (prefix-path/logs)"));
             return model;
         }
 
@@ -109,10 +112,122 @@ namespace Lumoria.Widgets {
             return true;
         }
 
+        public static Gtk.FileDialog build_file_dialog (string title, Gtk.FileFilter primary) {
+            var all = new Gtk.FileFilter ();
+            all.name = _("All Files");
+            all.add_pattern ("*");
+
+            var store = new GLib.ListStore (typeof (Gtk.FileFilter));
+            store.append (primary);
+            store.append (all);
+
+            var dialog = new Gtk.FileDialog ();
+            dialog.title = title;
+            dialog.modal = true;
+            dialog.filters = store;
+            dialog.default_filter = primary;
+            return dialog;
+        }
+
+        public static Gtk.FileFilter build_windows_executable_filter () {
+            var filter = new Gtk.FileFilter ();
+            filter.name = _("Windows Executables");
+            filter.add_mime_type ("application/x-ms-dos-executable");
+            filter.add_mime_type ("application/x-msi");
+            filter.add_pattern ("*.exe");
+            filter.add_pattern ("*.bat");
+            filter.add_pattern ("*.msi");
+            filter.add_pattern ("*.com");
+            return filter;
+        }
+
+        public static Gtk.FileFilter build_shell_script_filter () {
+            var filter = new Gtk.FileFilter ();
+            filter.name = _("Shell Scripts");
+            filter.add_mime_type ("application/x-shellscript");
+            filter.add_mime_type ("text/x-shellscript");
+            filter.add_pattern ("*.sh");
+            filter.add_pattern ("*.bash");
+            return filter;
+        }
+
+        public static bool is_windows_executable_path (string path) {
+            var lower = path.down ();
+            return lower.has_suffix (".exe")
+                || lower.has_suffix (".bat")
+                || lower.has_suffix (".msi")
+                || lower.has_suffix (".com");
+        }
+
+        public static void open_file_dialog (
+            Gtk.Window? parent,
+            Gtk.FileDialog dialog,
+            string? initial_folder,
+            owned PathSelectedCallback on_selected,
+            owned ErrorMessageCallback? on_error = null
+        ) {
+            if (initial_folder != null && FileUtils.test (initial_folder, FileTest.IS_DIR)) {
+                dialog.initial_folder = File.new_for_path (initial_folder);
+            }
+
+            dialog.open.begin (parent, null, (obj, res) => {
+                try {
+                    var file = dialog.open.end (res);
+                    if (file == null) return;
+                    var path = file.get_path ();
+                    if (path == null || path == "") return;
+                    on_selected (path);
+                } catch (Error e) {
+                    if (on_error != null) {
+                        on_error (e.message);
+                    }
+                }
+            });
+        }
+
+        public static void open_directory (
+            Gtk.Window? parent,
+            string path,
+            owned ErrorMessageCallback? on_error = null
+        ) {
+            var launcher = new Gtk.FileLauncher (File.new_for_path (path));
+            launcher.launch.begin (parent, null, (obj, res) => {
+                try {
+                    launcher.launch.end (res);
+                } catch (Error e) {
+                    if (on_error != null) {
+                        on_error (e.message);
+                    }
+                }
+            });
+        }
+
         public static void present_alert (Gtk.Widget parent, string title, string body) {
             var alert = new Adw.AlertDialog (title, body);
             alert.add_response ("ok", _("OK"));
             alert.present (parent);
+        }
+
+        public static void present_destructive_confirmation (
+            Gtk.Widget parent,
+            string title,
+            string body,
+            string confirm_id,
+            string confirm_label,
+            owned ConfirmationCallback on_confirm
+        ) {
+            var dialog = new Adw.AlertDialog (title, body);
+            dialog.add_response ("cancel", _("Cancel"));
+            dialog.add_response (confirm_id, confirm_label);
+            dialog.set_response_appearance (confirm_id, Adw.ResponseAppearance.DESTRUCTIVE);
+            dialog.default_response = "cancel";
+            dialog.close_response = "cancel";
+            dialog.response.connect ((response) => {
+                if (response == confirm_id) {
+                    on_confirm ();
+                }
+            });
+            dialog.present (parent);
         }
 
         public static void present_remove_prefix_dialog (

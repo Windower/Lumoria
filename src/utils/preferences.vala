@@ -215,15 +215,17 @@ namespace Lumoria.Utils {
             if (component_enabled.has_key (comp_id)) {
                 return component_enabled[comp_id];
             }
-            if (defaults_spec.component_enabled.has_key (comp_id)) {
-                return defaults_spec.component_enabled[comp_id];
+            var defaults = resolved_defaults ();
+            if (defaults.component_enabled.has_key (comp_id)) {
+                return defaults.component_enabled[comp_id];
             }
             return spec_default;
         }
 
         public bool default_component_enabled (string comp_id) {
-            if (defaults_spec.component_enabled.has_key (comp_id)) {
-                return defaults_spec.component_enabled[comp_id];
+            var defaults = resolved_defaults ();
+            if (defaults.component_enabled.has_key (comp_id)) {
+                return defaults.component_enabled[comp_id];
             }
             return false;
         }
@@ -234,16 +236,19 @@ namespace Lumoria.Utils {
         }
 
         public void reset_to_defaults () {
-            runner_id = default_runner_id_for_env ();
-            runner_version = default_runner_version_for_env ();
-            _wine_wayland = defaults_spec.wine_wayland;
-            _large_address_aware = defaults_spec.large_address_aware;
+            var defaults = resolved_defaults ();
+            runner_id = defaults.runner_id;
+            runner_version = defaults.runner_version;
+            _wine_wayland = defaults.wine_wayland;
+            _sync_mode = defaults.sync_mode;
+            _wine_debug = defaults.wine_debug;
+            _large_address_aware = defaults.large_address_aware;
             _experimental_features = false;
 
             component_versions.clear ();
             component_enabled.clear ();
             runtime_env_vars.clear ();
-            foreach (var entry in defaults_spec.component_enabled.entries) {
+            foreach (var entry in defaults.component_enabled.entries) {
                 component_enabled[entry.key] = entry.value;
             }
 
@@ -333,36 +338,34 @@ namespace Lumoria.Utils {
             bool has_large_address_aware
         ) {
             bool changed = false;
+            var defaults = resolved_defaults ();
 
-            var env_runner_id = default_runner_id_for_env ();
-            var env_runner_version = default_runner_version_for_env ();
-
-            if (!has_runner_id && env_runner_id != "") {
-                runner_id = env_runner_id;
+            if (!has_runner_id && defaults.runner_id != "") {
+                runner_id = defaults.runner_id;
                 changed = true;
             }
             if (!has_runner_version) {
-                runner_version = env_runner_version;
+                runner_version = defaults.runner_version;
                 changed = true;
             }
             if (!has_wine_wayland) {
-                _wine_wayland = defaults_spec.wine_wayland;
+                _wine_wayland = defaults.wine_wayland;
                 changed = true;
             }
             if (!has_sync_mode) {
-                _sync_mode = defaults_spec.sync_mode;
+                _sync_mode = defaults.sync_mode;
                 changed = true;
             }
             if (!has_wine_debug) {
-                _wine_debug = defaults_spec.wine_debug;
+                _wine_debug = defaults.wine_debug;
                 changed = true;
             }
             if (!has_large_address_aware) {
-                _large_address_aware = defaults_spec.large_address_aware;
+                _large_address_aware = defaults.large_address_aware;
                 changed = true;
             }
 
-            foreach (var entry in defaults_spec.component_enabled.entries) {
+            foreach (var entry in defaults.component_enabled.entries) {
                 if (!component_enabled.has_key (entry.key)) {
                     component_enabled[entry.key] = entry.value;
                     changed = true;
@@ -372,18 +375,8 @@ namespace Lumoria.Utils {
             return changed;
         }
 
-        private string default_runner_id_for_env () {
-            if (Utils.is_sandboxed () && defaults_spec.runner_id_sandbox != "") {
-                return defaults_spec.runner_id_sandbox;
-            }
-            return defaults_spec.runner_id;
-        }
-
-        private string default_runner_version_for_env () {
-            if (Utils.is_sandboxed () && defaults_spec.runner_id_sandbox != "") {
-                return defaults_spec.runner_version_sandbox != "" ? defaults_spec.runner_version_sandbox : "latest";
-            }
-            return defaults_spec.runner_version != "" ? defaults_spec.runner_version : "latest";
+        private Models.DefaultRuntimeSettings resolved_defaults () {
+            return defaults_spec.resolve_for_env (Utils.is_sandboxed ());
         }
 
         private void load_updates (Json.Object obj) {

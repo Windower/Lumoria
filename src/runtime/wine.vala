@@ -1,6 +1,6 @@
 namespace Lumoria.Runtime {
-
-    public delegate void LogFunc (string message);
+    public const string STDERR_LOG_PREFIX = "[stderr] ";
+    public const SpawnFlags CHILD_SPAWN_FLAGS = SpawnFlags.SEARCH_PATH | SpawnFlags.DO_NOT_REAP_CHILD;
 
     public const string DLL_NATIVE   = "native";
     public const string DLL_BUILTIN  = "builtin";
@@ -49,11 +49,6 @@ namespace Lumoria.Runtime {
             return vars.has_key (key) ? vars[key] : null;
         }
 
-        /**
-         * Prepend a path component to a PATH-style variable.
-         * Falls back to the current system value when no override
-         * has been recorded yet in this WineEnv.
-         */
         public void prepend_path (string key, string path) {
             if (path == "") return;
             var existing = get_var (key) ?? Environment.get_variable (key) ?? "";
@@ -88,10 +83,6 @@ namespace Lumoria.Runtime {
             return copy;
         }
 
-        /**
-         * Produce a full process environment by layering this
-         * WineEnv's overrides on top of the current system env.
-         */
         public string[] to_spawn_strv () {
             var merged = new Gee.HashMap<string, string> ();
             foreach (var key in Environment.list_variables ()) {
@@ -110,18 +101,18 @@ namespace Lumoria.Runtime {
             return result;
         }
 
-        public void log_wine_vars (LogFunc emit) {
+        public void log_wine_vars (RuntimeLog logger) {
             var logged = new Gee.HashSet<string> ();
             foreach (var key in LOG_ENV_KEYS) {
                 var val = get_var (key) ?? Environment.get_variable (key);
                 if (val != null) {
-                    RuntimeLog.emit_typed (emit, LogType.ENV, "%s=%s".printf (key, val));
+                    logger.typed (LogType.ENV, "%s=%s".printf (key, val));
                     logged.add (key);
                 }
             }
             foreach (var entry in vars.entries) {
                 if (!logged.contains (entry.key)) {
-                    RuntimeLog.emit_typed (emit, LogType.ENV, "%s=%s".printf (entry.key, entry.value));
+                    logger.typed (LogType.ENV, "%s=%s".printf (entry.key, entry.value));
                 }
             }
         }
@@ -301,7 +292,7 @@ namespace Lumoria.Runtime {
         string[] wine_args,
         WineEnv wine_env,
         string? working_dir,
-        LogFunc? emit_log,
+        RuntimeLog logger,
         Cancellable? cancellable = null
     ) throws Error {
         var argv = new Gee.ArrayList<string> ();
@@ -316,13 +307,14 @@ namespace Lumoria.Runtime {
                 cmd_line += " " + arg;
             }
         }
-        if (emit_log != null) {
-            RuntimeLog.emit_typed (emit_log, LogType.CMD, cmd_line);
-            if (working_dir != null) RuntimeLog.emit_typed (emit_log, LogType.CWD, working_dir);
-            wine_env.log_wine_vars (emit_log);
-        }
+        logger.typed (LogType.CMD, cmd_line);
+        if (working_dir != null) logger.typed (LogType.CWD, working_dir);
+        wine_env.log_wine_vars (logger);
 
         var full_env = wine_env.to_spawn_strv ();
+        LogFunc emit_fn = (msg) => {
+            logger.emit_line (msg);
+        };
 
         int child_pid;
         int stdout_fd;
@@ -331,7 +323,7 @@ namespace Lumoria.Runtime {
             working_dir,
             Utils.arraylist_to_strv (argv),
             full_env,
-            SpawnFlags.SEARCH_PATH | SpawnFlags.DO_NOT_REAP_CHILD,
+            CHILD_SPAWN_FLAGS,
             null,
             out child_pid,
             null,
@@ -354,15 +346,14 @@ namespace Lumoria.Runtime {
             });
         }
 
-        var stderr_thread = new Thread<void> ("stderr-reader", () => {
-            read_fd_to_log (stderr_fd, stderr_output, emit_log, RuntimeLog.tag_prefix (LogType.STDERR));
-        });
-        read_fd_to_log (stdout_fd, stdout_output, emit_log, "");
-        stderr_thread.join ();
-
-        int status;
-        Posix.waitpid (child_pid, out status, 0);
-        Process.close_pid (child_pid);
+        int exit_code = drain_spawned_process (
+            child_pid,
+            stdout_fd,
+            stderr_fd,
+            stdout_output,
+            stderr_output,
+            emit_fn
+        );
 
         if (cancellable != null && cancel_handler != 0) {
             cancellable.disconnect (cancel_handler);
@@ -372,16 +363,7 @@ namespace Lumoria.Runtime {
             throw new IOError.CANCELLED ("Cancelled");
         }
 
-        int exit_code;
-        if (Process.if_exited (status)) {
-            exit_code = Process.exit_status (status);
-        } else {
-            exit_code = -1;
-        }
-
-        if (emit_log != null) {
-            RuntimeLog.emit_typed (emit_log, LogType.EXIT, "code=%d".printf (exit_code));
-        }
+        logger.typed (LogType.EXIT, "code=%d".printf (exit_code));
 
         if (exit_code != 0) {
             var msg = new StringBuilder ();
@@ -402,12 +384,31 @@ namespace Lumoria.Runtime {
         }
     }
 
-    private void read_fd_to_log (int fd, StringBuilder output, LogFunc? emit_log, string line_prefix) {
+    private int drain_spawned_process (
+        int child_pid,
+        int stdout_fd,
+        int stderr_fd,
+        StringBuilder stdout_output,
+        StringBuilder stderr_output,
+        LogFunc emit_log
+    ) {
+        var stderr_thread = new Thread<void> ("stderr-reader", () => {
+            read_fd_to_log (stderr_fd, stderr_output, emit_log, STDERR_LOG_PREFIX);
+        });
+        read_fd_to_log (stdout_fd, stdout_output, emit_log, "");
+        stderr_thread.join ();
+
+        int status;
+        Posix.waitpid (child_pid, out status, 0);
+        Process.close_pid (child_pid);
+        return Process.if_exited (status) ? Process.exit_status (status) : -1;
+    }
+
+    private void read_fd_to_log (int fd, StringBuilder output, LogFunc emit_log, string line_prefix) {
         var channel = new IOChannel.unix_new (fd);
         try {
             channel.set_flags (IOFlags.NONBLOCK);
         } catch (IOChannelError e) {
-            // Continue with default channel flags if nonblocking is unavailable.
         }
 
         char buf[4096];
@@ -423,16 +424,14 @@ namespace Lumoria.Runtime {
                 }
                 var chunk = ((string) buf).substring (0, (long) bytes_read);
                 output.append (chunk);
-                if (emit_log != null) {
-                    if (line_prefix != "") {
-                        var lines = chunk.split ("\n");
-                        for (int i = 0; i < lines.length; i++) {
-                            if (lines[i] == "" && i == lines.length - 1) continue;
-                            emit_log ("%s%s\n".printf (line_prefix, lines[i]));
-                        }
-                    } else {
-                        emit_log (chunk);
+                if (line_prefix != "") {
+                    var lines = chunk.split ("\n");
+                    for (int i = 0; i < lines.length; i++) {
+                        if (lines[i] == "" && i == lines.length - 1) continue;
+                        emit_log ("%s%s\n".printf (line_prefix, lines[i]));
                     }
+                } else {
+                    emit_log (chunk);
                 }
             }
         } catch (Error e) {
@@ -443,26 +442,26 @@ namespace Lumoria.Runtime {
         }
     }
 
-    public void create_wine_prefix (WinePaths paths, WineEnv env, LogFunc? emit_log, Cancellable? cancellable = null) throws Error {
+    public void create_wine_prefix (WinePaths paths, WineEnv env, RuntimeLog logger, Cancellable? cancellable = null) throws Error {
         var prefix = env.get_var ("WINEPREFIX");
         if (prefix != null) Utils.ensure_dir (prefix);
 
         var boot_env = env.copy ();
         boot_env.add_dll_override ("mscoree", DLL_DISABLED);
 
-        run_wine_command (paths.wine, { "wineboot", "-u" }, boot_env, null, emit_log, cancellable);
+        run_wine_command (paths.wine, { "wineboot", "-u" }, boot_env, null, logger, cancellable);
     }
 
-    public void shutdown_wineserver (WinePaths paths, WineEnv env, LogFunc? emit_log) {
+    public void shutdown_wineserver (WinePaths paths, WineEnv env, RuntimeLog logger) {
         var ws = paths.wineserver;
         if (ws == "" || !FileUtils.test (ws, FileTest.EXISTS)) return;
-        if (emit_log != null) RuntimeLog.emit_typed (emit_log, LogType.CMD, "%s -k".printf (ws));
+        logger.typed (LogType.CMD, "%s -k".printf (ws));
         try {
             int status;
             Process.spawn_sync (null, { ws, "-k" }, env.to_spawn_strv (), SpawnFlags.SEARCH_PATH, null, null, null, out status);
-            if (emit_log != null) RuntimeLog.emit_typed (emit_log, LogType.EXIT, "wineserver shutdown code=%d".printf (status));
+            logger.typed (LogType.EXIT, "wineserver shutdown code=%d".printf (status));
         } catch (Error e) {
-            if (emit_log != null) RuntimeLog.emit_typed (emit_log, LogType.WARN, "wineserver shutdown failed: %s".printf (e.message));
+            logger.typed (LogType.WARN, "wineserver shutdown failed: %s".printf (e.message));
         }
     }
 }

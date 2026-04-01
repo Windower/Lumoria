@@ -9,22 +9,9 @@ namespace Lumoria.Models {
         public abstract string install_base_dir { owned get; }
 
         protected abstract string cache_kind { get; }
-        protected abstract string? match_asset (Utils.GitHubRelease release);
+        protected abstract Utils.GitHubAsset? match_asset (Utils.GitHubRelease release);
         protected abstract string version_dir_for (string tag);
         protected virtual string checksum_regex () { return ""; }
-
-        protected static string? match_asset_by_regex (Utils.GitHubRelease release, string regex) {
-            if (regex == "") return null;
-            try {
-                var re = new Regex (regex);
-                foreach (var a in release.assets) {
-                    if (re.match (a.name)) return a.name;
-                }
-            } catch (RegexError e) {
-                warning ("Failed to match asset regex: %s", e.message);
-            }
-            return null;
-        }
 
         protected string releases_cache_path () {
             return Path.build_filename (Utils.cache_dir (), cache_kind, tool_id, "releases.json");
@@ -80,14 +67,8 @@ namespace Lumoria.Models {
             var release = find_release_for (ver);
             if (release == null) throw new IOError.FAILED ("Release not found: %s", ver.tag);
 
-            var asset_name = match_asset (release);
-            if (asset_name == null) throw new IOError.FAILED ("No matching asset in %s", release.tag_name);
-
-            Utils.GitHubAsset? asset = null;
-            foreach (var a in release.assets) {
-                if (a.name == asset_name) { asset = a; break; }
-            }
-            if (asset == null) throw new IOError.FAILED ("Asset not found: %s", asset_name);
+            var asset = match_asset (release);
+            if (asset == null) throw new IOError.FAILED ("No matching asset in %s", release.tag_name);
 
             var archive_path = Path.build_filename (cache_root, asset.name);
             var expected_checksum = resolve_asset_checksum (release, asset.name, cache_root);
@@ -164,10 +145,10 @@ namespace Lumoria.Models {
             return spec.resolve_version_dir (tag);
         }
 
-        protected override string? match_asset (Utils.GitHubRelease release) {
+        protected override Utils.GitHubAsset? match_asset (Utils.GitHubRelease release) {
             try {
                 var v = spec.effective_variant ("");
-                return match_asset_by_regex (release, v.asset_regex);
+                return Utils.find_github_asset_by_regex (release, v.asset_regex);
             } catch (Error e) {
                 warning ("RunnerToolAdapter.match_asset: failed to resolve variant: %s", e.message);
                 return null;
@@ -226,8 +207,13 @@ namespace Lumoria.Models {
             return tag;
         }
 
-        protected override string? match_asset (Utils.GitHubRelease release) {
-            return match_asset_by_regex (release, spec.asset_regex);
+        protected override Utils.GitHubAsset? match_asset (Utils.GitHubRelease release) {
+            try {
+                return Utils.find_github_asset_by_regex (release, spec.asset_regex);
+            } catch (RegexError e) {
+                warning ("Failed to match asset regex: %s", e.message);
+                return null;
+            }
         }
 
         protected override string checksum_regex () {
