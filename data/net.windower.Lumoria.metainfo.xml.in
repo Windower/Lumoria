@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2026 Lumoria Contributors -->
 <component type="desktop-application">
   <id>net.windower.Lumoria</id>
   <metadata_license>CC0-1.0</metadata_license>
@@ -20,20 +21,42 @@
 
   <launchable type="desktop-id">net.windower.Lumoria.desktop</launchable>
 
-  <url type="homepage">https://docs.windower.net/linux/</url>
+  <url type="homepage">https://lumoria.windower.net/</url>
   <url type="bugtracker">https://github.com/Windower/Lumoria/issues</url>
-  <url type="help">https://docs.windower.net/linux/</url>
+  <url type="faq">https://github.com/Windower/Lumoria/wiki</url>
   <url type="vcs-browser">https://github.com/Windower/Lumoria</url>
 
   <developer id="net.windower">
     <name>Lumoria Contributors</name>
   </developer>
+
   <branding>
     <color type="primary" scheme_preference="dark">#472B57</color>
     <color type="primary" scheme_preference="light">#DFBCD7</color>
   </branding>
 
   <content_rating type="oars-1.1" />
+
+  <requires>
+    <display_length compare="ge">600</display_length>
+  </requires>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>gamepad</control>
+  </supports>
+
+  <categories>
+    <category>Game</category>
+  </categories>
+
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/Windower/Lumoria/refs/heads/main/assets/screenshots/2.png</image>
+      <caption>The main interface of Lumoria</caption>
+    </screenshot>
+  </screenshots>
 
   <releases>
     <release version="0.1.1" date="2026-03-29">
@@ -56,13 +79,4 @@
     </release>
   </releases>
 
-  <requires>
-    <display_length compare="ge">480</display_length>
-  </requires>
-
-  <supports>
-    <control>pointing</control>
-    <control>keyboard</control>
-    <control>gamepad</control>
-  </supports>
 </component>
