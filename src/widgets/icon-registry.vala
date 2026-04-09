@@ -9,6 +9,7 @@ namespace Lumoria.Widgets {
         public const string DELETE = "user-trash-symbolic";
         public const string CHECKMARK = "object-select-symbolic";
         public const string COPY = "edit-copy-symbolic";
+        public const string PASTE = "edit-paste-symbolic";
         public const string REFRESH = "view-refresh-symbolic";
         public const string CLOSE = "window-close-symbolic";
         public const string MANAGE = "preferences-system-symbolic";
@@ -26,6 +27,7 @@ namespace Lumoria.Widgets {
         public const string PAGE_RUNNERS = "system-run-symbolic";
         public const string PAGE_COMPONENTS = "applications-utilities-symbolic";
         public const string PAGE_LAUNCH = "media-playback-start-symbolic";
+        public const string PAGE_SHORTCUTS = MENU;
         public const string PAGE_ADVANCED = "applications-system-symbolic";
         public const string PAGE_ABOUT = "help-about-symbolic";
 
@@ -41,6 +43,8 @@ namespace Lumoria.Widgets {
                     return PAGE_COMPONENTS;
                 case SettingsShared.PAGE_LAUNCH:
                     return PAGE_LAUNCH;
+                case SettingsShared.PAGE_SHORTCUTS:
+                    return PAGE_SHORTCUTS;
                 case SettingsShared.PAGE_ADVANCED:
                     return PAGE_ADVANCED;
                 case SettingsShared.PAGE_ABOUT:

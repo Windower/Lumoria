@@ -4,15 +4,15 @@ int main (string[] args) {
     Intl.bind_textdomain_codeset (Config.APP_ID, "UTF-8");
     Intl.textdomain (Config.APP_ID);
 
-    var resource_path = Lumoria.Utils.resolve_resource_path ();
-    if (resource_path != null) {
-        try {
-            var resource = Resource.load (resource_path);
-            GLib.resources_register (resource);
-        } catch (Error e) {
-            warning ("Failed to load resource bundle: %s", e.message);
+    if (args.length >= 2) {
+        var c = args[1];
+        if (c == "version" || c == "help" || c == "--help" || c == "-h" || c == "list" || c == "launch") {
+            Lumoria.Utils.register_resources ();
+            return Lumoria.Cli.run (args);
         }
     }
+
+    Lumoria.Utils.register_resources ();
 
     var app = new Lumoria.Widgets.Application ();
     return app.run (args);

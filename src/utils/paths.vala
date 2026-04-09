@@ -42,21 +42,38 @@ namespace Lumoria.Utils {
     }
 
     public static string? resolve_resource_path () {
-        try {
-            var exe = FileUtils.read_link ("/proc/self/exe");
-            var prefix = Path.get_dirname (Path.get_dirname (exe));
-            var resource_name = "%s.gresource".printf (Config.APP_ID);
+        var exe = current_executable_path ();
+        if (exe == null) return null;
+        var prefix = Path.get_dirname (Path.get_dirname (exe));
+        var resource_name = "%s.gresource".printf (Config.APP_ID);
 
-            var dev = Path.build_filename (prefix, "data", resource_name);
-            if (FileUtils.test (dev, FileTest.EXISTS)) return dev;
+        var dev = Path.build_filename (prefix, "data", resource_name);
+        if (FileUtils.test (dev, FileTest.EXISTS)) return dev;
 
-            var installed = Path.build_filename (prefix, "share", "lumoria", resource_name);
-            if (FileUtils.test (installed, FileTest.EXISTS)) return installed;
-        } catch (FileError e) {
-            warning ("Failed to resolve resource path: %s", e.message);
-        }
+        var installed = Path.build_filename (prefix, "share", "lumoria", resource_name);
+        if (FileUtils.test (installed, FileTest.EXISTS)) return installed;
 
         return null;
+    }
+
+    public static string? current_executable_path () {
+        try {
+            return FileUtils.read_link ("/proc/self/exe");
+        } catch (FileError e) {
+            warning ("Failed to resolve current executable path: %s", e.message);
+            return null;
+        }
+    }
+
+    public static void register_resources () {
+        var resource_path = resolve_resource_path ();
+        if (resource_path == null) return;
+        try {
+            var resource = Resource.load (resource_path);
+            GLib.resources_register (resource);
+        } catch (Error e) {
+            warning ("Failed to load resource bundle: %s", e.message);
+        }
     }
 
     public static string default_prefix_dir () {

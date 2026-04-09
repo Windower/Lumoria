@@ -25,6 +25,7 @@ subprojects/
 *.swo
 *~
 .cursor/
+uncrustify.cfg
 
 # OS junk
 .DS_Store

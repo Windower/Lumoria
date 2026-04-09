@@ -30,6 +30,9 @@ namespace Lumoria.Widgets.Dialogs {
         private Lumoria.Widgets.EnvVarsEditor prefix_env_editor;
         private Gtk.Label env_validation_label;
         private Adw.ToastOverlay toast_overlay;
+        private Gtk.Window host_window;
+        private Services.DynamicLauncherService shortcut_service;
+        private Gtk.Box shortcuts_content;
 
         public ManagePrefixDialog (
             Gtk.Window parent,
@@ -43,6 +46,7 @@ namespace Lumoria.Widgets.Dialogs {
                 content_width: 540,
                 content_height: 600
             );
+            this.host_window = parent;
             this.registry = registry;
             this.prefix_index = prefix_index;
             this.runner_specs = runner_specs;
@@ -50,6 +54,7 @@ namespace Lumoria.Widgets.Dialogs {
             visible_variants = new Gee.ArrayList<Models.RunnerVariant> ();
             component_mode_rows = new Gee.HashMap<string, OptionListRow> ();
             entrypoint_values = new Gee.ArrayList<string> ();
+            shortcut_service = new Services.DynamicLauncherService ();
             build_ui ();
         }
 
@@ -101,32 +106,6 @@ namespace Lumoria.Widgets.Dialogs {
 
             general_content.append (info_group);
 
-            var launch_group = SettingsShared.build_group (_("Default Launch Entrypoint"), 12);
-
-            var entrypoint_model = new Gtk.StringList (null);
-            entrypoint_model.append (_("Automatic (launcher/installer default)"));
-            entrypoint_values.add ("");
-            var entrypoints = Runtime.list_entrypoints (entry, launcher_specs);
-            foreach (var ep in entrypoints) {
-                entrypoint_model.append (ep.display_label ());
-                entrypoint_values.add (ep.id);
-            }
-
-            entrypoint_combo = new OptionListRow ();
-            entrypoint_combo.title = _("Entrypoint");
-            entrypoint_combo.model = entrypoint_model;
-            int entrypoint_selected = 0;
-            for (int i = 0; i < entrypoint_values.size; i++) {
-                if (entrypoint_values[i] == entry.launch_entrypoint_id) {
-                    entrypoint_selected = i;
-                    break;
-                }
-            }
-            entrypoint_combo.selected = entrypoint_selected;
-            launch_group.add (entrypoint_combo);
-
-            general_content.append (launch_group);
-            
             custom_entries = new Gee.ArrayList<Models.Entrypoint> ();
             foreach (var ep in entry.custom_entrypoints) {
                 var copy = new Models.Entrypoint ();
@@ -138,6 +117,18 @@ namespace Lumoria.Widgets.Dialogs {
                 custom_entries.add (copy);
             }
             custom_entry_rows = new Gee.ArrayList<Gtk.Widget> ();
+
+            var launch_group = SettingsShared.build_group (_("Default Launch Entrypoint"), 12);
+
+            entrypoint_combo = new OptionListRow ();
+            entrypoint_combo.title = _("Entrypoint");
+            entrypoint_combo.notify["selected"].connect (() => {
+                update_entrypoint_combo_subtitle ();
+                if (shortcuts_content != null) rebuild_shortcuts_ui ();
+            });
+            launch_group.add (entrypoint_combo);
+
+            general_content.append (launch_group);
 
             custom_entries_group = SettingsShared.build_group (_("Custom Launch Entries"), 12, 12);
             rebuild_custom_entries_ui ();
@@ -233,6 +224,10 @@ namespace Lumoria.Widgets.Dialogs {
             }
 
             SettingsShared.add_scrolled_settings_page (stack, general_content, SettingsShared.PAGE_GENERAL, _("General"));
+
+            shortcuts_content = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
+            SettingsShared.add_scrolled_settings_page (stack, shortcuts_content, SettingsShared.PAGE_SHORTCUTS, _("Shortcuts"));
+            rebuild_shortcuts_ui ();
 
             var advanced_content = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
 
@@ -423,6 +418,175 @@ namespace Lumoria.Widgets.Dialogs {
             add_row.activated.connect (() => show_custom_entry_editor (-1));
             custom_entries_group.add (add_row);
             custom_entry_rows.add (add_row);
+            refresh_entrypoint_models ();
+            if (shortcuts_content != null) rebuild_shortcuts_ui ();
+        }
+
+        private Gee.ArrayList<Runtime.LaunchTarget> current_launch_targets () {
+            return Runtime.list_launch_targets (registry.prefixes[prefix_index], launcher_specs, custom_entries);
+        }
+
+        private string current_selected_entrypoint_id () {
+            int ep_idx = (int) entrypoint_combo.selected;
+            if (ep_idx >= 0 && ep_idx < entrypoint_values.size) {
+                var selected_id = entrypoint_values[ep_idx];
+                if (selected_id != "") return selected_id;
+            }
+            var entry = registry.prefixes[prefix_index];
+            if (entry.launch_entrypoint_id != "") return entry.launch_entrypoint_id;
+            return Runtime.resolve_effective_entrypoint_id (entry, launcher_specs);
+        }
+
+        private void refresh_entrypoint_models () {
+            var entrypoint_model = new Gtk.StringList (null);
+            entrypoint_values.clear ();
+            entrypoint_model.append (_("Automatic (launcher/installer default)"));
+            entrypoint_values.add ("");
+            foreach (var target in current_launch_targets ()) {
+                entrypoint_model.append (target.selector_label);
+                entrypoint_values.add (target.id);
+            }
+            entrypoint_combo.model = entrypoint_model;
+            int entrypoint_selected = 0;
+            for (int i = 0; i < entrypoint_values.size; i++) {
+                if (entrypoint_values[i] == registry.prefixes[prefix_index].launch_entrypoint_id) {
+                    entrypoint_selected = i;
+                    break;
+                }
+            }
+            entrypoint_combo.selected = entrypoint_selected;
+            update_entrypoint_combo_subtitle ();
+        }
+
+        private void update_entrypoint_combo_subtitle () {
+            var selected_id = current_selected_entrypoint_id ();
+            if (selected_id == "") {
+                entrypoint_combo.subtitle = _("Automatic (launcher/installer default)");
+                return;
+            }
+
+            foreach (var target in current_launch_targets ()) {
+                if (target.id != selected_id) continue;
+                entrypoint_combo.subtitle = target.selector_label;
+                return;
+            }
+        }
+
+        private void rebuild_shortcuts_ui () {
+            Gtk.Widget? child;
+            while ((child = shortcuts_content.get_first_child ()) != null) {
+                shortcuts_content.remove (child);
+            }
+
+            var entry = registry.prefixes[prefix_index];
+            var targets = current_launch_targets ();
+            if (targets.size == 0) {
+                var empty_group = SettingsShared.build_group (_("Shortcuts"), 12);
+                var empty_row = new Adw.ActionRow ();
+                empty_row.title = _("No launch targets available");
+                empty_row.activatable = false;
+                empty_group.add (empty_row);
+                shortcuts_content.append (empty_group);
+                return;
+            }
+
+            Runtime.LaunchTargetSection? current_section = null;
+            Adw.PreferencesGroup? group = null;
+            var active_target_id = current_selected_entrypoint_id ();
+            foreach (var target in targets) {
+                if (current_section == null || current_section != target.section) {
+                    group = SettingsShared.build_group (Runtime.launch_target_section_title (target.section), 12, 12, 0);
+                    shortcuts_content.append (group);
+                    current_section = target.section;
+                }
+
+                var row = new Adw.ActionRow ();
+                row.title = target.label;
+                var subtitle = Runtime.launch_target_subtitle (target, active_target_id);
+                if (subtitle != "") row.subtitle = subtitle;
+
+                var add_btn = new Gtk.Button.with_label (_("Add"));
+                var remove_btn = new Gtk.Button.with_label (_("Remove"));
+                add_btn.valign = Gtk.Align.CENTER;
+                remove_btn.valign = Gtk.Align.CENTER;
+                add_btn.sensitive = !shortcut_service.has_menu_shortcut (entry, target.id);
+                remove_btn.sensitive = shortcut_service.has_menu_shortcut (entry, target.id);
+
+                var button_box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8);
+                button_box.append (add_btn);
+                button_box.append (remove_btn);
+                row.add_suffix (button_box);
+
+                var captured_target = target;
+                add_btn.clicked.connect (() => install_shortcut_for_target (captured_target));
+                remove_btn.clicked.connect (() => remove_shortcut_for_target (captured_target.id));
+
+                group.add (row);
+            }
+        }
+
+        private Gee.ArrayList<string> invalid_shortcut_ids () {
+            var valid_ids = new Gee.HashSet<string> ();
+            foreach (var target in current_launch_targets ()) valid_ids.add (target.id);
+
+            var stale_ids = new Gee.ArrayList<string> ();
+            foreach (var shortcut in registry.prefixes[prefix_index].dynamic_launcher_desktop_ids.entries) {
+                if (!valid_ids.contains (shortcut.key)) stale_ids.add (shortcut.key);
+            }
+            return stale_ids;
+        }
+
+        private bool prune_orphaned_shortcuts () {
+            foreach (var entrypoint_id in invalid_shortcut_ids ()) {
+                try {
+                    shortcut_service.remove_menu_shortcut (registry.prefixes[prefix_index], entrypoint_id);
+                } catch (Error e) {
+                    toast_overlay.add_toast (new Adw.Toast (e.message));
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private bool uninstall_all_shortcuts (Models.PrefixEntry entry) {
+            var ids = new Gee.ArrayList<string> ();
+            foreach (var shortcut in entry.dynamic_launcher_desktop_ids.entries) ids.add (shortcut.key);
+            foreach (var entrypoint_id in ids) {
+                try {
+                    shortcut_service.remove_menu_shortcut (entry, entrypoint_id);
+                } catch (Error e) {
+                    toast_overlay.add_toast (new Adw.Toast (e.message));
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private void install_shortcut_for_target (Runtime.LaunchTarget target) {
+            shortcut_service.install_menu_shortcut.begin (host_window, registry.prefixes[prefix_index], launcher_specs, target, (obj, res) => {
+                try {
+                    if (shortcut_service.install_menu_shortcut.end (res)) {
+                        registry.save (Utils.prefix_registry_path ());
+                        toast_overlay.add_toast (new Adw.Toast (_("Menu shortcut added")));
+                    } else {
+                        toast_overlay.add_toast (new Adw.Toast (_("Shortcut install was cancelled or failed")));
+                    }
+                } catch (Error e) {
+                    toast_overlay.add_toast (new Adw.Toast (e.message));
+                }
+                rebuild_shortcuts_ui ();
+            });
+        }
+
+        private void remove_shortcut_for_target (string entrypoint_id) {
+            try {
+                shortcut_service.remove_menu_shortcut (registry.prefixes[prefix_index], entrypoint_id);
+                registry.save (Utils.prefix_registry_path ());
+                toast_overlay.add_toast (new Adw.Toast (_("Menu shortcut removed")));
+            } catch (Error e) {
+                toast_overlay.add_toast (new Adw.Toast (e.message));
+            }
+            rebuild_shortcuts_ui ();
         }
 
         private void show_custom_entry_editor (int index) {
@@ -566,6 +730,15 @@ namespace Lumoria.Widgets.Dialogs {
                 var delete_btn = new Gtk.Button.with_label (_("Delete"));
                 delete_btn.add_css_class ("destructive-action");
                 delete_btn.clicked.connect (() => {
+                    if (shortcut_service.has_menu_shortcut (registry.prefixes[prefix_index], existing.id)) {
+                        try {
+                            shortcut_service.remove_menu_shortcut (registry.prefixes[prefix_index], existing.id);
+                            registry.save (Utils.prefix_registry_path ());
+                        } catch (Error e) {
+                            toast_overlay.add_toast (new Adw.Toast (e.message));
+                            return;
+                        }
+                    }
                     custom_entries.remove_at (index);
                     rebuild_custom_entries_ui ();
                     dialog.close ();
@@ -671,9 +844,11 @@ namespace Lumoria.Widgets.Dialogs {
             registry.prefixes[prefix_index].prelaunch_script = prelaunch_script_path;
             registry.prefixes[prefix_index].custom_entrypoints = custom_entries;
             registry.prefixes[prefix_index].runtime_env_vars = prefix_env_editor.values ();
+            var pfx = registry.prefixes[prefix_index];
             int ep_idx = (int) entrypoint_combo.selected;
             if (ep_idx < 0 || ep_idx >= entrypoint_values.size) ep_idx = 0;
-            registry.prefixes[prefix_index].launch_entrypoint_id = entrypoint_values[ep_idx];
+            pfx.launch_entrypoint_id = entrypoint_values[ep_idx];
+            if (!prune_orphaned_shortcuts ()) return;
 
             var prefix = registry.prefixes[prefix_index];
             foreach (var entry in component_mode_rows.entries) {
@@ -731,6 +906,7 @@ namespace Lumoria.Widgets.Dialogs {
         private void on_remove_prefix () {
             var entry = registry.prefixes[prefix_index];
             SettingsShared.present_remove_prefix_dialog (this, entry, (deleted_files) => {
+                if (!uninstall_all_shortcuts (entry)) return;
                 registry.remove_at (prefix_index);
                 removed ();
                 close ();

@@ -1,5 +1,6 @@
 lumoria_sources = files(
   'main.vala',
+  'cli/cli.vala',
 
   'models/base-spec.vala',
   'models/common.vala',
@@ -30,12 +31,14 @@ lumoria_sources = files(
   'runtime/run.vala',
   'runtime/prelaunch-patches.vala',
   'runtime/launch-resolver.vala',
+  'runtime/windower4-settings.vala',
   'runtime/components.vala',
 
   'widgets/application.vala',
   'widgets/prefix-row-widget.vala',
   'widgets/option-list-row.vala',
   'widgets/services/prefix-launch-service.vala',
+  'widgets/services/dynamic-launcher-service.vala',
   'widgets/services/gamepad-service.vala',
   'widgets/services/gamepad-list-navigator.vala',
   'widgets/icon-registry.vala',
@@ -73,6 +76,8 @@ lumoria_deps = [
   dependency('libarchive'),
   dependency('vte-2.91-gtk4'),
   dependency('manette-0.2'),
+  dependency('libportal'),
+  dependency('libportal-gtk4'),
 ]
 
 cc = meson.get_compiler('c')
@@ -84,7 +89,9 @@ lumoria_vala_args = [
   '--vapidir', vapi_dir,
   '--pkg', 'posix',
   '--pkg', 'libarchive',
-  '--pkg', 'mspack'
+  '--pkg', 'mspack',
+  '--pkg', 'libportal',
+  '--pkg', 'libportal-gtk4',
 ]
 
 executable(

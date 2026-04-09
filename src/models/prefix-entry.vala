@@ -53,6 +53,9 @@ namespace Lumoria.Models {
         public Gee.HashMap<string, RuntimeComponentOverride> runtime_component_overrides {
             get; owned set; default = new Gee.HashMap<string, RuntimeComponentOverride> ();
         }
+        public Gee.HashMap<string, string> dynamic_launcher_desktop_ids {
+            get; owned set; default = new Gee.HashMap<string, string> ();
+        }
         public string resolved_path () {
             if (uri != "") {
                 try {
@@ -137,6 +140,13 @@ namespace Lumoria.Models {
                 }
                 obj.set_object_member ("runtime_env_vars", env_obj);
             }
+            if (dynamic_launcher_desktop_ids.size > 0) {
+                var shortcuts_obj = new Json.Object ();
+                foreach (var entry in dynamic_launcher_desktop_ids.entries) {
+                    shortcuts_obj.set_string_member (entry.key, entry.value);
+                }
+                obj.set_object_member ("dynamic_launcher_desktop_ids", shortcuts_obj);
+            }
 
             if (runtime_component_overrides.size > 0) {
                 var overrides = new Json.Object ();
@@ -173,6 +183,7 @@ namespace Lumoria.Models {
             }
 
             e.runtime_env_vars = json_string_map (obj, "runtime_env_vars");
+            e.dynamic_launcher_desktop_ids = json_string_map (obj, "dynamic_launcher_desktop_ids");
 
             if (obj.has_member ("runtime_component_overrides")) {
                 var overrides = obj.get_object_member ("runtime_component_overrides");

@@ -33,6 +33,7 @@ namespace Lumoria.Widgets {
         public const string PAGE_RUNNERS = "runners";
         public const string PAGE_COMPONENTS = "components";
         public const string PAGE_LAUNCH = "launch";
+        public const string PAGE_SHORTCUTS = "shortcuts";
         public const string PAGE_ADVANCED = "advanced";
         public const string PAGE_ABOUT = "about";
 

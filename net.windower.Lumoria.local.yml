@@ -76,6 +76,17 @@ modules:
         url: https://www.cabextract.org.uk/libmspack/libmspack-0.11alpha.tar.gz
         sha256: 70dd1fb2f0aecc36791b71a1e1840e62173079eadaa081192d1c323a0eeea21b
 
+  - name: libportal
+    buildsystem: meson
+    config-opts:
+      - -Ddocs=false
+      - -Dbackend-qt5=disabled
+      - -Dbackend-qt6=disabled
+    sources:
+      - type: archive
+        url: https://github.com/flatpak/libportal/releases/download/0.9.1/libportal-0.9.1.tar.xz
+        sha256: de801ee349ed3c255a9af3c01b1a401fab5b3fc1c35eb2fd7dfb35d4b8194d7f
+
   - name: lumoria
     builddir: true
     buildsystem: meson

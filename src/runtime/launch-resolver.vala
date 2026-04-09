@@ -2,6 +2,43 @@ namespace Lumoria.Runtime {
 
     private const string DEFAULT_EXE = "drive_c/Program Files (x86)/PlayOnline/SquareEnix/FINAL FANTASY XI/polboot.exe";
 
+    public enum LaunchTargetSection {
+        MAIN,
+        WINDOWER_PROFILES
+    }
+
+    public class LaunchTarget : Object {
+        public string id { get; set; default = ""; }
+        public string label { get; set; default = ""; }
+        public string selector_label { get; set; default = ""; }
+        public LaunchTargetSection section { get; set; default = LaunchTargetSection.MAIN; }
+    }
+
+    public string launch_target_section_title (LaunchTargetSection section) {
+        switch (section) {
+            case LaunchTargetSection.WINDOWER_PROFILES:
+                return _("Windower profiles");
+            default:
+                return _("Launch");
+        }
+    }
+
+    public string launch_target_subtitle (
+        LaunchTarget target,
+        string active_target_id
+    ) {
+        if (target.id == active_target_id) {
+            return _("Default for this prefix");
+        }
+        if (target.section == LaunchTargetSection.WINDOWER_PROFILES) {
+            return "";
+        }
+        if (target.selector_label != target.label) {
+            return target.selector_label;
+        }
+        return "";
+    }
+
     public void resolve_launcher_exe (
         Models.PrefixEntry entry,
         Gee.ArrayList<Models.LauncherSpec> launcher_specs,
@@ -22,6 +59,24 @@ namespace Lumoria.Runtime {
                     exe = custom_ep.exe;
                     args = arraylist_to_strv (custom_ep.args);
                     return;
+                }
+            }
+
+            var wname = windower_profile_name_from_entry_id (entrypoint_id);
+            if (wname != null && entry.launcher_id == "windower4") {
+                var wlauncher = find_launcher_by_id (launcher_specs, "windower4");
+                if (wlauncher != null) {
+                    var wvars = build_launch_vars (pfx_path, wlauncher.variables);
+                    var wep = find_entrypoint (wlauncher.entrypoints, "");
+                    if (wep != null) {
+                        apply_entrypoint (wep, wvars, out exe, out args);
+                        var wl = new Gee.ArrayList<string> ();
+                        foreach (var a in args) wl.add (a);
+                        wl.add ("-p");
+                        wl.add (wname.strip () == "" ? "Default" : wname);
+                        args = arraylist_to_strv (wl);
+                        return;
+                    }
                 }
             }
 
@@ -60,6 +115,14 @@ namespace Lumoria.Runtime {
         Models.PrefixEntry entry,
         Gee.ArrayList<Models.LauncherSpec> launcher_specs
     ) {
+        return list_entrypoints_with_custom (entry, launcher_specs, entry.custom_entrypoints);
+    }
+
+    public Gee.ArrayList<Models.Entrypoint> list_entrypoints_with_custom (
+        Models.PrefixEntry entry,
+        Gee.ArrayList<Models.LauncherSpec> launcher_specs,
+        Gee.ArrayList<Models.Entrypoint> custom_list
+    ) {
         var all = new Gee.ArrayList<Models.Entrypoint> ();
         var pfx_path = install_prefix_path (entry.path);
 
@@ -75,11 +138,43 @@ namespace Lumoria.Runtime {
             }
         }
 
-        foreach (var ep in entry.custom_entrypoints) {
+        foreach (var ep in custom_list) {
             all.add (ep);
         }
 
         return all;
+    }
+
+    public Gee.ArrayList<LaunchTarget> list_launch_targets (
+        Models.PrefixEntry entry,
+        Gee.ArrayList<Models.LauncherSpec> launcher_specs,
+        Gee.ArrayList<Models.Entrypoint>? custom_list = null
+    ) {
+        var targets = new Gee.ArrayList<LaunchTarget> ();
+        var entrypoints = list_entrypoints_with_custom (
+            entry,
+            launcher_specs,
+            custom_list ?? entry.custom_entrypoints
+        );
+        foreach (var ep in entrypoints) {
+            var target = new LaunchTarget ();
+            target.id = ep.id;
+            target.label = ep.display_label ();
+            target.selector_label = target.label;
+            target.section = LaunchTargetSection.MAIN;
+            targets.add (target);
+        }
+
+        foreach (var ep in list_windower_profile_entrypoints (entry)) {
+            var target = new LaunchTarget ();
+            target.id = ep.id;
+            target.label = ep.display_label ();
+            target.selector_label = _("Windower - Profile (%s)").printf (target.label);
+            target.section = LaunchTargetSection.WINDOWER_PROFILES;
+            targets.add (target);
+        }
+
+        return targets;
     }
 
     public string resolve_host_path (string exe, string pfx_path) {
@@ -170,9 +265,12 @@ namespace Lumoria.Runtime {
             var copy = new Models.Entrypoint ();
             copy.id = ep.id;
             copy.name = ep.name;
+            copy.label = ep.label;
             copy.exe = Utils.expand_vars (ep.exe, vars);
             copy.is_default = ep.is_default;
-            copy.args = ep.args;
+            copy.prelaunch_script = ep.prelaunch_script;
+            copy.args = new Gee.ArrayList<string> ();
+            copy.args.add_all (ep.args);
             target.add (copy);
         }
     }

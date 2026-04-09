@@ -86,32 +86,14 @@ namespace Lumoria.Widgets {
 
             var has_runner = entry.runner_id != "";
 
-            var entrypoints = Runtime.list_entrypoints (entry, launcher_specs);
-            if (entrypoints.size > 0) {
-                add_row (build_section_header (_("Launch")));
-                var active_ep_id = Runtime.resolve_effective_entrypoint_id (entry, launcher_specs);
-                foreach (var ep in entrypoints) {
-                    var ep_row = new Adw.ActionRow ();
-                    ep_row.title = ep.display_label ();
-                    ep_row.activatable = false;
-
-                    if (active_ep_id != "" && ep.id == active_ep_id) {
-                        ep_row.subtitle = SUBTITLE_DEFAULT_PREFIX + _("Default for this prefix");
-                    }
-
-                    var ep_play_btn = new Gtk.Button.from_icon_name (IconRegistry.PAGE_LAUNCH);
-                    ep_play_btn.add_css_class ("flat");
-                    ep_play_btn.add_css_class ("launch-entry-play-btn");
-                    ep_play_btn.valign = Gtk.Align.CENTER;
-                    ep_play_btn.focusable = true;
-                    ep_play_btn.tooltip_text = _("Launch %s").printf (ep.display_label ());
-                    ep_play_btn.sensitive = has_runner;
-                    var ep_id = ep.id;
-                    ep_play_btn.clicked.connect (() => play_entrypoint_requested (prefix_index, ep_id));
-                    ep_row.add_suffix (ep_play_btn);
-
-                    add_row (ep_row);
+            var active_ep_id = Runtime.resolve_effective_entrypoint_id (entry, launcher_specs);
+            Runtime.LaunchTargetSection? current_section = null;
+            foreach (var target in Runtime.list_launch_targets (entry, launcher_specs)) {
+                if (current_section == null || current_section != target.section) {
+                    add_row (build_section_header (Runtime.launch_target_section_title (target.section)));
+                    current_section = target.section;
                 }
+                add_launch_target_row (target, has_runner, active_ep_id);
             }
 
             add_row (build_section_header (_("Tools")));
@@ -154,6 +136,36 @@ namespace Lumoria.Widgets {
             header.add_css_class ("dim-label");
             header.add_css_class ("caption");
             return header;
+        }
+
+        private void add_launch_target_row (
+            Runtime.LaunchTarget target,
+            bool has_runner,
+            string active_ep_id
+        ) {
+            var row = new Adw.ActionRow ();
+            row.title = target.label;
+            row.activatable = false;
+
+            var subtitle = Runtime.launch_target_subtitle (target, active_ep_id);
+            if (subtitle != "") {
+                row.subtitle = active_ep_id != "" && target.id == active_ep_id
+                    ? SUBTITLE_DEFAULT_PREFIX + subtitle
+                    : subtitle;
+            }
+
+            var play_button = new Gtk.Button.from_icon_name (IconRegistry.PAGE_LAUNCH);
+            play_button.add_css_class ("flat");
+            play_button.add_css_class ("launch-entry-play-btn");
+            play_button.valign = Gtk.Align.CENTER;
+            play_button.focusable = true;
+            play_button.tooltip_text = _("Launch %s").printf (target.label);
+            play_button.sensitive = has_runner;
+            var target_id = target.id;
+            play_button.clicked.connect (() => play_entrypoint_requested (prefix_index, target_id));
+            row.add_suffix (play_button);
+
+            add_row (row);
         }
 
         public void refresh (

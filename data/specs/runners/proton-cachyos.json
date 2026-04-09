@@ -30,6 +30,7 @@
       "wine_bin": "files/bin/wine",
       "wineserver": "files/bin/wineserver",
       "binary_kind": "legacy32",
+      "wine_arch": "win32",
       "sandbox_supported": false,
       "paths": {
         "bin": "files/bin",
