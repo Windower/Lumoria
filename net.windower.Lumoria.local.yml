@@ -11,10 +11,10 @@ build-options:
   prepend-ld-library-path: /usr/lib/sdk/vala/lib
 
 finish-args:
-  # - --device=all
-  # - --device-if=all:!has-input-device
-  - --device=dri
-  - --device=input
+  - --device=all
+  # - --device=dri
+  # for the life of me I cannot get --device=input to recognize Steam Deck Controller
+  # - --device=input
   - --filesystem=/run/udev:ro
   - --socket=wayland
   - --socket=fallback-x11
