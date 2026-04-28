@@ -23,7 +23,7 @@
       "dest": "$CACHE/windower/Windower.exe"
     }
   ],
-  "redists": ["dotnet48"],
+  "redists": ["dotnet48", "gdiplus"],
   "steps": [
     {
       "type": "copy",

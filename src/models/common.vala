@@ -45,6 +45,7 @@ namespace Lumoria.Models {
         public Gee.ArrayList<string> args { get; owned set; default = new Gee.ArrayList<string> (); }
         public Gee.ArrayList<string> skip_if_exists { get; owned set; default = new Gee.ArrayList<string> (); }
         public Gee.ArrayList<string> verify_paths { get; owned set; default = new Gee.ArrayList<string> (); }
+        public Gee.ArrayList<string> font_registrations { get; owned set; default = new Gee.ArrayList<string> (); }
 
         public static InstallStep from_json (Json.Object obj) {
             var s = new InstallStep ();
@@ -59,6 +60,7 @@ namespace Lumoria.Models {
             s.args = json_string_array (obj, "args");
             s.skip_if_exists = json_string_array (obj, "skip_if_exists");
             s.verify_paths = json_string_array (obj, "verify_paths");
+            s.font_registrations = json_string_array (obj, "font_registrations");
             return s;
         }
     }

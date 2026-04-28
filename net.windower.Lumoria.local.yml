@@ -11,15 +11,15 @@ build-options:
   prepend-ld-library-path: /usr/lib/sdk/vala/lib
 
 finish-args:
-  # Controllers (and virtual devices like Steam Deck desktop mode), hot-plugging, and ntsync support need --device=all.
-  # See https://github.com/flatpak/flatpak/issues/6199
-  - --device=all
+  # - --device=all
+  # - --device-if=all:!has-input-device
+  - --device=dri
+  - --device=input
   - --filesystem=/run/udev:ro
   - --socket=wayland
   - --socket=fallback-x11
-  - --socket=pulseaudio
   - --allow=multiarch
-  - --allow=devel
+  - --socket=pulseaudio
   - --share=network
   - --share=ipc
 

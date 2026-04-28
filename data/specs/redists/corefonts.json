@@ -80,6 +80,37 @@
         "$CACHE_REDIST/corefonts/verdan32.exe",
         "$CACHE_REDIST/corefonts/webdin32.exe"
       ],
+      "font_registrations": [
+        "arial.ttf|Arial",
+        "arialbd.ttf|Arial Bold",
+        "arialbi.ttf|Arial Bold Italic",
+        "ariali.ttf|Arial Italic",
+        "ariblk.ttf|Arial Black",
+        "comic.ttf|Comic Sans MS",
+        "comicbd.ttf|Comic Sans MS Bold",
+        "cour.ttf|Courier New",
+        "courbd.ttf|Courier New Bold",
+        "courbi.ttf|Courier New Bold Italic",
+        "couri.ttf|Courier New Italic",
+        "georgia.ttf|Georgia",
+        "georgiab.ttf|Georgia Bold",
+        "georgiai.ttf|Georgia Italic",
+        "georgiaz.ttf|Georgia Bold Italic",
+        "impact.ttf|Impact",
+        "times.ttf|Times New Roman",
+        "timesbd.ttf|Times New Roman Bold",
+        "timesbi.ttf|Times New Roman Bold Italic",
+        "timesi.ttf|Times New Roman Italic",
+        "trebuc.ttf|Trebuchet MS",
+        "trebucbd.ttf|Trebuchet MS Bold",
+        "trebucbi.ttf|Trebuchet MS Bold Italic",
+        "trebucit.ttf|Trebuchet MS Italic",
+        "verdana.ttf|Verdana",
+        "verdanab.ttf|Verdana Bold",
+        "verdanai.ttf|Verdana Italic",
+        "verdanaz.ttf|Verdana Bold Italic",
+        "webdings.ttf|Webdings"
+      ],
       "skip_if_exists": ["$FONTS/arial.ttf"]
     }
   ]

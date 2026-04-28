@@ -32,5 +32,14 @@ namespace Lumoria.Utils {
         public static bool is_sandboxed () {
             return is_flatpak ();
         }
+
+        public static bool is_wayland () {
+            var display = Gdk.Display.get_default ();
+            if (display == null) {
+                return false;
+            }
+
+            return display.get_type ().name ().down ().contains ("wayland");
+        }
     }
 }

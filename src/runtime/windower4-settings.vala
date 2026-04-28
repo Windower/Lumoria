@@ -37,19 +37,24 @@ namespace Lumoria.Runtime {
         try {
             FileUtils.get_contents (windower_settings_xml_path (entry), out xml_text);
         } catch (FileError e) {
+            list.add (build_windower_profile_entry (""));
             return list;
         }
 
         var names = parse_windower_profile_names_from_xml (xml_text);
         foreach (var name in names) {
-            var ep = new Models.Entrypoint ();
-            ep.id = windower_profile_entry_id (name);
-            ep.name = name;
-            ep.label = windower_profile_display_label (name);
-            ep.exe = "";
-            list.add (ep);
+            list.add (build_windower_profile_entry (name));
         }
         return list;
+    }
+
+    private Models.Entrypoint build_windower_profile_entry (string profile_name) {
+        var ep = new Models.Entrypoint ();
+        ep.id = windower_profile_entry_id (profile_name);
+        ep.name = profile_name;
+        ep.label = windower_profile_display_label (profile_name);
+        ep.exe = "";
+        return ep;
     }
 
     private Gee.ArrayList<string> parse_windower_profile_names_from_xml (string xml_text) {

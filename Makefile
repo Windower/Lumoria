@@ -67,6 +67,9 @@ release.repo.sync:
 	aws s3 sync "./$(OSTREE_REPO)" "$(S3_OSTREE_URI)" --delete
 	aws s3 cp "$(OSTREE_REPO)/summary" "$(S3_OSTREE_URI)/summary" $(S3_CP_FLAGS)
 	aws s3 cp "$(OSTREE_REPO)/summary.sig" "$(S3_OSTREE_URI)/summary.sig" $(S3_CP_FLAGS) || true
+	aws s3 rm "$(S3_OSTREE_URI)/summary.idx" || true
+	aws s3 rm "$(S3_OSTREE_URI)/summary.idx.sig" || true
+	aws s3 rm "$(S3_OSTREE_URI)/summaries" --recursive || true
 
 release.key.export:
 	@test -n "$(KEYID)" || (echo "KEYID is required." && exit 1)
@@ -77,6 +80,7 @@ release.key.sync: release.key.export
 	aws s3 cp "./$(PUBLIC_KEY_FILE)" "$(S3_OSTREE_URI)/$(PUBLIC_KEY_FILE)" $(S3_CP_FLAGS)
 
 release.repo-file.generate: release.key.export
+	@test -n "$(REPO_HTTP_URL)" || (echo "REPO_HTTP_URL is required." && exit 1)
 	@GPG_B64=$$(base64 -w0 "$(PUBLIC_KEY_FILE)" 2>/dev/null || base64 "$(PUBLIC_KEY_FILE)" | tr -d '\n'); \
 	printf '%s\n' \
 		'[Flatpak Repo]' \

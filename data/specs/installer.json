@@ -29,7 +29,7 @@
     }
   ],
 
-  "redists": ["corefonts", "gdiplus"],
+  "redists": ["corefonts"],
   "steps": [
     {
       "type": "link",

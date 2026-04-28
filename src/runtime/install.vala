@@ -277,6 +277,7 @@ namespace Lumoria.Runtime {
             if (launcher_vars != null) {
                 var launcher_name = launcher != null ? launcher.display_label () : "launcher";
                 logger.banner ("Setting up launcher: %s".printf (launcher_name));
+
                 foreach (var rs in resolved_redists) {
                     logger.banner ("Redist: %s".printf (rs.display_label ()));
                     foreach (var step in rs.steps) {
@@ -483,17 +484,14 @@ namespace Lumoria.Runtime {
                 break;
 
             case "dll_override":
-                var dll = step.command;
-                var mode = step.mode;
-                logger.typed (LogType.DLL_OVERRIDE, "%s=%s".printf (dll, mode));
-                try {
-                    run_wine_command (paths.wine,
-                        { "reg", "add", "HKCU\\Software\\Wine\\DllOverrides",
-                          "/v", dll, "/t", "REG_SZ", "/d", mode, "/f" },
-                        env, null, logger, cancellable);
-                } catch (Error e) {
-                    logger.typed (LogType.WARN, "DLL override reg command failed: %s".printf (e.message));
-                }
+                logger.typed (LogType.DLL_OVERRIDE, "%s=%s".printf (step.command, step.mode));
+                set_dll_override (
+                    build_redist_options (
+                        vars.has_key ("PREFIX") ? vars["PREFIX"] : "",
+                        paths, env, cancellable
+                    ),
+                    step.command, step.mode, logger
+                );
                 break;
 
             default:
@@ -720,9 +718,67 @@ namespace Lumoria.Runtime {
             }
         }
 
+        register_fonts_into_prefix (fonts_dir, tmp_dir, step, vars, paths, env, cancellable, logger);
+
         Utils.remove_recursive (tmp_dir);
         logger.typed (LogType.FONTS, "summary: packages=%d, fonts_copied=%d".printf (packages_processed, fonts_copied_total));
         logger.typed (LogType.FONTS, "installed to %s".printf (fonts_dir));
+    }
+
+    private void register_fonts_into_prefix (
+        string fonts_dir,
+        string tmp_dir,
+        Models.InstallStep step,
+        Gee.HashMap<string, string> vars,
+        WinePaths paths,
+        WineEnv env,
+        Cancellable? cancellable,
+        RuntimeLog logger
+    ) throws Error {
+        int declared = step.font_registrations.size;
+        if (declared == 0) return;
+
+        var entries = new Gee.ArrayList<string> ();
+        foreach (var raw in step.font_registrations) {
+            var parts = raw.split ("|", 2);
+            if (parts.length != 2) continue;
+            var file = parts[0].strip ();
+            var face = parts[1].strip ();
+            if (file == "" || face == "") continue;
+            if (!FileUtils.test (Path.build_filename (fonts_dir, file), FileTest.EXISTS)) continue;
+            var lower = file.down ();
+            var suffix = (lower.has_suffix (".ttf") || lower.has_suffix (".ttc")) ? " (TrueType)" : "";
+            entries.add ("\"%s%s\"=\"%s\"\r\n".printf (face, suffix, file));
+        }
+
+        if (entries.size == 0) {
+            logger.typed (LogType.FONTS, "no registerable fonts (0/%d declared)".printf (declared));
+            return;
+        }
+
+        string[] sections = {
+            "HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts",
+            "HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Fonts"
+        };
+
+        var payload = new StringBuilder ("REGEDIT4\r\n\r\n");
+        foreach (var section in sections) {
+            payload.append ("[%s]\r\n".printf (section));
+            foreach (var line in entries) payload.append (line);
+            payload.append ("\r\n");
+        }
+
+        var reg_path = Path.build_filename (tmp_dir, "fonts.reg");
+        FileUtils.set_contents (reg_path, payload.str);
+
+        var pfx = vars.has_key ("PREFIX") ? vars["PREFIX"] : "";
+        wine_reg (
+            build_redist_options (pfx, paths, env, cancellable),
+            { "import", reg_path },
+            logger
+        );
+
+        logger.typed (LogType.FONTS, "registered %d/%d font(s)".printf (entries.size, declared));
     }
 
     private bool evaluate_condition (string condition, WineEnv env, RuntimeLog logger) {
@@ -748,8 +804,8 @@ namespace Lumoria.Runtime {
         }
 
         var filter_normalized = cab_filter.down ().replace ("\\", "/");
-        var filter_basename = Path.get_basename (filter_normalized);
         unowned MsPack.CabFile? match = null;
+        uint expected_length = 0;
         int cab_count = 0;
         int file_count = 0;
 
@@ -761,9 +817,9 @@ namespace Lumoria.Runtime {
                 if (fname == null) continue;
                 var fname_normalized = fname.down ().replace ("\\", "/");
                 if (fname_normalized == filter_normalized
-                    || fname_normalized.has_suffix ("/" + filter_normalized)
-                    || fname_normalized.has_suffix ("/" + filter_basename)) {
+                    || fname_normalized.has_suffix ("/" + filter_normalized)) {
                     match = f;
+                    expected_length = f.get_length ();
                     break;
                 }
             }
@@ -792,22 +848,33 @@ namespace Lumoria.Runtime {
             throw new IOError.FAILED ("mspack: %s not found in %s", cab_filter, archive);
         }
 
-        var tmp_dir = DirUtils.make_tmp ("mspack-XXXXXX");
-        var tmp_out = Path.build_filename (tmp_dir, Path.get_basename (cab_filter));
-        int r = decomp.extract (match, tmp_out);
+        Utils.ensure_dir (Path.get_dirname (dest));
+
+        if (FileUtils.test (dest, FileTest.EXISTS) || FileUtils.test (dest, FileTest.IS_SYMLINK)) {
+            if (FileUtils.unlink (dest) != 0 && FileUtils.test (dest, FileTest.EXISTS)) {
+                logger.typed (LogType.WARN, "mspack: could not unlink %s before extract".printf (dest));
+            }
+        }
+
+        int r = decomp.extract (match, dest);
         decomp.close (cab);
 
         if (r != MsPack.ERR_OK) {
-            Utils.remove_recursive (tmp_dir);
             throw new IOError.FAILED ("mspack: extract failed for %s (error %d)", cab_filter, r);
         }
 
-        Utils.ensure_dir (Path.get_dirname (dest));
-        uint8[] data;
-        FileUtils.get_data (tmp_out, out data);
-        FileUtils.set_data (dest, data);
+        int64 dest_size = Utils.file_size_or_zero (dest);
+        logger.typed (LogType.MSPACK, "extracted %lld bytes to %s (expected %u)".printf (dest_size, dest, expected_length));
 
-        Utils.remove_recursive (tmp_dir);
+        if (dest_size <= 0) {
+            throw new IOError.FAILED ("mspack: extract produced empty/missing %s", dest);
+        }
+        if (expected_length > 0 && dest_size != (int64) expected_length) {
+            throw new IOError.FAILED (
+                "mspack: size mismatch for %s (got %lld, expected %u)",
+                dest, dest_size, expected_length
+            );
+        }
     }
 
     private Gee.HashMap<string, string> build_prefix_vars (

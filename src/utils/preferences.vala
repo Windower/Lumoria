@@ -239,7 +239,7 @@ namespace Lumoria.Utils {
             var defaults = resolved_defaults ();
             runner_id = defaults.runner_id;
             runner_version = defaults.runner_version;
-            _wine_wayland = defaults.wine_wayland;
+            _wine_wayland = default_wine_wayland ();
             _sync_mode = defaults.sync_mode;
             _wine_debug = defaults.wine_debug;
             _large_address_aware = defaults.large_address_aware;
@@ -349,7 +349,7 @@ namespace Lumoria.Utils {
                 changed = true;
             }
             if (!has_wine_wayland) {
-                _wine_wayland = defaults.wine_wayland;
+                _wine_wayland = default_wine_wayland ();
                 changed = true;
             }
             if (!has_sync_mode) {
@@ -377,6 +377,10 @@ namespace Lumoria.Utils {
 
         private Models.DefaultRuntimeSettings resolved_defaults () {
             return defaults_spec.resolve_for_env (Utils.is_sandboxed ());
+        }
+
+        private bool default_wine_wayland () {
+            return EnvironmentInfo.is_wayland ();
         }
 
         private void load_updates (Json.Object obj) {

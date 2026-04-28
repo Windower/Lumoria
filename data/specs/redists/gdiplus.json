@@ -17,6 +17,12 @@
   ],
   "steps": [
     {
+      "type": "dll_override",
+      "description": "Set gdiplus to native",
+      "command": "gdiplus",
+      "mode": "native"
+    },
+    {
       "type": "cabextract",
       "description": "Extract gdiplus.dll (x86 -> syswow64)",
       "src": "$CACHE_REDIST/win7sp1/windows6.1-KB976932-X86.exe",
@@ -39,12 +45,6 @@
       "args": ["x86_microsoft.windows.gdiplus_6595b64144ccf1df_1.1.7601.17514_none_72d18a4386696c80/gdiplus.dll"],
       "dst": "$SYSTEM32/gdiplus.dll",
       "condition": "arch:win32"
-    },
-    {
-      "type": "dll_override",
-      "description": "Set gdiplus to builtin,native",
-      "command": "gdiplus",
-      "mode": "builtin,native"
     }
   ]
 }
