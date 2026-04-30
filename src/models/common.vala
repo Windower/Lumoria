@@ -42,6 +42,13 @@ namespace Lumoria.Models {
         public string dst { get; set; default = ""; }
         public string working_dir { get; set; default = ""; }
         public string condition { get; set; default = ""; }
+        public string content { get; set; default = ""; }
+        public string root { get; set; default = ""; }
+        public string element { get; set; default = ""; }
+        public bool create_if_missing { get; set; default = true; }
+        public bool overwrite_existing { get; set; default = false; }
+        public Gee.HashMap<string, string> match { get; owned set; default = new Gee.HashMap<string, string> (); }
+        public Gee.HashMap<string, string> children { get; owned set; default = new Gee.HashMap<string, string> (); }
         public Gee.ArrayList<string> args { get; owned set; default = new Gee.ArrayList<string> (); }
         public Gee.ArrayList<string> skip_if_exists { get; owned set; default = new Gee.ArrayList<string> (); }
         public Gee.ArrayList<string> verify_paths { get; owned set; default = new Gee.ArrayList<string> (); }
@@ -57,11 +64,37 @@ namespace Lumoria.Models {
             s.dst = json_string (obj, "dst");
             s.working_dir = json_string (obj, "working_dir");
             s.condition = json_string (obj, "condition");
+            s.content = json_string (obj, "content");
+            s.root = json_string (obj, "root");
+            s.element = json_string (obj, "element");
+            s.create_if_missing = json_bool (obj, "create_if_missing", true);
+            s.overwrite_existing = json_bool (obj, "overwrite_existing");
+            s.match = json_string_map (obj, "match");
+            s.children = json_string_map (obj, "children");
             s.args = json_string_array (obj, "args");
             s.skip_if_exists = json_string_array (obj, "skip_if_exists");
             s.verify_paths = json_string_array (obj, "verify_paths");
             s.font_registrations = json_string_array (obj, "font_registrations");
             return s;
+        }
+    }
+
+    public class SpecAction : BaseSpec {
+        public string description { get; set; default = ""; }
+        public Gee.HashMap<string, string> variables { get; owned set; default = new Gee.HashMap<string, string> (); }
+        public Gee.ArrayList<string> redists { get; owned set; default = new Gee.ArrayList<string> (); }
+        public Gee.ArrayList<DownloadItem> downloads { get; owned set; default = new Gee.ArrayList<DownloadItem> (); }
+        public Gee.ArrayList<InstallStep> steps { get; owned set; default = new Gee.ArrayList<InstallStep> (); }
+
+        public static SpecAction from_json (Json.Object obj) throws Error {
+            var a = new SpecAction ();
+            a.parse_base (obj);
+            a.description = json_string (obj, "description");
+            a.variables = json_string_map (obj, "variables");
+            a.redists = json_string_array (obj, "redists");
+            a.downloads = parse_downloads (obj);
+            a.steps = parse_steps (obj);
+            return a;
         }
     }
 
@@ -75,5 +108,9 @@ namespace Lumoria.Models {
 
     public static Gee.ArrayList<Entrypoint> parse_entrypoints (Json.Object obj) throws Error {
         return parse_json_array<Entrypoint> (obj, "entrypoints", (o) => Entrypoint.from_json (o));
+    }
+
+    public static Gee.ArrayList<SpecAction> parse_actions (Json.Object obj) throws Error {
+        return parse_json_array<SpecAction> (obj, "actions", (o) => SpecAction.from_json (o));
     }
 }

@@ -14,6 +14,7 @@ lumoria_sources = files(
   'models/tool-spec.vala',
   'models/tool-adapters.vala',
   'models/redist-spec.vala',
+  'models/post-install-spec.vala',
 
   'utils/paths.vala',
   'utils/environment.vala',
@@ -71,6 +72,7 @@ lumoria_deps = [
   dependency('glib-2.0'),
   dependency('libadwaita-1', version: '>= 1.6'),
   dependency('json-glib-1.0'),
+  dependency('libxml-2.0'),
   dependency('libsoup-3.0'),
   dependency('gee-0.8'),
   dependency('libarchive'),
@@ -89,6 +91,7 @@ lumoria_vala_args = [
   '--vapidir', vapi_dir,
   '--pkg', 'posix',
   '--pkg', 'libarchive',
+  '--pkg', 'libxml-2.0',
   '--pkg', 'mspack',
   '--pkg', 'libportal',
   '--pkg', 'libportal-gtk4',

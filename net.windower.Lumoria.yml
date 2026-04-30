@@ -12,6 +12,7 @@ build-options:
 
 finish-args:
   - --device=all
+  - --allow=devel
   # - --device=dri
   # for the life of me I cannot get --device=input to recognize Steam Deck Controller
   # - --device=input

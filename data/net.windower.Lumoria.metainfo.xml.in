@@ -10,12 +10,12 @@
   <description>
     <p>
       Lumoria is a native Linux installer and launcher for a classic MMORPG. Install the game,
-      manage Wine prefixes, configure wine runners, runtime components, and get
-      playing ... all from a single app!
+      manage Wine prefixes, runners, and all the other stuff you need to get playing ...
+      All from a single app!
     </p>
     <p>
       Supports DXVK, Windower 4, multiple game installations with
-      independent configurations, and supports gamepad navigation.
+      independent configurations, gamepad navigation and more.
     </p>
   </description>
 
@@ -38,10 +38,7 @@
   <content_rating type="oars-1.1" />
 
   <requires>
-    <display_length compare="ge">600</display_length>
-  </requires>
-
-  <requires>
+      <display_length compare="ge">600</display_length>
       <control>pointing</control>
       <control>keyboard</control>
   </requires>
@@ -52,27 +49,42 @@
 
   <categories>
     <category>Game</category>
+    <category>PackageManager</category>
   </categories>
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/Windower/Lumoria/refs/heads/main/assets/screenshots/2.png</image>
+      <image>https://raw.githubusercontent.com/Windower/Lumoria/refs/heads/main/assets/screenshots/4-prefix-setup.png</image>
       <caption>The main interface of Lumoria</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/Windower/Lumoria/refs/heads/main/assets/screenshots/3-installation.png</image>
+      <caption>Game Installation</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/Windower/Lumoria/refs/heads/main/assets/screenshots/5-manage-prefix.png</image>
+      <caption>Prefix Management</caption>
     </screenshot>
   </screenshots>
 
   <releases>
+    <release version="0.1.6" date="2026-04-29">
+      <description>
+        <ul>
+          <li>Post Install Scripts support.</li>
+          <li>Fix GDIPlus installation issues.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-03-29">
       <description>
-        <p>
-          <ul>
-            <li>Add support for gamepad navigation.</li>
-            <li>Add support for prelaunch scripts.</li>
-            <li>Add support for custom launch entries.</li>
-            <li>Remove file browsing in gamescope sessions.</li>
-            <li>UI refactored to be more controller friendly.</li>
-          </ul>
-        </p>
+        <ul>
+          <li>Add support for gamepad navigation.</li>
+          <li>Add support for prelaunch scripts.</li>
+          <li>Add support for custom launch entries.</li>
+          <li>Remove file browsing in gamescope sessions.</li>
+          <li>UI refactored to be more controller friendly.</li>
+        </ul>
       </description>
     </release>
     <release version="0.1.0" date="2026-03-01">

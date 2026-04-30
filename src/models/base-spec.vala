@@ -53,6 +53,12 @@ namespace Lumoria.Models {
         return parser.get_root ().get_object ();
     }
 
+    public static Json.Object parse_file_object (string file_path) throws Error {
+        var parser = new Json.Parser ();
+        parser.load_from_file (file_path);
+        return parser.get_root ().get_object ();
+    }
+
     public static string[] list_spec_ids_from_resource (string spec_subdir) {
         var ids = new Gee.ArrayList<string> ();
         var dir_path = Config.RESOURCE_BASE + "/specs/" + spec_subdir;
@@ -135,11 +141,13 @@ namespace Lumoria.Models {
     public abstract class InstallableSpec : BaseSpec {
         public Gee.ArrayList<DownloadItem> downloads { get; owned set; default = new Gee.ArrayList<DownloadItem> (); }
         public Gee.ArrayList<InstallStep> steps { get; owned set; default = new Gee.ArrayList<InstallStep> (); }
+        public Gee.ArrayList<SpecAction> actions { get; owned set; default = new Gee.ArrayList<SpecAction> (); }
 
         protected void parse_installable (Json.Object obj) throws Error {
             parse_base (obj);
             downloads = parse_downloads (obj);
             steps = parse_steps (obj);
+            actions = parse_actions (obj);
         }
 
         protected void parse_installable_supporting_fields (

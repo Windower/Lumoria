@@ -3,6 +3,7 @@ namespace Lumoria.Widgets {
     public class PrefixRowWidget : Adw.ExpanderRow {
         public signal void play_requested (int index);
         public signal void play_entrypoint_requested (int index, string entrypoint_id);
+        public signal void action_requested (int index, string action_id);
         public signal void manage_requested (int index);
         public signal void wine_tools_requested (int index);
         public signal void open_logs_requested (int index);
@@ -154,15 +155,23 @@ namespace Lumoria.Widgets {
                     : subtitle;
             }
 
-            var play_button = new Gtk.Button.from_icon_name (IconRegistry.PAGE_LAUNCH);
+            var play_button = new Gtk.Button.from_icon_name (target.is_action ? IconRegistry.TOOLS : IconRegistry.PAGE_LAUNCH);
             play_button.add_css_class ("flat");
             play_button.add_css_class ("launch-entry-play-btn");
             play_button.valign = Gtk.Align.CENTER;
             play_button.focusable = true;
-            play_button.tooltip_text = _("Launch %s").printf (target.label);
+            play_button.tooltip_text = target.is_action
+                ? _("Run %s").printf (target.label)
+                : _("Launch %s").printf (target.label);
             play_button.sensitive = has_runner;
             var target_id = target.id;
-            play_button.clicked.connect (() => play_entrypoint_requested (prefix_index, target_id));
+            play_button.clicked.connect (() => {
+                if (target.is_action) {
+                    action_requested (prefix_index, target_id);
+                } else {
+                    play_entrypoint_requested (prefix_index, target_id);
+                }
+            });
             row.add_suffix (play_button);
 
             add_row (row);

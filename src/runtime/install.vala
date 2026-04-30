@@ -9,6 +9,8 @@ namespace Lumoria.Runtime {
         public string wine_debug { get; set; default = ""; }
         public bool? wine_wayland = null;
         public string launcher_id { get; set; default = ""; }
+        public string post_install_spec_path { get; set; default = ""; }
+        public string post_install_spec_uri { get; set; default = ""; }
         public Models.PrefixEntry? prefix_entry { get; set; default = null; }
     }
 
@@ -48,11 +50,18 @@ namespace Lumoria.Runtime {
                 }
             }
 
+            Models.PostInstallSpec? post_install_spec = null;
+            if (opts.post_install_spec_path != "") {
+                post_install_spec = Models.PostInstallSpec.load_from_file (opts.post_install_spec_path);
+            }
+
             var all_redist_specs = Models.RedistSpec.load_all_from_resource ();
             var resolved_redists = new Gee.ArrayList<Models.RedistSpec> ();
             var code_redists = new Gee.ArrayList<string> ();
             var requested_redists = new Gee.ArrayList<string> ();
             var seen_redists = new Gee.HashSet<string> ();
+            var post_resolved_redists = new Gee.ArrayList<Models.RedistSpec> ();
+            var post_code_redists = new Gee.ArrayList<string> ();
 
             foreach (var rid in installer_spec.redists) {
                 if (!seen_redists.contains (rid)) {
@@ -77,11 +86,27 @@ namespace Lumoria.Runtime {
                 }
             }
 
+            if (post_install_spec != null) {
+                foreach (var rid in post_install_spec.redists) {
+                    if (all_redist_specs.has_key (rid)) {
+                        post_resolved_redists.add (all_redist_specs[rid]);
+                    } else {
+                        post_code_redists.add (rid);
+                    }
+                }
+            }
+
             int redist_downloads = 0;
             int redist_steps = 0;
             foreach (var rs in resolved_redists) {
                 redist_downloads += rs.downloads.size;
                 redist_steps += rs.steps.size;
+            }
+            int post_redist_downloads = 0;
+            int post_redist_steps = 0;
+            foreach (var rs in post_resolved_redists) {
+                post_redist_downloads += rs.downloads.size;
+                post_redist_steps += rs.steps.size;
             }
 
             int total_steps = 3
@@ -90,6 +115,11 @@ namespace Lumoria.Runtime {
                 + (launcher != null ? launcher.steps.size : 0)
                 + redist_downloads + redist_steps
                 + code_redists.size
+                + (post_install_spec != null ? post_install_spec.downloads.size : 0)
+                + (post_install_spec != null ? post_install_spec.steps.size : 0)
+                + post_redist_downloads + post_redist_steps
+                + post_code_redists.size
+                + (post_install_spec != null ? 1 : 0)
                 + 1
                 + installer_spec.steps.size
                 + 1;
@@ -172,6 +202,13 @@ namespace Lumoria.Runtime {
                 launcher_vars = build_prefix_vars (pfx_path, launcher_cache, launcher.variables);
             }
 
+            Gee.HashMap<string, string>? post_install_vars = null;
+            if (post_install_spec != null) {
+                var post_cache = Path.build_filename (Utils.cache_dir (), "post-install", post_install_spec.id);
+                Utils.ensure_dir (post_cache);
+                post_install_vars = build_post_install_vars (pfx_path, post_cache, installer_spec, launcher, post_install_spec);
+            }
+
             logger.phase ("Downloading installer artifacts");
             foreach (var dl in installer_spec.downloads) {
                 check_cancelled (cancellable);
@@ -198,6 +235,27 @@ namespace Lumoria.Runtime {
 
                     step_idx++;
                     var dest = expand_path (dl.dest, launcher_vars);
+                    ensure_download_item (dl, dest, step_idx, total_steps, progress, logger);
+                }
+            }
+
+            if (post_install_vars != null) {
+                logger.phase ("Downloading post install artifacts");
+                foreach (var rs in post_resolved_redists) {
+                    foreach (var dl in rs.downloads) {
+                        check_cancelled (cancellable);
+
+                        step_idx++;
+                        var dest = expand_path (dl.dest, post_install_vars);
+                        ensure_download_item (dl, dest, step_idx, total_steps, progress, logger);
+                    }
+                }
+
+                foreach (var dl in post_install_spec.downloads) {
+                    check_cancelled (cancellable);
+
+                    step_idx++;
+                    var dest = expand_path (dl.dest, post_install_vars);
                     ensure_download_item (dl, dest, step_idx, total_steps, progress, logger);
                 }
             }
@@ -319,6 +377,81 @@ namespace Lumoria.Runtime {
                 }
             }
 
+            if (post_install_spec != null && post_install_vars != null) {
+                string post_backup_path = "";
+                try {
+                    logger.banner ("Post install: %s".printf (post_install_spec.display_label ()));
+
+                    check_cancelled (cancellable);
+                    step_idx++;
+                    progress.step_changed ("(%d/%d) Backing up post install spec\u2026".printf (step_idx, total_steps));
+                    progress.progress_changed ((double) (step_idx - 1) / total_steps);
+                    post_backup_path = backup_post_install_spec (opts.prefix_path, opts.post_install_spec_path, post_install_spec);
+                    logger.typed (LogType.COPY, "%s -> %s".printf (opts.post_install_spec_path, post_backup_path));
+
+                    foreach (var rs in post_resolved_redists) {
+                        logger.banner ("Post install redist: %s".printf (rs.display_label ()));
+                        foreach (var step in rs.steps) {
+                            check_cancelled (cancellable);
+
+                            step_idx++;
+                            progress.step_changed ("(%d/%d) %s".printf (step_idx, total_steps, step.description));
+                            progress.progress_changed ((double) (step_idx - 1) / total_steps);
+                            logger.step (step_idx, total_steps, step.description, step.step_type);
+                            run_install_step (step, post_install_vars, paths, env, logger, cancellable);
+                        }
+                    }
+
+                    foreach (var rid in post_code_redists) {
+                        check_cancelled (cancellable);
+
+                        step_idx++;
+                        progress.step_changed ("(%d/%d) Installing %s\u2026".printf (step_idx, total_steps, rid));
+                        progress.progress_changed ((double) (step_idx - 1) / total_steps);
+                        logger.banner ("Post install redist: %s (code)".printf (rid));
+
+                        var redist_opts = build_redist_options (
+                            post_install_vars.has_key ("PREFIX") ? post_install_vars["PREFIX"] : "",
+                            paths,
+                            env,
+                            cancellable
+                        );
+                        install_redist (rid, redist_opts, logger);
+                    }
+
+                    foreach (var step in post_install_spec.steps) {
+                        check_cancelled (cancellable);
+
+                        step_idx++;
+                        progress.step_changed ("(%d/%d) %s".printf (step_idx, total_steps, step.description));
+                        progress.progress_changed ((double) (step_idx - 1) / total_steps);
+                        logger.step (step_idx, total_steps, step.description, step.step_type);
+                        run_install_step (step, post_install_vars, paths, env, logger, cancellable);
+                    }
+
+                    update_post_install_metadata (
+                        prefix_entry,
+                        post_install_spec,
+                        opts.post_install_spec_path,
+                        opts.post_install_spec_uri,
+                        post_backup_path,
+                        "success",
+                        logger
+                    );
+                } catch (Error post_install_error) {
+                    update_post_install_metadata (
+                        prefix_entry,
+                        post_install_spec,
+                        opts.post_install_spec_path,
+                        opts.post_install_spec_uri,
+                        post_backup_path,
+                        "failed",
+                        logger
+                    );
+                    throw post_install_error;
+                }
+            }
+
             shutdown_wineserver (paths, env, logger);
             progress.progress_changed (1.0);
             if (component_warning != null) {
@@ -335,6 +468,138 @@ namespace Lumoria.Runtime {
             progress.install_finished (false, "Installation cancelled.");
         } catch (Error e) {
             logger.banner ("INSTALL FAILED");
+            logger.emit_line ("%s\n".printf (e.message));
+            progress.install_finished (false, e.message);
+        } finally {
+            logger.close ();
+        }
+    }
+
+    public void run_spec_action (
+        Models.PrefixEntry entry,
+        Gee.ArrayList<Models.RunnerSpec> runner_specs,
+        Gee.ArrayList<Models.LauncherSpec> launcher_specs,
+        string action_id,
+        InstallProgress progress,
+        Cancellable? cancellable
+    ) {
+        var logger = RuntimeLog.for_install (entry.resolved_path (), (msg) => {
+            progress.log_message (msg);
+        });
+
+        try {
+            var action = find_spec_action (entry, launcher_specs, action_id);
+            if (action == null) {
+                throw new IOError.FAILED ("Spec action not found: %s", action_id);
+            }
+
+            logger.banner ("Lumoria Action Log", false);
+            logger.emit_line ("Prefix: %s\n".printf (entry.resolved_path ()));
+            logger.emit_line ("Action: %s\n\n".printf (action.display_label ()));
+
+            var all_redist_specs = Models.RedistSpec.load_all_from_resource ();
+            var resolved_redists = new Gee.ArrayList<Models.RedistSpec> ();
+            var code_redists = new Gee.ArrayList<string> ();
+            foreach (var rid in action.redists) {
+                if (all_redist_specs.has_key (rid)) {
+                    resolved_redists.add (all_redist_specs[rid]);
+                } else {
+                    code_redists.add (rid);
+                }
+            }
+
+            int redist_downloads = 0;
+            int redist_steps = 0;
+            foreach (var rs in resolved_redists) {
+                redist_downloads += rs.downloads.size;
+                redist_steps += rs.steps.size;
+            }
+
+            int total_steps = 1 + action.downloads.size + action.steps.size
+                + redist_downloads + redist_steps + code_redists.size;
+            int step_idx = 0;
+
+            check_cancelled (cancellable);
+            step_idx++;
+            progress.step_changed ("(%d/%d) Preparing action\u2026".printf (step_idx, total_steps));
+            progress.progress_changed ((double) (step_idx - 1) / total_steps);
+
+            var runner_spec = Models.RunnerSpec.find_or_default (runner_specs, entry.runner_id);
+            var resolved_version = Utils.Preferences.resolve_version (entry.runner_id, entry.runner_version);
+            var result = download_and_extract_runner (runner_spec, entry.variant_id, resolved_version, null, logger);
+            var paths = resolve_wine_paths (result.extracted_to, runner_spec, entry.variant_id);
+            var pfx_path = install_prefix_path (entry.path);
+            var variant = runner_spec.effective_variant (entry.variant_id);
+            var wine_arch = entry.wine_arch != "" ? entry.wine_arch : variant.wine_arch;
+            var env = build_wine_env (
+                paths, runner_spec, entry.variant_id,
+                pfx_path, wine_arch,
+                Utils.Preferences.resolve_sync_mode (entry.sync_mode),
+                Utils.Preferences.resolve_wine_debug (entry.wine_debug),
+                false,
+                Utils.Preferences.resolve_wine_wayland (entry.wine_wayland)
+            );
+            var prefs = Utils.Preferences.instance ();
+            apply_env_overrides (env, prefs.get_runtime_env_vars ());
+            apply_env_overrides (env, entry.runtime_env_vars);
+
+            var cache_root = Path.build_filename (Utils.cache_dir (), "actions", entry.id, action.id);
+            Utils.ensure_dir (cache_root);
+            var vars = build_action_vars (pfx_path, cache_root, entry, launcher_specs, action);
+
+            logger.phase ("Downloading action artifacts");
+            foreach (var rs in resolved_redists) {
+                foreach (var dl in rs.downloads) {
+                    check_cancelled (cancellable);
+                    step_idx++;
+                    ensure_download_item (dl, expand_path (dl.dest, vars), step_idx, total_steps, progress, logger);
+                }
+            }
+            foreach (var dl in action.downloads) {
+                check_cancelled (cancellable);
+                step_idx++;
+                ensure_download_item (dl, expand_path (dl.dest, vars), step_idx, total_steps, progress, logger);
+            }
+
+            logger.phase ("Run action steps");
+            foreach (var rs in resolved_redists) {
+                logger.banner ("Action redist: %s".printf (rs.display_label ()));
+                foreach (var step in rs.steps) {
+                    check_cancelled (cancellable);
+                    step_idx++;
+                    progress.step_changed ("(%d/%d) %s".printf (step_idx, total_steps, step.description));
+                    progress.progress_changed ((double) (step_idx - 1) / total_steps);
+                    logger.step (step_idx, total_steps, step.description, step.step_type);
+                    run_install_step (step, vars, paths, env, logger, cancellable);
+                }
+            }
+            foreach (var rid in code_redists) {
+                check_cancelled (cancellable);
+                step_idx++;
+                progress.step_changed ("(%d/%d) Installing %s\u2026".printf (step_idx, total_steps, rid));
+                progress.progress_changed ((double) (step_idx - 1) / total_steps);
+                logger.banner ("Action redist: %s (code)".printf (rid));
+                install_redist (rid, build_redist_options (pfx_path, paths, env, cancellable), logger);
+            }
+            foreach (var step in action.steps) {
+                check_cancelled (cancellable);
+                step_idx++;
+                progress.step_changed ("(%d/%d) %s".printf (step_idx, total_steps, step.description));
+                progress.progress_changed ((double) (step_idx - 1) / total_steps);
+                logger.step (step_idx, total_steps, step.description, step.step_type);
+                run_install_step (step, vars, paths, env, logger, cancellable);
+            }
+
+            shutdown_wineserver (paths, env, logger);
+            progress.progress_changed (1.0);
+            logger.banner ("Action completed successfully");
+            progress.install_finished (true, "Action complete.");
+        } catch (IOError.CANCELLED e) {
+            logger.banner ("ACTION CANCELLED");
+            logger.emit_line ("%s\n".printf (e.message));
+            progress.install_finished (false, "Action cancelled.");
+        } catch (Error e) {
+            logger.banner ("ACTION FAILED");
             logger.emit_line ("%s\n".printf (e.message));
             progress.install_finished (false, e.message);
         } finally {
@@ -442,6 +707,18 @@ namespace Lumoria.Runtime {
                 Utils.copy_path (src, dst, null);
                 break;
 
+            case "write":
+                run_write_step (step, vars, logger);
+                break;
+
+            case "xml_upsert":
+                run_xml_upsert_step (step, vars, logger);
+                break;
+
+            case "text_upsert":
+                run_text_upsert_step (step, vars, logger);
+                break;
+
             case "link":
                 run_link_step (step, vars, logger);
                 break;
@@ -497,6 +774,186 @@ namespace Lumoria.Runtime {
             default:
                 throw new IOError.FAILED ("Unknown install step type: %s", step.step_type);
         }
+    }
+
+    private void run_write_step (
+        Models.InstallStep step,
+        Gee.HashMap<string, string> vars,
+        RuntimeLog logger
+    ) throws Error {
+        var dst = expand_path (step.dst, vars);
+        var content = Utils.expand_vars (step.content, vars);
+        Utils.ensure_dir (Path.get_dirname (dst));
+        FileUtils.set_contents (dst, content);
+        logger.typed (LogType.COPY, "wrote %s".printf (dst));
+        verify_step_paths (step.verify_paths, vars);
+    }
+
+    private void run_text_upsert_step (
+        Models.InstallStep step,
+        Gee.HashMap<string, string> vars,
+        RuntimeLog logger
+    ) throws Error {
+        var dst = expand_path (step.dst, vars);
+        Utils.ensure_dir (Path.get_dirname (dst));
+
+        string existing = "";
+        if (FileUtils.test (dst, FileTest.EXISTS)) {
+            FileUtils.get_contents (dst, out existing);
+        }
+
+        var content = Utils.expand_vars (step.content, vars);
+        if (content == "") {
+            content = build_text_block_from_args (step.args, vars);
+        }
+        if (content == "") {
+            throw new IOError.FAILED ("text_upsert requires content or args");
+        }
+
+        var normalized_existing = normalize_text_block (existing);
+        var normalized_content = normalize_text_block (content);
+        if (normalized_existing.contains (normalized_content)) {
+            logger.typed (LogType.SKIP, "text already exists in %s".printf (dst));
+            verify_step_paths (step.verify_paths, vars);
+            return;
+        }
+
+        var newline = detect_newline_style (existing);
+        string output;
+        if (step.mode == "append") {
+            output = ensure_trailing_newline (normalize_newlines (existing), newline)
+                + ensure_trailing_newline (normalize_newlines (content), newline);
+        } else {
+            output = ensure_trailing_newline (normalize_newlines (content), newline)
+                + ensure_trailing_newline (normalize_newlines (existing), newline);
+        }
+
+        FileUtils.set_contents (dst, output);
+        logger.typed (LogType.COPY, "upserted text in %s".printf (dst));
+        verify_step_paths (step.verify_paths, vars);
+    }
+
+    private string build_text_block_from_args (
+        Gee.ArrayList<string> args,
+        Gee.HashMap<string, string> vars
+    ) {
+        var lines = new Gee.ArrayList<string> ();
+        foreach (var arg in args) {
+            lines.add (Utils.expand_vars (arg, vars));
+        }
+        if (lines.size == 0) return "";
+        return string.joinv ("\n", Utils.arraylist_to_strv (lines));
+    }
+
+    private string normalize_text_block (string value) {
+        return normalize_newlines (value).strip ();
+    }
+
+    private string normalize_newlines (string value) {
+        return value.replace ("\r\n", "\n").replace ("\r", "\n");
+    }
+
+    private string detect_newline_style (string existing) {
+        if (existing.contains ("\r\n")) return "\r\n";
+        return "\r\n";
+    }
+
+    private string ensure_trailing_newline (string value, string newline) {
+        if (value == "") return "";
+        var normalized = normalize_newlines (value);
+        if (!normalized.has_suffix ("\n")) normalized += "\n";
+        return normalized.replace ("\n", newline);
+    }
+
+    private void run_xml_upsert_step (
+        Models.InstallStep step,
+        Gee.HashMap<string, string> vars,
+        RuntimeLog logger
+    ) throws Error {
+        var dst = expand_path (step.dst, vars);
+        var root_name = step.root.strip ();
+        var element_name = step.element.strip ();
+        if (root_name == "" || element_name == "") {
+            throw new IOError.FAILED ("xml_upsert requires root and element");
+        }
+
+        Utils.ensure_dir (Path.get_dirname (dst));
+
+        Xml.Doc* doc;
+        Xml.Node* root;
+        if (FileUtils.test (dst, FileTest.EXISTS)) {
+            doc = Xml.Parser.parse_file (dst);
+            if (doc == null) {
+                throw new IOError.FAILED ("Failed to parse XML file: %s", dst);
+            }
+            root = doc->get_root_element ();
+            if (root == null) {
+                throw new IOError.FAILED ("XML file has no root element: %s", dst);
+            }
+            if (root->name != root_name) {
+                throw new IOError.FAILED ("XML root mismatch in %s: expected %s, got %s", dst, root_name, root->name);
+            }
+        } else {
+            doc = new Xml.Doc ("1.0");
+            root = doc->new_node (null, root_name);
+            doc->set_root_element (root);
+        }
+
+        var target = find_matching_xml_child (root, element_name, step.match, vars);
+        if (target == null) {
+            if (!step.create_if_missing) {
+                throw new IOError.FAILED ("XML element not found: %s", element_name);
+            }
+            target = root->new_child (null, element_name, null);
+            foreach (var entry in step.match.entries) {
+                target->set_prop (entry.key, Utils.expand_vars (entry.value, vars));
+            }
+        }
+
+        foreach (var entry in step.children.entries) {
+            var value = Utils.expand_vars (entry.value, vars);
+            var child = find_xml_element_child (target, entry.key);
+            if (child == null) {
+                target->new_text_child (null, entry.key, value);
+            } else if (step.overwrite_existing) {
+                child->set_content (value);
+            }
+        }
+
+        if (doc->save_format_file (dst, 1) < 0) {
+            throw new IOError.FAILED ("Failed to write XML file: %s", dst);
+        }
+        logger.typed (LogType.COPY, "updated XML %s".printf (dst));
+        verify_step_paths (step.verify_paths, vars);
+    }
+
+    private Xml.Node* find_matching_xml_child (
+        Xml.Node* root,
+        string element_name,
+        Gee.HashMap<string, string> match,
+        Gee.HashMap<string, string> vars
+    ) {
+        for (Xml.Node* child = root->children; child != null; child = child->next) {
+            if (child->type != Xml.ElementType.ELEMENT_NODE || child->name != element_name) continue;
+            bool matched = true;
+            foreach (var entry in match.entries) {
+                var expected = Utils.expand_vars (entry.value, vars);
+                var actual = child->get_prop (entry.key);
+                if (actual == null || actual != expected) {
+                    matched = false;
+                    break;
+                }
+            }
+            if (matched) return child;
+        }
+        return null;
+    }
+
+    private Xml.Node* find_xml_element_child (Xml.Node* parent, string name) {
+        for (Xml.Node* child = parent->children; child != null; child = child->next) {
+            if (child->type == Xml.ElementType.ELEMENT_NODE && child->name == name) return child;
+        }
+        return null;
     }
 
     private void run_wineexec_step (
@@ -897,6 +1354,110 @@ namespace Lumoria.Runtime {
             }
         }
         return vars;
+    }
+
+    private Gee.HashMap<string, string> build_post_install_vars (
+        string pfx_path,
+        string cache_path,
+        Models.InstallerSpec installer_spec,
+        Models.LauncherSpec? launcher,
+        Models.PostInstallSpec post_install_spec
+    ) {
+        var vars = build_prefix_vars (pfx_path, cache_path, installer_spec.variables);
+        if (launcher != null) {
+            foreach (var e in launcher.variables.entries) {
+                vars[e.key] = e.value;
+            }
+        }
+        foreach (var e in post_install_spec.variables.entries) {
+            vars[e.key] = e.value;
+        }
+        return vars;
+    }
+
+    private Gee.HashMap<string, string> build_action_vars (
+        string pfx_path,
+        string cache_path,
+        Models.PrefixEntry entry,
+        Gee.ArrayList<Models.LauncherSpec> launcher_specs,
+        Models.SpecAction action
+    ) {
+        var installer_spec = Models.InstallerSpec.load_from_resource ();
+        Models.LauncherSpec? launcher = null;
+        if (entry.launcher_id != "") {
+            foreach (var spec in launcher_specs) {
+                if (spec.id == entry.launcher_id) {
+                    launcher = spec;
+                    break;
+                }
+            }
+        }
+        var post_install_spec = Runtime.load_prefix_post_install_spec (entry);
+        var vars = build_prefix_vars (pfx_path, cache_path, installer_spec.variables);
+        if (launcher != null) {
+            foreach (var e in launcher.variables.entries) vars[e.key] = e.value;
+        }
+        if (post_install_spec != null) {
+            foreach (var e in post_install_spec.variables.entries) vars[e.key] = e.value;
+        }
+        foreach (var e in action.variables.entries) vars[e.key] = e.value;
+        return vars;
+    }
+
+    private Models.SpecAction? find_spec_action (
+        Models.PrefixEntry entry,
+        Gee.ArrayList<Models.LauncherSpec> launcher_specs,
+        string action_id
+    ) {
+        foreach (var action in Runtime.list_spec_actions (entry, launcher_specs)) {
+            if (action.id == action_id) return action;
+        }
+        return null;
+    }
+
+    private string backup_post_install_spec (
+        string prefix_root,
+        string source_path,
+        Models.PostInstallSpec spec
+    ) throws Error {
+        var backup_dir = Path.build_filename (prefix_root, "lumoria", "post-install");
+        Utils.ensure_dir (backup_dir);
+
+        var token = sanitize_filename_token (spec.id != "" ? spec.id : Path.get_basename (source_path));
+        if (token == "") token = "post-install";
+        var backup_path = Path.build_filename (backup_dir, token + ".json");
+        Utils.copy_path (source_path, backup_path);
+        return backup_path;
+    }
+
+    private void update_post_install_metadata (
+        Models.PrefixEntry? prefix_entry,
+        Models.PostInstallSpec spec,
+        string original_path,
+        string original_uri,
+        string backup_path,
+        string status,
+        RuntimeLog logger
+    ) {
+        if (prefix_entry == null) return;
+
+        var metadata = prefix_entry.post_install_spec;
+        if (metadata == null) metadata = new Models.PrefixPostInstallSpec ();
+
+        if (original_path != "") metadata.original_path = original_path;
+        if (original_uri != "") metadata.original_uri = original_uri;
+        if (backup_path != "") metadata.backup_path = backup_path;
+        metadata.spec_id = spec.id;
+        metadata.name = spec.display_label ();
+        metadata.last_run_status = status;
+        metadata.last_run_at = new DateTime.now_utc ().format ("%Y-%m-%dT%H:%M:%SZ");
+        prefix_entry.post_install_spec = metadata;
+
+        var reg = Models.PrefixRegistry.load (Utils.prefix_registry_path ());
+        reg.update_entry (prefix_entry);
+        if (!reg.save (Utils.prefix_registry_path ())) {
+            logger.typed (LogType.WARN, "Failed to save post install metadata");
+        }
     }
 
     private void check_cancelled (Cancellable? cancellable) throws IOError {

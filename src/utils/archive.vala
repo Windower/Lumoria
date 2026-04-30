@@ -57,7 +57,8 @@ namespace Lumoria.Utils {
             }
 
             if (writer.write_header (entry) < Archive.Result.OK) {
-                warning ("archive: write_header: %s", writer.error_string () ?? "");
+                throw new IOError.FAILED ("Archive write error: %s",
+                    writer.error_string () ?? "unknown");
             }
 
             if (entry.size () > 0) {
@@ -78,7 +79,10 @@ namespace Lumoria.Utils {
                 throw new IOError.FAILED ("Archive data read error: %s",
                     reader.error_string () ?? "unknown");
             }
-            writer.write_data_block (buf, offset);
+            if (writer.write_data_block (buf, offset) < Archive.Result.OK) {
+                throw new IOError.FAILED ("Archive data write error: %s",
+                    writer.error_string () ?? "unknown");
+            }
         }
     }
 }

@@ -23,6 +23,7 @@ namespace Lumoria.Widgets.Dialogs {
         private uint cancel_pulse_source_id = 0;
         private bool install_failed = false;
         private bool install_cancelled = false;
+        private bool action_mode = false;
 
         public InstallDialog () {
             Object (
@@ -191,6 +192,7 @@ namespace Lumoria.Widgets.Dialogs {
         }
 
         public void start_install (Runtime.InstallOptions opts) {
+            action_mode = false;
             this.prefix_path = opts.prefix_path;
             open_logs_btn.sensitive = Utils.LoggingMode.from_settings () == Utils.LoggingMode.KEEP;
             if (Utils.is_prefixes_root_path (opts.prefix_path)) {
@@ -205,7 +207,33 @@ namespace Lumoria.Widgets.Dialogs {
                 return;
             }
             install_progress = new Runtime.InstallProgress ();
+            bind_progress_handlers ();
 
+            new Thread<bool> ("install-worker", () => {
+                Runtime.run_full_install (opts, install_progress, cancellable);
+                return true;
+            });
+        }
+
+        public void start_action (
+            Models.PrefixEntry entry,
+            Gee.ArrayList<Models.RunnerSpec> runner_specs,
+            Gee.ArrayList<Models.LauncherSpec> launcher_specs,
+            string action_id
+        ) {
+            action_mode = true;
+            this.prefix_path = entry.resolved_path ();
+            open_logs_btn.sensitive = Utils.LoggingMode.from_settings () == Utils.LoggingMode.KEEP;
+            install_progress = new Runtime.InstallProgress ();
+            bind_progress_handlers ();
+
+            new Thread<bool> ("spec-action-worker", () => {
+                Runtime.run_spec_action (entry, runner_specs, launcher_specs, action_id, install_progress, cancellable);
+                return true;
+            });
+        }
+
+        private void bind_progress_handlers () {
             install_progress.step_changed.connect ((desc) => {
                 Idle.add (() => {
                     status_label.label = desc;
@@ -234,11 +262,6 @@ namespace Lumoria.Widgets.Dialogs {
                     return false;
                 });
             });
-
-            new Thread<bool> ("install-worker", () => {
-                Runtime.run_full_install (opts, install_progress, cancellable);
-                return true;
-            });
         }
 
         private void on_finished (bool success, string message) {
@@ -255,17 +278,17 @@ namespace Lumoria.Widgets.Dialogs {
 
             if (success) {
                 status_icon.icon_name = IconRegistry.SUCCESS;
-                status_label.label = _("Installation Complete");
+                status_label.label = action_mode ? _("Action Complete") : _("Installation Complete");
                 progress_bar.fraction = 1.0;
                 progress_bar.text = "100%";
             } else {
                 install_cancelled = cancellable.is_cancelled ();
                 if (install_cancelled) {
                     status_icon.icon_name = IconRegistry.WARNING;
-                    status_label.label = _("Installation Cancelled");
+                    status_label.label = action_mode ? _("Action Cancelled") : _("Installation Cancelled");
                 } else {
                     status_icon.icon_name = IconRegistry.ERROR;
-                    status_label.label = _("Installation Failed");
+                    status_label.label = action_mode ? _("Action Failed") : _("Installation Failed");
                     install_failed = true;
                 }
             }
@@ -277,7 +300,7 @@ namespace Lumoria.Widgets.Dialogs {
         }
 
         private void on_close_requested () {
-            if (!install_failed && !install_cancelled) {
+            if (action_mode || (!install_failed && !install_cancelled)) {
                 close ();
                 return;
             }

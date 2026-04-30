@@ -170,6 +170,7 @@ namespace Lumoria.Widgets {
                 var row = new PrefixRowWidget (entry, i, runner_specs, launcher_specs, is_gamescope, registry.is_default (entry));
                 row.play_requested.connect ((idx) => on_play_entrypoint (idx, ""));
                 row.play_entrypoint_requested.connect (on_play_entrypoint);
+                row.action_requested.connect (on_run_spec_action);
                 row.manage_requested.connect (on_manage_prefix);
                 row.wine_tools_requested.connect (on_wine_tools);
                 row.open_logs_requested.connect (on_open_logs);
@@ -281,6 +282,19 @@ namespace Lumoria.Widgets {
                 entrypoint_id,
                 (msg) => show_toast (msg)
             );
+        }
+
+        private void on_run_spec_action (int index, string action_id) {
+            var entry = require_runnable (index);
+            if (entry == null) return;
+
+            var dialog = new Dialogs.InstallDialog ();
+            track_dialog (dialog);
+            dialog.install_completed.connect ((success) => {
+                if (success) refresh_list ();
+            });
+            dialog.present (this);
+            dialog.start_action (entry, runner_specs, launcher_specs, action_id);
         }
 
         private void on_manage_prefix (int index) {

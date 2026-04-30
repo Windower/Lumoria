@@ -30,6 +30,40 @@ namespace Lumoria.Models {
         }
     }
 
+    public class PrefixPostInstallSpec : Object {
+        public string original_path { get; set; default = ""; }
+        public string original_uri { get; set; default = ""; }
+        public string backup_path { get; set; default = ""; }
+        public string spec_id { get; set; default = ""; }
+        public string name { get; set; default = ""; }
+        public string last_run_status { get; set; default = ""; }
+        public string last_run_at { get; set; default = ""; }
+
+        public Json.Object to_json () {
+            var obj = new Json.Object ();
+            if (original_path != "") obj.set_string_member ("original_path", original_path);
+            if (original_uri != "") obj.set_string_member ("original_uri", original_uri);
+            if (backup_path != "") obj.set_string_member ("backup_path", backup_path);
+            if (spec_id != "") obj.set_string_member ("spec_id", spec_id);
+            if (name != "") obj.set_string_member ("name", name);
+            if (last_run_status != "") obj.set_string_member ("last_run_status", last_run_status);
+            if (last_run_at != "") obj.set_string_member ("last_run_at", last_run_at);
+            return obj;
+        }
+
+        public static PrefixPostInstallSpec from_json (Json.Object obj) {
+            var s = new PrefixPostInstallSpec ();
+            s.original_path = json_string (obj, "original_path");
+            s.original_uri = json_string (obj, "original_uri");
+            s.backup_path = json_string (obj, "backup_path");
+            s.spec_id = json_string (obj, "spec_id");
+            s.name = json_string (obj, "name");
+            s.last_run_status = json_string (obj, "last_run_status");
+            s.last_run_at = json_string (obj, "last_run_at");
+            return s;
+        }
+    }
+
     public class PrefixEntry : BaseSpec {
         public string path { get; set; default = ""; }
         public string uri { get; set; default = ""; }
@@ -56,6 +90,7 @@ namespace Lumoria.Models {
         public Gee.HashMap<string, string> dynamic_launcher_desktop_ids {
             get; owned set; default = new Gee.HashMap<string, string> ();
         }
+        public PrefixPostInstallSpec? post_install_spec { get; set; default = null; }
         public string resolved_path () {
             if (uri != "") {
                 try {
@@ -155,6 +190,9 @@ namespace Lumoria.Models {
                 }
                 obj.set_object_member ("runtime_component_overrides", overrides);
             }
+            if (post_install_spec != null) {
+                obj.set_object_member ("post_install_spec", post_install_spec.to_json ());
+            }
             return obj;
         }
 
@@ -190,6 +228,9 @@ namespace Lumoria.Models {
                 overrides.foreach_member ((_, key, node) => {
                     e.runtime_component_overrides[key] = RuntimeComponentOverride.from_json (node.get_object ());
                 });
+            }
+            if (obj.has_member ("post_install_spec")) {
+                e.post_install_spec = PrefixPostInstallSpec.from_json (obj.get_object_member ("post_install_spec"));
             }
             return e;
         }

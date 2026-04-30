@@ -17,11 +17,17 @@ namespace Lumoria.Widgets.Dialogs {
         private OptionListRow wayland_combo;
         private OptionListRow laa_combo;
         private OptionListRow launcher_combo;
+        private Adw.ActionRow post_install_row;
+        private Gtk.Button clear_post_install_btn;
         private Gtk.Button create_btn;
         private Gee.ArrayList<Models.RunnerVariant> visible_variants;
 
         private string selected_path;
         private string selected_uri = "";
+        private string selected_post_install_path = "";
+        private string selected_post_install_uri = "";
+        private string selected_post_install_id = "";
+        private string selected_post_install_name = "";
 
         public CreatePrefixDialog (
             Gtk.Window parent,
@@ -166,6 +172,33 @@ namespace Lumoria.Widgets.Dialogs {
 
             SettingsShared.add_scrolled_settings_page (stack, game_content, SettingsShared.PAGE_LAUNCH, _("Game"));
 
+            var advanced_content = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
+            var post_install_group = SettingsShared.build_group (_("Post Install"), 12);
+
+            post_install_row = new Adw.ActionRow ();
+            post_install_row.title = _("Post Install Spec");
+            post_install_row.subtitle = _("None selected");
+            post_install_row.subtitle_selectable = true;
+
+            var post_install_actions = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 6);
+            post_install_actions.valign = Gtk.Align.CENTER;
+
+            clear_post_install_btn = new Gtk.Button.with_label (_("Clear"));
+            clear_post_install_btn.clicked.connect (clear_post_install_spec);
+            clear_post_install_btn.visible = false;
+            post_install_actions.append (clear_post_install_btn);
+
+            var browse_post_install_btn = new Gtk.Button.with_label (_("Browse\u2026"));
+            browse_post_install_btn.clicked.connect (on_browse_post_install_spec);
+            post_install_actions.append (browse_post_install_btn);
+
+            post_install_row.add_suffix (post_install_actions);
+            post_install_row.activatable_widget = browse_post_install_btn;
+            post_install_group.add (post_install_row);
+            advanced_content.append (post_install_group);
+
+            SettingsShared.add_scrolled_settings_page (stack, advanced_content, SettingsShared.PAGE_ADVANCED, _("Advanced"));
+
             var switcher_bar = new Adw.ViewSwitcherBar ();
             switcher_bar.stack = stack;
             switcher_bar.reveal = true;
@@ -229,6 +262,59 @@ namespace Lumoria.Widgets.Dialogs {
                     warning ("Failed to select prefix directory: %s", e.message);
                 }
             });
+        }
+
+        private void on_browse_post_install_spec () {
+            if (SettingsShared.file_browse_blocked (toast_overlay)) return;
+
+            var filter = new Gtk.FileFilter ();
+            filter.name = _("JSON Specs");
+            filter.add_mime_type ("application/json");
+            filter.add_pattern ("*.json");
+
+            var dialog = SettingsShared.build_file_dialog (_("Choose post install spec"), filter);
+            dialog.open.begin (null, null, (obj, res) => {
+                try {
+                    var file = dialog.open.end (res);
+                    if (file == null) return;
+                    var path = file.get_path ();
+                    if (path == null || path == "") return;
+
+                    var spec = Models.PostInstallSpec.load_from_file (path);
+                    selected_post_install_path = path;
+                    selected_post_install_uri = file.get_uri ();
+                    selected_post_install_id = spec.id;
+                    selected_post_install_name = spec.display_label ();
+                    update_post_install_row ();
+                } catch (Error e) {
+                    clear_post_install_spec ();
+                    SettingsShared.present_alert (
+                        this,
+                        _("Invalid Post Install Spec"),
+                        e.message
+                    );
+                }
+            });
+        }
+
+        private void clear_post_install_spec () {
+            selected_post_install_path = "";
+            selected_post_install_uri = "";
+            selected_post_install_id = "";
+            selected_post_install_name = "";
+            update_post_install_row ();
+        }
+
+        private void update_post_install_row () {
+            if (selected_post_install_path == "") {
+                post_install_row.subtitle = _("None selected");
+                clear_post_install_btn.visible = false;
+                return;
+            }
+
+            var label = selected_post_install_name != "" ? selected_post_install_name : Path.get_basename (selected_post_install_path);
+            post_install_row.subtitle = "%s\n%s".printf (label, selected_post_install_path);
+            clear_post_install_btn.visible = true;
         }
 
         private void on_create () {
@@ -325,6 +411,14 @@ namespace Lumoria.Widgets.Dialogs {
             entry.sync_mode = sync_mode;
             entry.launcher_id = launcher_id;
             entry.large_address_aware = large_address_aware;
+            if (selected_post_install_path != "") {
+                var post_install = new Models.PrefixPostInstallSpec ();
+                post_install.original_path = selected_post_install_path;
+                post_install.original_uri = selected_post_install_uri;
+                post_install.spec_id = selected_post_install_id;
+                post_install.name = selected_post_install_name;
+                entry.post_install_spec = post_install;
+            }
 
             registry.add_prefix (entry);
             prefix_created ();
@@ -342,6 +436,8 @@ namespace Lumoria.Widgets.Dialogs {
             install_opts.wine_debug = wine_debug;
             install_opts.launcher_id = launcher_id;
             install_opts.wine_wayland = wine_wayland;
+            install_opts.post_install_spec_path = selected_post_install_path;
+            install_opts.post_install_spec_uri = selected_post_install_uri;
 
             var install_dlg = new InstallDialog ();
             install_dlg.install_completed.connect ((success) => {

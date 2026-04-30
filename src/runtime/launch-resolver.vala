@@ -4,13 +4,16 @@ namespace Lumoria.Runtime {
 
     public enum LaunchTargetSection {
         MAIN,
-        WINDOWER_PROFILES
+        WINDOWER_PROFILES,
+        ACTIONS
     }
 
     public class LaunchTarget : Object {
         public string id { get; set; default = ""; }
         public string label { get; set; default = ""; }
         public string selector_label { get; set; default = ""; }
+        public string description { get; set; default = ""; }
+        public bool is_action { get; set; default = false; }
         public LaunchTargetSection section { get; set; default = LaunchTargetSection.MAIN; }
     }
 
@@ -18,6 +21,8 @@ namespace Lumoria.Runtime {
         switch (section) {
             case LaunchTargetSection.WINDOWER_PROFILES:
                 return _("Windower profiles");
+            case LaunchTargetSection.ACTIONS:
+                return _("Actions");
             default:
                 return _("Launch");
         }
@@ -32,6 +37,9 @@ namespace Lumoria.Runtime {
         }
         if (target.section == LaunchTargetSection.WINDOWER_PROFILES) {
             return "";
+        }
+        if (target.section == LaunchTargetSection.ACTIONS) {
+            return target.description;
         }
         if (target.selector_label != target.label) {
             return target.selector_label;
@@ -174,7 +182,78 @@ namespace Lumoria.Runtime {
             targets.add (target);
         }
 
+        foreach (var action in list_spec_actions (entry, launcher_specs)) {
+            var target = new LaunchTarget ();
+            target.id = action.id;
+            target.label = action.display_label ();
+            target.selector_label = target.label;
+            target.description = action.description;
+            target.section = LaunchTargetSection.ACTIONS;
+            target.is_action = true;
+            targets.add (target);
+        }
+
         return targets;
+    }
+
+    public Gee.ArrayList<Models.SpecAction> list_spec_actions (
+        Models.PrefixEntry entry,
+        Gee.ArrayList<Models.LauncherSpec> launcher_specs
+    ) {
+        var actions = new Gee.ArrayList<Models.SpecAction> ();
+        var seen = new Gee.HashSet<string> ();
+
+        var installer = Models.InstallerSpec.load_from_resource ();
+        append_unique_actions (actions, seen, installer.actions);
+
+        if (entry.launcher_id != "") {
+            var launcher = find_launcher_by_id (launcher_specs, entry.launcher_id);
+            if (launcher != null) {
+                append_unique_actions (actions, seen, launcher.actions);
+            }
+        }
+
+        var post_install = load_prefix_post_install_spec (entry);
+        if (post_install != null) {
+            append_unique_actions (actions, seen, post_install.actions);
+        }
+
+        return actions;
+    }
+
+    public Models.PostInstallSpec? load_prefix_post_install_spec (Models.PrefixEntry entry) {
+        var metadata = entry.post_install_spec;
+        if (metadata == null) return null;
+
+        if (metadata.backup_path != "" && FileUtils.test (metadata.backup_path, FileTest.EXISTS)) {
+            try {
+                return Models.PostInstallSpec.load_from_file (metadata.backup_path);
+            } catch (Error e) {
+                warning ("Failed to load backed up post install spec: %s", e.message);
+            }
+        }
+
+        if (metadata.original_path != "" && FileUtils.test (metadata.original_path, FileTest.EXISTS)) {
+            try {
+                return Models.PostInstallSpec.load_from_file (metadata.original_path);
+            } catch (Error e) {
+                warning ("Failed to load original post install spec: %s", e.message);
+            }
+        }
+
+        return null;
+    }
+
+    private void append_unique_actions (
+        Gee.ArrayList<Models.SpecAction> target,
+        Gee.HashSet<string> seen,
+        Gee.ArrayList<Models.SpecAction> source
+    ) {
+        foreach (var action in source) {
+            if (action.id == "" || seen.contains (action.id)) continue;
+            target.add (action);
+            seen.add (action.id);
+        }
     }
 
     public string resolve_host_path (string exe, string pfx_path) {

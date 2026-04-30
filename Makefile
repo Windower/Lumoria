@@ -1,7 +1,7 @@
 APP_ID := net.windower.Lumoria
 -include .env
 
-FLATPAK_MANIFEST ?= net.windower.Lumoria.yml
+FLATPAK_MANIFEST ?= net.windower.Lumoria.local.yml
 HOST_BUILDDIR ?= build-host
 FLATPAK_BUILDDIR ?= builddir-flatpak
 OSTREE_REPO ?= repo
