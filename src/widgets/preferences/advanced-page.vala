@@ -3,7 +3,6 @@ namespace Lumoria.Widgets.Preferences {
     public class AdvancedPage : Gtk.Box {
         public signal void reset_requested ();
         public signal void experimental_changed ();
-        public signal void toast_message (string message);
 
         public AdvancedPage () {
             Object (orientation: Gtk.Orientation.VERTICAL, spacing: 0);
@@ -40,48 +39,6 @@ namespace Lumoria.Widgets.Preferences {
             reset_row.activatable_widget = reset_btn;
             reset_group.add (reset_row);
             append (reset_group);
-
-            var cache_group = SettingsShared.build_group (_("Cache"), 24, 12, 12);
-            cache_group.description = _("Clear cached metadata and downloaded archives.");
-
-            add_cache_clear_row (cache_group, _("Clear Runner Cache"), "runners", _("Runner cache cleared."));
-            add_cache_clear_row (cache_group, _("Clear Component Cache"), "components", _("Component cache cleared."));
-            add_cache_clear_row (cache_group, _("Clear Installer Cache"), "installer", _("Installer cache cleared."));
-            add_cache_clear_row (cache_group, _("Clear Launcher Cache"), "launchers", _("Launcher cache cleared."));
-            add_cache_clear_row (cache_group, _("Clear Redistributable Cache"), "redist", _("Redistributable cache cleared."));
-
-            var clear_all = new Adw.ActionRow ();
-            clear_all.title = _("Clear All Cache");
-            clear_all.activatable = true;
-            clear_all.add_css_class ("error");
-            clear_all.activated.connect (() => {
-                if (Utils.remove_recursive (Utils.cache_dir ())) {
-                    toast_message (_("All cache cleared."));
-                } else {
-                    toast_message (_("Failed to clear some cache files."));
-                }
-            });
-            cache_group.add (clear_all);
-            append (cache_group);
-        }
-
-        private void add_cache_clear_row (
-            Adw.PreferencesGroup group,
-            string title,
-            string cache_subdir,
-            string toast
-        ) {
-            var row = new Adw.ActionRow ();
-            row.title = title;
-            row.activatable = true;
-            row.activated.connect (() => {
-                if (Utils.remove_recursive (Path.build_filename (Utils.cache_dir (), cache_subdir))) {
-                    toast_message (toast);
-                } else {
-                    toast_message (_("Failed to clear cache."));
-                }
-            });
-            group.add (row);
         }
     }
 }

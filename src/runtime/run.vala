@@ -6,12 +6,6 @@ namespace Lumoria.Runtime {
         public string error_message { get; set; default = ""; }
     }
 
-    private class RuntimeContext : Object {
-        public WinePaths paths { get; set; }
-        public string prefix_path { get; set; default = ""; }
-        public WineEnv env { get; set; }
-    }
-
     private void require_prefix_path (Models.PrefixEntry entry) throws Error {
         if (entry.path == "")
             throw new IOError.FAILED ("Prefix path is required");
@@ -89,7 +83,7 @@ namespace Lumoria.Runtime {
             argv = wrap_with_prelaunch (entry.prelaunch_script, argv);
         }
 
-        return spawn_tracked_process (
+        return spawn_wrapped_process (
             host_exe, work_dir, argv, ctx.env, logger
         );
     }
@@ -116,7 +110,7 @@ namespace Lumoria.Runtime {
             work_dir = entry.path;
         }
 
-        return spawn_tracked_process (
+        return spawn_wrapped_process (
             command_label, work_dir, argv, ctx.env, logger
         );
     }
@@ -172,51 +166,34 @@ namespace Lumoria.Runtime {
         return argv;
     }
 
-    private RuntimeContext prepare_runtime_context (
+    private WineRuntime prepare_runtime_context (
         Models.PrefixEntry entry,
         Gee.ArrayList<Models.RunnerSpec> runner_specs,
         bool disable_mscoree,
         RuntimeLog logger
     ) throws Error {
         var runner_spec = resolve_runner_spec_for_entry (entry, runner_specs);
-        var runner_version = Utils.Preferences.resolve_version (entry.runner_id, entry.runner_version);
-
-        var result = download_and_extract_runner (
-            runner_spec, entry.variant_id, runner_version, null, logger
+        var runtime = prepare_wine_runtime (
+            runner_spec, entry.variant_id, entry.runner_version,
+            entry.path, "",
+            entry.sync_mode, entry.wine_debug, entry.wine_wayland,
+            null, null, logger
         );
-        var paths = resolve_wine_paths (result.extracted_to, runner_spec, entry.variant_id);
-        var variant = runner_spec.effective_variant (entry.variant_id);
-        var pfx_path = install_prefix_path (entry.path);
 
-        var env = build_wine_env (
-            paths, runner_spec, entry.variant_id,
-            pfx_path, variant.wine_arch,
-            Utils.Preferences.resolve_sync_mode (entry.sync_mode),
-            Utils.Preferences.resolve_wine_debug (entry.wine_debug),
-            false,
-            Utils.Preferences.resolve_wine_wayland (entry.wine_wayland)
-        );
         if (disable_mscoree) {
-            env.add_dll_override ("mscoree", DLL_DISABLED);
+            runtime.env.add_dll_override ("mscoree", DLL_DISABLED);
         }
-
-        var prefs = Utils.Preferences.instance ();
         try {
-            var comp_result = apply_enabled_components (pfx_path, entry, logger);
+            var comp_result = apply_enabled_components (runtime.prefix_path, entry, logger);
             foreach (var ov in comp_result.dll_overrides.entries) {
-                env.add_dll_override (ov.key, ov.value);
+                runtime.env.add_dll_override (ov.key, ov.value);
             }
         } catch (Error comp_err) {
             logger.typed (LogType.WARN, "Component application failed: %s".printf (comp_err.message));
         }
-        apply_env_overrides (env, prefs.get_runtime_env_vars ());
-        apply_env_overrides (env, entry.runtime_env_vars);
-
-        var ctx = new RuntimeContext ();
-        ctx.paths = paths;
-        ctx.prefix_path = pfx_path;
-        ctx.env = env;
-        return ctx;
+        apply_env_overrides (runtime.env, Utils.Preferences.instance ().get_runtime_env_vars ());
+        apply_env_overrides (runtime.env, entry.runtime_env_vars);
+        return runtime;
     }
 
     private Models.RunnerSpec resolve_runner_spec_for_entry (
@@ -291,6 +268,50 @@ namespace Lumoria.Runtime {
             string.joinv (" ", Utils.arraylist_to_strv (argv)),
             env
         );
+    }
+
+    private RunResult spawn_wrapped_process (
+        string executable_label,
+        string work_dir,
+        Gee.ArrayList<string> argv,
+        WineEnv env,
+        RuntimeLog logger
+    ) throws Error {
+        var log_path = logger.log_path;
+        logger.close ();
+
+        var self_exe = Utils.current_executable_path () ?? "lumoria";
+        var wrapped = new Gee.ArrayList<string> ();
+        wrapped.add (self_exe);
+        wrapped.add ("wrap");
+        wrapped.add ("--log");
+        wrapped.add (log_path);
+        wrapped.add ("--");
+        wrapped.add_all (argv);
+
+        int child_pid;
+        Process.spawn_async (
+            work_dir,
+            Utils.arraylist_to_strv (wrapped),
+            env.to_spawn_strv (),
+            CHILD_SPAWN_FLAGS,
+            null,
+            out child_pid
+        );
+
+        var pid_copy = child_pid;
+        new Thread<bool> ("wrap-reaper", () => {
+            int status;
+            Posix.waitpid (pid_copy, out status, 0);
+            Process.close_pid (pid_copy);
+            return true;
+        });
+
+        var run_result = new RunResult ();
+        run_result.pid = child_pid;
+        run_result.executable = executable_label;
+        run_result.log_path = log_path;
+        return run_result;
     }
 
     private RunResult spawn_tracked_process (

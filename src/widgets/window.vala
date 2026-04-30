@@ -267,7 +267,10 @@ namespace Lumoria.Widgets {
         private void on_add_prefix () {
             var dialog = new Dialogs.CreatePrefixDialog (this, registry, runner_specs, launcher_specs);
             track_dialog (dialog);
-            dialog.prefix_created.connect (save_and_refresh);
+            dialog.prefix_created.connect (() => {
+                Utils.StorageCache.instance ().invalidate (Utils.StorageCategory.PREFIXES);
+                save_and_refresh ();
+            });
             dialog.present (this);
         }
 
@@ -416,7 +419,7 @@ namespace Lumoria.Widgets {
         }
 
         public void show_preferences () {
-            var dialog = new Dialogs.PreferencesDialog (this, runner_specs);
+            var dialog = new Dialogs.PreferencesDialog (this, runner_specs, registry);
             track_dialog (dialog);
             dialog.present (this);
         }

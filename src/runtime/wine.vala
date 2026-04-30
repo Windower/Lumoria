@@ -223,6 +223,76 @@ namespace Lumoria.Runtime {
         }
     }
 
+    public class WineRuntime : Object {
+        public Models.RunnerSpec     runner_spec    { get; private set; }
+        public Models.RunnerVariant  variant        { get; private set; }
+        public string                runner_version { get; private set; }
+        public DownloadResult        extract_result { get; private set; }
+        public WinePaths             paths          { get; private set; }
+        public string                prefix_path    { get; private set; }
+        public string                wine_arch      { get; private set; }
+        public WineEnv               env            { get; private set; }
+
+        internal WineRuntime (
+            Models.RunnerSpec runner_spec,
+            Models.RunnerVariant variant,
+            string runner_version,
+            DownloadResult extract_result,
+            WinePaths paths,
+            string prefix_path,
+            string wine_arch,
+            WineEnv env
+        ) {
+            this.runner_spec = runner_spec;
+            this.variant = variant;
+            this.runner_version = runner_version;
+            this.extract_result = extract_result;
+            this.paths = paths;
+            this.prefix_path = prefix_path;
+            this.wine_arch = wine_arch;
+            this.env = env;
+        }
+    }
+
+    public WineRuntime prepare_wine_runtime (
+        Models.RunnerSpec runner_spec,
+        string variant_id,
+        string runner_version,
+        string prefix_root,
+        string wine_arch_override,
+        string sync_mode,
+        string wine_debug,
+        bool? wine_wayland,
+        Gee.HashMap<string, string>? entry_runtime_env_vars,
+        DownloadProgress? download_progress_cb,
+        RuntimeLog logger
+    ) throws Error {
+        var resolved_version = Utils.Preferences.resolve_version (runner_spec.id, runner_version);
+        var extract = download_and_extract_runner (
+            runner_spec, variant_id, resolved_version, download_progress_cb, logger
+        );
+        var paths = resolve_wine_paths (extract.extracted_to, runner_spec, variant_id);
+        var variant = runner_spec.effective_variant (variant_id);
+        var pfx_path = install_prefix_path (prefix_root);
+        var arch = wine_arch_override != "" ? wine_arch_override : variant.wine_arch;
+        var env = build_wine_env (
+            paths, runner_spec, variant_id,
+            pfx_path, arch,
+            Utils.Preferences.resolve_sync_mode (sync_mode),
+            Utils.Preferences.resolve_wine_debug (wine_debug),
+            false,
+            Utils.Preferences.resolve_wine_wayland (wine_wayland)
+        );
+        apply_env_overrides (env, Utils.Preferences.instance ().get_runtime_env_vars ());
+        if (entry_runtime_env_vars != null) {
+            apply_env_overrides (env, entry_runtime_env_vars);
+        }
+        return new WineRuntime (
+            runner_spec, variant, resolved_version, extract,
+            paths, pfx_path, arch, env
+        );
+    }
+
     private string resolve_spec_path_public (string root, string mapped) {
         var m = mapped.strip ();
         if (m == "") return "";

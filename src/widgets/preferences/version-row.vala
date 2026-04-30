@@ -115,6 +115,7 @@ namespace Lumoria.Widgets.Preferences {
                     error_msg = e.message;
                 }
                 var err = error_msg;
+                var kind = tool.tool_kind;
                 Idle.add (() => {
                     spinner.visible = false;
                     spinner.spinning = false;
@@ -122,6 +123,8 @@ namespace Lumoria.Widgets.Preferences {
                     update_state ();
                     if (err != null) {
                         subtitle = _("Install failed: %s").printf (err);
+                    } else {
+                        invalidate_storage (kind);
                     }
                     return false;
                 });
@@ -141,6 +144,7 @@ namespace Lumoria.Widgets.Preferences {
 
         private void on_remove () {
             remove_btn.sensitive = false;
+            var kind = tool.tool_kind;
             new Thread<bool> ("remove-version", () => {
                 try {
                     tool.remove_version (version);
@@ -150,10 +154,25 @@ namespace Lumoria.Widgets.Preferences {
                 Idle.add (() => {
                     remove_btn.sensitive = true;
                     update_state ();
+                    invalidate_storage (kind);
                     return false;
                 });
                 return true;
             });
+        }
+
+        private static void invalidate_storage (Utils.ToolKind kind) {
+            var cache = Utils.StorageCache.instance ();
+            switch (kind) {
+                case Utils.ToolKind.RUNNER:
+                    cache.invalidate (Utils.StorageCategory.RUNNERS);
+                    cache.invalidate (Utils.StorageCategory.CACHE_RUNNERS);
+                    break;
+                case Utils.ToolKind.COMPONENT:
+                    cache.invalidate (Utils.StorageCategory.COMPONENTS);
+                    cache.invalidate (Utils.StorageCategory.CACHE_COMPONENTS);
+                    break;
+            }
         }
     }
 }

@@ -34,6 +34,7 @@ namespace Lumoria.Widgets {
         public const string PAGE_COMPONENTS = "components";
         public const string PAGE_LAUNCH = "launch";
         public const string PAGE_SHORTCUTS = "shortcuts";
+        public const string PAGE_STORAGE = "storage";
         public const string PAGE_ADVANCED = "advanced";
         public const string PAGE_ABOUT = "about";
 
@@ -251,6 +252,7 @@ namespace Lumoria.Widgets {
             dialog.close_response = "cancel";
             dialog.response.connect ((response) => {
                 if (response == "remove") {
+                    Utils.StorageCache.instance ().invalidate (Utils.StorageCategory.PREFIXES);
                     on_confirm (false);
                     return;
                 }
@@ -287,6 +289,7 @@ namespace Lumoria.Widgets {
                     Idle.add (() => {
                         removing_dialog.can_close = true;
                         removing_dialog.close ();
+                        Utils.StorageCache.instance ().invalidate (Utils.StorageCategory.PREFIXES);
                         on_confirm (ok);
                         return false;
                     });

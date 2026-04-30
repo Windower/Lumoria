@@ -1,6 +1,7 @@
 lumoria_sources = files(
   'main.vala',
   'cli/cli.vala',
+  'cli/wrap.vala',
 
   'models/base-spec.vala',
   'models/common.vala',
@@ -23,6 +24,8 @@ lumoria_sources = files(
   'utils/integrity.vala',
   'utils/preferences.vala',
   'utils/archive.vala',
+  'utils/disk-usage.vala',
+  'utils/storage-cache.vala',
 
   'runtime/runner-download.vala',
   'runtime/logging.vala',
@@ -58,6 +61,7 @@ lumoria_sources = files(
   'widgets/preferences/env-vars-editor.vala',
   'widgets/preferences/about-page.vala',
   'widgets/preferences/advanced-page.vala',
+  'widgets/preferences/storage-page.vala',
   'widgets/preferences/runners-page.vala',
   'widgets/preferences/components-page.vala',
   'widgets/preferences/tool-group.vala',

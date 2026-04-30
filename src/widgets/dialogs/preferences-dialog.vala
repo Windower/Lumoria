@@ -2,16 +2,22 @@ namespace Lumoria.Widgets.Dialogs {
 
     public class PreferencesDialog : Adw.Dialog {
         private Gee.ArrayList<Models.RunnerSpec> runner_specs;
+        private Models.PrefixRegistry registry;
         private Adw.ToastOverlay toast_overlay;
         private Adw.ViewStack stack;
 
-        public PreferencesDialog (Gtk.Window parent, Gee.ArrayList<Models.RunnerSpec> runner_specs) {
+        public PreferencesDialog (
+            Gtk.Window parent,
+            Gee.ArrayList<Models.RunnerSpec> runner_specs,
+            Models.PrefixRegistry registry
+        ) {
             Object (
                 title: _("Preferences"),
                 content_width: 650,
                 content_height: 700
             );
             this.runner_specs = runner_specs;
+            this.registry = registry;
             build_ui ();
         }
 
@@ -33,8 +39,11 @@ namespace Lumoria.Widgets.Dialogs {
             components_page.toast_message.connect (show_toast);
             SettingsShared.add_scrolled_settings_page (stack, components_page, SettingsShared.PAGE_COMPONENTS, _("Components"));
 
+            var storage_page = new Preferences.StoragePage (registry);
+            storage_page.toast_message.connect (show_toast);
+            SettingsShared.add_scrolled_settings_page (stack, storage_page, SettingsShared.PAGE_STORAGE, _("Storage"));
+
             var advanced_page = new Preferences.AdvancedPage ();
-            advanced_page.toast_message.connect (show_toast);
             advanced_page.reset_requested.connect (on_reset_defaults);
             advanced_page.experimental_changed.connect (() => build_ui ());
             SettingsShared.add_scrolled_settings_page (stack, advanced_page, SettingsShared.PAGE_ADVANCED, _("Advanced"));

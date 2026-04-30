@@ -21,6 +21,155 @@ namespace Lumoria.Runtime {
         public signal void install_finished (bool success, string message);
     }
 
+    private class StepReporter : Object {
+        public int total { get; private set; }
+        public InstallProgress progress { get; private set; }
+        public RuntimeLog logger { get; private set; }
+        public Cancellable? cancellable { get; private set; }
+        public int idx { get; private set; }
+
+        public StepReporter (
+            int total,
+            InstallProgress progress,
+            RuntimeLog logger,
+            Cancellable? cancellable
+        ) {
+            this.total = total;
+            this.progress = progress;
+            this.logger = logger;
+            this.cancellable = cancellable;
+            this.idx = 0;
+        }
+
+        public void label (string text) throws IOError {
+            advance ();
+            emit_progress (text);
+        }
+
+        public void run_step (
+            Models.InstallStep step,
+            Gee.HashMap<string, string> vars,
+            WinePaths paths,
+            WineEnv env
+        ) throws Error {
+            advance ();
+            emit_progress (step.description);
+            logger.step (idx, total, step.description, step.step_type);
+            run_install_step (step, vars, paths, env, logger, cancellable);
+        }
+
+        public void run_download (Models.DownloadItem dl, Gee.HashMap<string, string> vars) throws Error {
+            advance ();
+            ensure_download_item (dl, expand_path (dl.dest, vars), idx, total, progress, logger);
+        }
+
+        public DownloadProgress download_progress_cb () {
+            var sig = progress;
+            int total_steps = total;
+            int slot = idx;
+            return (downloaded, total_bytes) => {
+                if (total_bytes <= 0) return;
+                var base_p = (double) (slot - 1) / total_steps;
+                var range = 1.0 / total_steps;
+                sig.progress_changed (base_p + (double) downloaded / (double) total_bytes * range);
+            };
+        }
+
+        private void advance () throws IOError {
+            check_cancelled (cancellable);
+            idx++;
+        }
+
+        private void emit_progress (string text) {
+            progress.step_changed ("(%d/%d) %s".printf (idx, total, text));
+            progress.progress_changed ((double) (idx - 1) / total);
+        }
+    }
+
+    private class ResolvedRedistSet : Object {
+        public Gee.ArrayList<Models.RedistSpec> specs { get; private set; }
+        public Gee.ArrayList<Models.InstallStep> code_steps { get; private set; }
+        public Gee.ArrayList<Models.DownloadItem> downloads { get; private set; }
+        public int step_count { get; private set; }
+
+        public ResolvedRedistSet () {
+            specs = new Gee.ArrayList<Models.RedistSpec> ();
+            code_steps = new Gee.ArrayList<Models.InstallStep> ();
+            downloads = new Gee.ArrayList<Models.DownloadItem> ();
+            step_count = 0;
+        }
+
+        public static ResolvedRedistSet resolve (
+            Gee.Iterable<string> redist_ids,
+            Gee.Map<string, Models.RedistSpec> all
+        ) {
+            var set = new ResolvedRedistSet ();
+            var seen = new Gee.HashSet<string> ();
+            int spec_steps = 0;
+            foreach (var rid in redist_ids) {
+                if (!seen.add (rid)) continue;
+                if (all.has_key (rid)) {
+                    var spec = all[rid];
+                    set.specs.add (spec);
+                    set.downloads.add_all (spec.downloads);
+                    spec_steps += spec.steps.size;
+                } else {
+                    var step = new Models.InstallStep ();
+                    step.step_type = "redist";
+                    step.command = rid;
+                    step.description = "Installing %s\u2026".printf (rid);
+                    set.code_steps.add (step);
+                }
+            }
+            set.step_count = set.downloads.size + spec_steps + set.code_steps.size;
+            return set;
+        }
+    }
+
+    private class InstallPhase : Object {
+        public Gee.ArrayList<Models.DownloadItem> downloads { get; private set; }
+        public Gee.ArrayList<Models.InstallStep> steps { get; private set; }
+        public ResolvedRedistSet redists { get; private set; }
+        public Gee.HashMap<string, string> vars { get; private set; }
+
+        public InstallPhase (
+            Gee.ArrayList<Models.DownloadItem> downloads,
+            Gee.ArrayList<Models.InstallStep> steps,
+            ResolvedRedistSet redists,
+            Gee.HashMap<string, string> vars
+        ) {
+            this.downloads = downloads;
+            this.steps = steps;
+            this.redists = redists;
+            this.vars = vars;
+        }
+
+        public int step_count {
+            get { return redists.step_count + downloads.size + steps.size; }
+        }
+
+        public void run_downloads (StepReporter rep, string phase_banner) throws Error {
+            rep.logger.phase (phase_banner);
+            foreach (var dl in redists.downloads) rep.run_download (dl, vars);
+            foreach (var dl in downloads) rep.run_download (dl, vars);
+        }
+
+        public void run_steps (
+            StepReporter rep,
+            WinePaths paths,
+            WineEnv env,
+            string? phase_banner
+        ) throws Error {
+            if (phase_banner != null) rep.logger.phase (phase_banner);
+            foreach (var spec in redists.specs) {
+                rep.logger.banner (spec.display_label ());
+                foreach (var step in spec.steps) rep.run_step (step, vars, paths, env);
+            }
+            foreach (var step in redists.code_steps) rep.run_step (step, vars, paths, env);
+            foreach (var step in steps) rep.run_step (step, vars, paths, env);
+        }
+    }
+
     public void run_full_install (
         InstallOptions opts,
         InstallProgress progress,
@@ -29,447 +178,131 @@ namespace Lumoria.Runtime {
         var logger = RuntimeLog.for_install (opts.prefix_path, (msg) => {
             progress.log_message (msg);
         });
-        var log_path = logger.log_path;
 
         try {
-
-            logger.banner ("Lumoria Install Log", false);
-            logger.emit_line ("Prefix: %s\n".printf (opts.prefix_path));
-            logger.emit_line ("Runner: %s variant=%s version=%s\n".printf (opts.runner_id, opts.variant_id, opts.runner_version));
-            if (logger.is_disk_enabled ()) {
-                logger.emit_line ("Log file: %s\n".printf (log_path));
-            }
-            logger.emit_line ("\n");
+            write_install_header (logger, opts);
 
             var installer_spec = Models.InstallerSpec.load_from_resource ();
-            Models.LauncherSpec? launcher = null;
-            if (opts.launcher_id != "") {
-                var launcher_specs = Models.LauncherSpec.load_all_from_resource ();
-                foreach (var ls in launcher_specs) {
-                    if (ls.id == opts.launcher_id) { launcher = ls; break; }
-                }
-            }
+            var launcher = find_launcher_spec (opts.launcher_id);
+            var post_install_spec = opts.post_install_spec_path != ""
+                ? Models.PostInstallSpec.load_from_file (opts.post_install_spec_path)
+                : null;
 
-            Models.PostInstallSpec? post_install_spec = null;
-            if (opts.post_install_spec_path != "") {
-                post_install_spec = Models.PostInstallSpec.load_from_file (opts.post_install_spec_path);
-            }
+            var all_redists = Models.RedistSpec.load_all_from_resource ();
+            var main_redists = ResolvedRedistSet.resolve (
+                merged_redist_ids (installer_spec.redists, launcher),
+                all_redists
+            );
+            var post_redists = post_install_spec != null
+                ? ResolvedRedistSet.resolve (post_install_spec.redists, all_redists)
+                : new ResolvedRedistSet ();
 
-            var all_redist_specs = Models.RedistSpec.load_all_from_resource ();
-            var resolved_redists = new Gee.ArrayList<Models.RedistSpec> ();
-            var code_redists = new Gee.ArrayList<string> ();
-            var requested_redists = new Gee.ArrayList<string> ();
-            var seen_redists = new Gee.HashSet<string> ();
-            var post_resolved_redists = new Gee.ArrayList<Models.RedistSpec> ();
-            var post_code_redists = new Gee.ArrayList<string> ();
+            const int FIXED_STEPS = 5;
+            int total_steps = FIXED_STEPS
+                + installer_spec.downloads.size + installer_spec.steps.size
+                + (launcher != null ? launcher.downloads.size + launcher.steps.size : 0)
+                + main_redists.step_count
+                + (post_install_spec != null
+                    ? 1 + post_install_spec.downloads.size + post_install_spec.steps.size + post_redists.step_count
+                    : 0);
 
-            foreach (var rid in installer_spec.redists) {
-                if (!seen_redists.contains (rid)) {
-                    requested_redists.add (rid);
-                    seen_redists.add (rid);
-                }
-            }
-            if (launcher != null) {
-                foreach (var rid in launcher.redists) {
-                    if (!seen_redists.contains (rid)) {
-                        requested_redists.add (rid);
-                        seen_redists.add (rid);
-                    }
-                }
-            }
+            var rep = new StepReporter (total_steps, progress, logger, cancellable);
 
-            foreach (var rid in requested_redists) {
-                if (all_redist_specs.has_key (rid)) {
-                    resolved_redists.add (all_redist_specs[rid]);
-                } else {
-                    code_redists.add (rid);
-                }
-            }
+            rep.label ("Preparing runner\u2026");
+            var runner_spec = Models.RunnerSpec.find_or_default (
+                Models.RunnerSpec.filter_for_host (Models.RunnerSpec.load_all_from_resource ()),
+                opts.runner_id
+            );
+            logger.emit_line ("Using runner: %s %s\n".printf (
+                runner_spec.display_label (),
+                Utils.Preferences.resolve_version (opts.runner_id, opts.runner_version)
+            ));
 
-            if (post_install_spec != null) {
-                foreach (var rid in post_install_spec.redists) {
-                    if (all_redist_specs.has_key (rid)) {
-                        post_resolved_redists.add (all_redist_specs[rid]);
-                    } else {
-                        post_code_redists.add (rid);
-                    }
-                }
-            }
-
-            int redist_downloads = 0;
-            int redist_steps = 0;
-            foreach (var rs in resolved_redists) {
-                redist_downloads += rs.downloads.size;
-                redist_steps += rs.steps.size;
-            }
-            int post_redist_downloads = 0;
-            int post_redist_steps = 0;
-            foreach (var rs in post_resolved_redists) {
-                post_redist_downloads += rs.downloads.size;
-                post_redist_steps += rs.steps.size;
-            }
-
-            int total_steps = 3
-                + installer_spec.downloads.size
-                + (launcher != null ? launcher.downloads.size : 0)
-                + (launcher != null ? launcher.steps.size : 0)
-                + redist_downloads + redist_steps
-                + code_redists.size
-                + (post_install_spec != null ? post_install_spec.downloads.size : 0)
-                + (post_install_spec != null ? post_install_spec.steps.size : 0)
-                + post_redist_downloads + post_redist_steps
-                + post_code_redists.size
-                + (post_install_spec != null ? 1 : 0)
-                + 1
-                + installer_spec.steps.size
-                + 1;
-            int step_idx = 0;
-
-            logger.phase ("Prepare runner");
-            step_idx++;
-            progress.step_changed ("(%d/%d) Preparing runner\u2026".printf (step_idx, total_steps));
-            progress.progress_changed ((double) (step_idx - 1) / total_steps);
-
-            var runner_specs = Models.RunnerSpec.filter_for_host (Models.RunnerSpec.load_all_from_resource ());
-            var runner_spec = Models.RunnerSpec.find_or_default (runner_specs, opts.runner_id);
-
-            var resolved_version = Utils.Preferences.resolve_version (opts.runner_id, opts.runner_version);
-            logger.emit_line ("Using runner: %s %s\n".printf (runner_spec.display_label (), resolved_version));
-
-            check_cancelled (cancellable);
-
-            step_idx++;
-            progress.step_changed ("(%d/%d) Downloading %s\u2026".printf (step_idx, total_steps, runner_spec.display_label ()));
-            var dl_base = (double) (step_idx - 1) / total_steps;
-            var dl_range = 1.0 / total_steps;
-            var result = download_and_extract_runner (
-                runner_spec, opts.variant_id, resolved_version,
-                (downloaded, total) => {
-                    if (total > 0) {
-                        progress.progress_changed (dl_base + (double) downloaded / (double) total * dl_range);
-                    }
-                },
+            rep.label ("Downloading %s\u2026".printf (runner_spec.display_label ()));
+            var prefix_entry = opts.prefix_entry ?? Models.PrefixRegistry
+                .load (Utils.prefix_registry_path ())
+                .by_path (opts.prefix_path);
+            var runtime = prepare_wine_runtime (
+                runner_spec, opts.variant_id, opts.runner_version,
+                opts.prefix_path, opts.wine_arch,
+                opts.prefix_entry != null ? opts.prefix_entry.sync_mode : "",
+                opts.wine_debug, opts.wine_wayland,
+                prefix_entry != null ? prefix_entry.runtime_env_vars : null,
+                rep.download_progress_cb (),
                 logger
             );
-            logger.emit_line ("Runner extracted to: %s\n".printf (result.extracted_to));
+            log_runtime_paths (logger, runtime);
 
-            check_cancelled (cancellable);
+            var pfx_path = runtime.prefix_path;
+            var paths = runtime.paths;
+            var env = runtime.env;
 
-            var paths = resolve_wine_paths (result.extracted_to, runner_spec, opts.variant_id);
-            logger.emit_line ("Wine binary: %s\n".printf (paths.wine));
-            logger.emit_line ("Wineboot: via wine wineboot\n");
-            logger.emit_line ("Wineserver: %s\n".printf (paths.wineserver));
-            logger.emit_line ("Runner root: %s\n\n".printf (paths.root));
+            var installer_vars = make_install_vars (pfx_path, "installer", installer_spec.id, installer_spec.variables);
+            log_install_vars (logger, installer_vars);
 
-            var variant = runner_spec.effective_variant (opts.variant_id);
-            var wine_arch = opts.wine_arch;
-            if (wine_arch == "") wine_arch = variant.wine_arch;
-            var pfx_path = install_prefix_path (opts.prefix_path);
-            var prefs = Utils.Preferences.instance ();
-            Models.PrefixEntry? prefix_entry = opts.prefix_entry;
-            if (prefix_entry == null) {
-                var registry = Models.PrefixRegistry.load (Utils.prefix_registry_path ());
-                prefix_entry = registry.by_path (opts.prefix_path);
-            }
+            var launcher_vars = launcher != null
+                ? make_install_vars (pfx_path, "launchers", launcher.id, launcher.variables)
+                : null;
+            var post_install_vars = post_install_spec != null
+                ? build_post_install_vars (
+                    pfx_path,
+                    ensure_cache_subdir ("post-install", post_install_spec.id),
+                    installer_spec, launcher, post_install_spec
+                )
+                : null;
 
-            var env = build_wine_env (
-                paths, runner_spec, opts.variant_id,
-                pfx_path, wine_arch,
-                Utils.Preferences.resolve_sync_mode (opts.prefix_entry != null ? opts.prefix_entry.sync_mode : ""),
-                Utils.Preferences.resolve_wine_debug (opts.wine_debug),
-                false,
-                Utils.Preferences.resolve_wine_wayland (opts.wine_wayland)
+            var installer_phase = new InstallPhase (
+                installer_spec.downloads, installer_spec.steps,
+                new ResolvedRedistSet (), installer_vars
             );
-            apply_env_overrides (env, prefs.get_runtime_env_vars ());
-            if (prefix_entry != null) {
-                apply_env_overrides (env, prefix_entry.runtime_env_vars);
+            var launcher_phase = launcher != null
+                ? new InstallPhase (launcher.downloads, launcher.steps, main_redists, launcher_vars)
+                : null;
+            var post_phase = post_install_spec != null
+                ? new InstallPhase (
+                    post_install_spec.downloads, post_install_spec.steps,
+                    post_redists, post_install_vars
+                )
+                : null;
+
+            installer_phase.run_downloads (rep, "Downloading installer artifacts");
+            if (launcher_phase != null) {
+                launcher_phase.run_downloads (rep, "Downloading launcher artifacts");
+            }
+            if (post_phase != null) {
+                post_phase.run_downloads (rep, "Downloading post install artifacts");
             }
 
-            var cache_root = Path.build_filename (Utils.cache_dir (), "installer", installer_spec.id);
-            Utils.ensure_dir (cache_root);
-            var vars = build_prefix_vars (pfx_path, cache_root, installer_spec.variables);
-
-            logger.emit_line ("Installer variables:\n");
-            foreach (var e in vars.entries) {
-                logger.emit_line ("  %s = %s\n".printf (e.key, e.value));
-            }
-            logger.emit_line ("\n");
-
-            Gee.HashMap<string, string>? launcher_vars = null;
-            if (launcher != null) {
-                var launcher_cache = Path.build_filename (Utils.cache_dir (), "launchers", launcher.id);
-                Utils.ensure_dir (launcher_cache);
-                launcher_vars = build_prefix_vars (pfx_path, launcher_cache, launcher.variables);
-            }
-
-            Gee.HashMap<string, string>? post_install_vars = null;
-            if (post_install_spec != null) {
-                var post_cache = Path.build_filename (Utils.cache_dir (), "post-install", post_install_spec.id);
-                Utils.ensure_dir (post_cache);
-                post_install_vars = build_post_install_vars (pfx_path, post_cache, installer_spec, launcher, post_install_spec);
-            }
-
-            logger.phase ("Downloading installer artifacts");
-            foreach (var dl in installer_spec.downloads) {
-                check_cancelled (cancellable);
-
-                step_idx++;
-                var dest = expand_path (dl.dest, vars);
-
-                ensure_download_item (dl, dest, step_idx, total_steps, progress, logger);
-            }
-
-            if (launcher_vars != null) {
-                foreach (var rs in resolved_redists) {
-                    foreach (var dl in rs.downloads) {
-                        check_cancelled (cancellable);
-
-                        step_idx++;
-                        var dest = expand_path (dl.dest, launcher_vars);
-                        ensure_download_item (dl, dest, step_idx, total_steps, progress, logger);
-                    }
-                }
-
-                foreach (var dl in launcher.downloads) {
-                    check_cancelled (cancellable);
-
-                    step_idx++;
-                    var dest = expand_path (dl.dest, launcher_vars);
-                    ensure_download_item (dl, dest, step_idx, total_steps, progress, logger);
-                }
-            }
-
-            if (post_install_vars != null) {
-                logger.phase ("Downloading post install artifacts");
-                foreach (var rs in post_resolved_redists) {
-                    foreach (var dl in rs.downloads) {
-                        check_cancelled (cancellable);
-
-                        step_idx++;
-                        var dest = expand_path (dl.dest, post_install_vars);
-                        ensure_download_item (dl, dest, step_idx, total_steps, progress, logger);
-                    }
-                }
-
-                foreach (var dl in post_install_spec.downloads) {
-                    check_cancelled (cancellable);
-
-                    step_idx++;
-                    var dest = expand_path (dl.dest, post_install_vars);
-                    ensure_download_item (dl, dest, step_idx, total_steps, progress, logger);
-                }
-            }
-
-            logger.phase ("Predownload enabled components");
-            step_idx++;
-            progress.step_changed ("(%d/%d) Predownloading enabled components\u2026".printf (step_idx, total_steps));
-            progress.progress_changed ((double) (step_idx - 1) / total_steps);
+            rep.label ("Predownloading enabled components\u2026");
             logger.banner ("Predownloading enabled components");
             predownload_enabled_components (null, logger);
 
-            check_cancelled (cancellable);
-
-            logger.phase ("Create wine prefix");
-            step_idx++;
-            progress.step_changed ("(%d/%d) Creating wine prefix\u2026".printf (step_idx, total_steps));
-            progress.progress_changed ((double) (step_idx - 1) / total_steps);
-
-            var drive_c = Path.build_filename (pfx_path, "drive_c");
-            if (FileUtils.test (drive_c, FileTest.EXISTS)) {
-                throw new IOError.FAILED (
-                    "A Wine prefix already exists at:\n%s\n\nRemove it first or choose a different path.",
-                    pfx_path
-                );
-            }
-
+            rep.label ("Creating wine prefix\u2026");
+            guard_against_existing_prefix (pfx_path);
             logger.banner ("Creating wine prefix");
             create_wine_prefix (paths, env, logger, cancellable);
             logger.emit_line ("Wine prefix created at: %s\n\n".printf (pfx_path));
 
-            logger.phase ("Apply components");
-            step_idx++;
-            progress.step_changed ("(%d/%d) Applying components\u2026".printf (step_idx, total_steps));
-            progress.progress_changed ((double) (step_idx - 1) / total_steps);
+            rep.label ("Applying components\u2026");
             logger.banner ("Applying enabled components");
-            string? component_warning = null;
-            try {
-                var comp_result = apply_enabled_components (pfx_path, prefix_entry, logger);
-                foreach (var ov in comp_result.dll_overrides.entries) {
-                    env.add_dll_override (ov.key, ov.value);
-                }
+            var component_warning = apply_components_with_warning (env, prefix_entry, pfx_path, logger);
 
-                var comp_env_defaults = resolve_component_env_defaults (pfx_path, prefix_entry);
-                if (prefix_entry != null && comp_env_defaults.size > 0) {
-                    foreach (var ce in comp_env_defaults.entries) {
-                        if (!prefix_entry.runtime_env_vars.has_key (ce.key)) {
-                            prefix_entry.runtime_env_vars[ce.key] = ce.value;
-                        }
-                    }
-                    var reg = Models.PrefixRegistry.load (Utils.prefix_registry_path ());
-                    reg.update_entry (prefix_entry);
-                    reg.save (Utils.prefix_registry_path ());
-                    logger.emit_line ("Seeded %d component env default(s) into prefix runtime_env_vars\n".printf (comp_env_defaults.size));
-                }
-
-                apply_env_overrides (env, prefs.get_runtime_env_vars ());
-                if (prefix_entry != null) {
-                    apply_env_overrides (env, prefix_entry.runtime_env_vars);
-                }
-            } catch (Error comp_err) {
-                logger.typed (LogType.WARN, "Component application failed: %s".printf (comp_err.message));
-                component_warning = "Component setup failed: %s".printf (comp_err.message);
+            installer_phase.run_steps (rep, paths, env, "Run installer steps");
+            if (launcher_phase != null) {
+                logger.banner ("Setting up launcher: %s".printf (launcher.display_label ()));
+                launcher_phase.run_steps (rep, paths, env, null);
             }
-
-            logger.phase ("Run installer steps");
-            foreach (var step in installer_spec.steps) {
-                check_cancelled (cancellable);
-
-                step_idx++;
-                progress.step_changed ("(%d/%d) %s".printf (step_idx, total_steps, step.description));
-                progress.progress_changed ((double) (step_idx - 1) / total_steps);
-                logger.step (step_idx, total_steps, step.description, step.step_type);
-
-                run_install_step (step, vars, paths, env, logger, cancellable);
-            }
-
-            if (launcher_vars != null) {
-                var launcher_name = launcher != null ? launcher.display_label () : "launcher";
-                logger.banner ("Setting up launcher: %s".printf (launcher_name));
-
-                foreach (var rs in resolved_redists) {
-                    logger.banner ("Redist: %s".printf (rs.display_label ()));
-                    foreach (var step in rs.steps) {
-                        check_cancelled (cancellable);
-
-                        step_idx++;
-                        progress.step_changed ("(%d/%d) %s".printf (step_idx, total_steps, step.description));
-                        progress.progress_changed ((double) (step_idx - 1) / total_steps);
-                        logger.step (step_idx, total_steps, step.description, step.step_type);
-                        run_install_step (step, launcher_vars, paths, env, logger, cancellable);
-                    }
-                }
-
-                foreach (var rid in code_redists) {
-                    check_cancelled (cancellable);
-
-                    step_idx++;
-                    progress.step_changed ("(%d/%d) Installing %s\u2026".printf (step_idx, total_steps, rid));
-                    progress.progress_changed ((double) (step_idx - 1) / total_steps);
-                    logger.banner ("Redist: %s (code)".printf (rid));
-
-                    var redist_opts = build_redist_options (
-                        launcher_vars.has_key ("PREFIX") ? launcher_vars["PREFIX"] : "",
-                        paths,
-                        env,
-                        cancellable
-                    );
-                    install_redist (rid, redist_opts, logger);
-                }
-
-                foreach (var step in launcher.steps) {
-                    check_cancelled (cancellable);
-
-                    step_idx++;
-                    progress.step_changed ("(%d/%d) %s".printf (step_idx, total_steps, step.description));
-                    progress.progress_changed ((double) (step_idx - 1) / total_steps);
-                    logger.step (step_idx, total_steps, step.description, step.step_type);
-                    run_install_step (step, launcher_vars, paths, env, logger, cancellable);
-                }
-            }
-
-            if (post_install_spec != null && post_install_vars != null) {
-                string post_backup_path = "";
-                try {
-                    logger.banner ("Post install: %s".printf (post_install_spec.display_label ()));
-
-                    check_cancelled (cancellable);
-                    step_idx++;
-                    progress.step_changed ("(%d/%d) Backing up post install spec\u2026".printf (step_idx, total_steps));
-                    progress.progress_changed ((double) (step_idx - 1) / total_steps);
-                    post_backup_path = backup_post_install_spec (opts.prefix_path, opts.post_install_spec_path, post_install_spec);
-                    logger.typed (LogType.COPY, "%s -> %s".printf (opts.post_install_spec_path, post_backup_path));
-
-                    foreach (var rs in post_resolved_redists) {
-                        logger.banner ("Post install redist: %s".printf (rs.display_label ()));
-                        foreach (var step in rs.steps) {
-                            check_cancelled (cancellable);
-
-                            step_idx++;
-                            progress.step_changed ("(%d/%d) %s".printf (step_idx, total_steps, step.description));
-                            progress.progress_changed ((double) (step_idx - 1) / total_steps);
-                            logger.step (step_idx, total_steps, step.description, step.step_type);
-                            run_install_step (step, post_install_vars, paths, env, logger, cancellable);
-                        }
-                    }
-
-                    foreach (var rid in post_code_redists) {
-                        check_cancelled (cancellable);
-
-                        step_idx++;
-                        progress.step_changed ("(%d/%d) Installing %s\u2026".printf (step_idx, total_steps, rid));
-                        progress.progress_changed ((double) (step_idx - 1) / total_steps);
-                        logger.banner ("Post install redist: %s (code)".printf (rid));
-
-                        var redist_opts = build_redist_options (
-                            post_install_vars.has_key ("PREFIX") ? post_install_vars["PREFIX"] : "",
-                            paths,
-                            env,
-                            cancellable
-                        );
-                        install_redist (rid, redist_opts, logger);
-                    }
-
-                    foreach (var step in post_install_spec.steps) {
-                        check_cancelled (cancellable);
-
-                        step_idx++;
-                        progress.step_changed ("(%d/%d) %s".printf (step_idx, total_steps, step.description));
-                        progress.progress_changed ((double) (step_idx - 1) / total_steps);
-                        logger.step (step_idx, total_steps, step.description, step.step_type);
-                        run_install_step (step, post_install_vars, paths, env, logger, cancellable);
-                    }
-
-                    update_post_install_metadata (
-                        prefix_entry,
-                        post_install_spec,
-                        opts.post_install_spec_path,
-                        opts.post_install_spec_uri,
-                        post_backup_path,
-                        "success",
-                        logger
-                    );
-                } catch (Error post_install_error) {
-                    update_post_install_metadata (
-                        prefix_entry,
-                        post_install_spec,
-                        opts.post_install_spec_path,
-                        opts.post_install_spec_uri,
-                        post_backup_path,
-                        "failed",
-                        logger
-                    );
-                    throw post_install_error;
-                }
+            if (post_phase != null) {
+                run_post_install (post_phase, rep, paths, env, post_install_spec, opts, prefix_entry, logger);
             }
 
             shutdown_wineserver (paths, env, logger);
             progress.progress_changed (1.0);
-            if (component_warning != null) {
-                logger.banner ("Install completed with warnings");
-                progress.install_finished (true, "Install complete with warnings.\n%s".printf (component_warning));
-            } else {
-                logger.banner ("Install completed successfully");
-                progress.install_finished (true, "Install complete.");
-            }
-
+            announce_install_finished (progress, logger, component_warning);
         } catch (IOError.CANCELLED e) {
-            logger.banner ("INSTALL CANCELLED");
-            logger.emit_line ("%s\n".printf (e.message));
-            progress.install_finished (false, "Installation cancelled.");
+            announce_install_failure (progress, logger, "INSTALL CANCELLED", "Installation cancelled.", e.message);
         } catch (Error e) {
-            logger.banner ("INSTALL FAILED");
-            logger.emit_line ("%s\n".printf (e.message));
-            progress.install_finished (false, e.message);
+            announce_install_failure (progress, logger, "INSTALL FAILED", e.message, e.message);
         } finally {
             logger.close ();
         }
@@ -497,114 +330,213 @@ namespace Lumoria.Runtime {
             logger.emit_line ("Prefix: %s\n".printf (entry.resolved_path ()));
             logger.emit_line ("Action: %s\n\n".printf (action.display_label ()));
 
-            var all_redist_specs = Models.RedistSpec.load_all_from_resource ();
-            var resolved_redists = new Gee.ArrayList<Models.RedistSpec> ();
-            var code_redists = new Gee.ArrayList<string> ();
-            foreach (var rid in action.redists) {
-                if (all_redist_specs.has_key (rid)) {
-                    resolved_redists.add (all_redist_specs[rid]);
-                } else {
-                    code_redists.add (rid);
-                }
-            }
-
-            int redist_downloads = 0;
-            int redist_steps = 0;
-            foreach (var rs in resolved_redists) {
-                redist_downloads += rs.downloads.size;
-                redist_steps += rs.steps.size;
-            }
-
-            int total_steps = 1 + action.downloads.size + action.steps.size
-                + redist_downloads + redist_steps + code_redists.size;
-            int step_idx = 0;
-
-            check_cancelled (cancellable);
-            step_idx++;
-            progress.step_changed ("(%d/%d) Preparing action\u2026".printf (step_idx, total_steps));
-            progress.progress_changed ((double) (step_idx - 1) / total_steps);
-
-            var runner_spec = Models.RunnerSpec.find_or_default (runner_specs, entry.runner_id);
-            var resolved_version = Utils.Preferences.resolve_version (entry.runner_id, entry.runner_version);
-            var result = download_and_extract_runner (runner_spec, entry.variant_id, resolved_version, null, logger);
-            var paths = resolve_wine_paths (result.extracted_to, runner_spec, entry.variant_id);
-            var pfx_path = install_prefix_path (entry.path);
-            var variant = runner_spec.effective_variant (entry.variant_id);
-            var wine_arch = entry.wine_arch != "" ? entry.wine_arch : variant.wine_arch;
-            var env = build_wine_env (
-                paths, runner_spec, entry.variant_id,
-                pfx_path, wine_arch,
-                Utils.Preferences.resolve_sync_mode (entry.sync_mode),
-                Utils.Preferences.resolve_wine_debug (entry.wine_debug),
-                false,
-                Utils.Preferences.resolve_wine_wayland (entry.wine_wayland)
+            var action_redists = ResolvedRedistSet.resolve (
+                action.redists, Models.RedistSpec.load_all_from_resource ()
             );
-            var prefs = Utils.Preferences.instance ();
-            apply_env_overrides (env, prefs.get_runtime_env_vars ());
-            apply_env_overrides (env, entry.runtime_env_vars);
+            int total_steps = 1 + action.downloads.size + action.steps.size + action_redists.step_count;
+            var rep = new StepReporter (total_steps, progress, logger, cancellable);
 
-            var cache_root = Path.build_filename (Utils.cache_dir (), "actions", entry.id, action.id);
-            Utils.ensure_dir (cache_root);
-            var vars = build_action_vars (pfx_path, cache_root, entry, launcher_specs, action);
+            rep.label ("Preparing action\u2026");
+            var runner_spec = Models.RunnerSpec.find_or_default (runner_specs, entry.runner_id);
+            var runtime = prepare_wine_runtime (
+                runner_spec, entry.variant_id, entry.runner_version,
+                entry.path, entry.wine_arch,
+                entry.sync_mode, entry.wine_debug, entry.wine_wayland,
+                entry.runtime_env_vars, null, logger
+            );
 
-            logger.phase ("Downloading action artifacts");
-            foreach (var rs in resolved_redists) {
-                foreach (var dl in rs.downloads) {
-                    check_cancelled (cancellable);
-                    step_idx++;
-                    ensure_download_item (dl, expand_path (dl.dest, vars), step_idx, total_steps, progress, logger);
-                }
-            }
-            foreach (var dl in action.downloads) {
-                check_cancelled (cancellable);
-                step_idx++;
-                ensure_download_item (dl, expand_path (dl.dest, vars), step_idx, total_steps, progress, logger);
-            }
+            var cache_root = ensure_cache_subdir (Path.build_filename ("actions", entry.id), action.id);
+            var vars = build_action_vars (runtime.prefix_path, cache_root, entry, launcher_specs, action);
 
-            logger.phase ("Run action steps");
-            foreach (var rs in resolved_redists) {
-                logger.banner ("Action redist: %s".printf (rs.display_label ()));
-                foreach (var step in rs.steps) {
-                    check_cancelled (cancellable);
-                    step_idx++;
-                    progress.step_changed ("(%d/%d) %s".printf (step_idx, total_steps, step.description));
-                    progress.progress_changed ((double) (step_idx - 1) / total_steps);
-                    logger.step (step_idx, total_steps, step.description, step.step_type);
-                    run_install_step (step, vars, paths, env, logger, cancellable);
-                }
-            }
-            foreach (var rid in code_redists) {
-                check_cancelled (cancellable);
-                step_idx++;
-                progress.step_changed ("(%d/%d) Installing %s\u2026".printf (step_idx, total_steps, rid));
-                progress.progress_changed ((double) (step_idx - 1) / total_steps);
-                logger.banner ("Action redist: %s (code)".printf (rid));
-                install_redist (rid, build_redist_options (pfx_path, paths, env, cancellable), logger);
-            }
-            foreach (var step in action.steps) {
-                check_cancelled (cancellable);
-                step_idx++;
-                progress.step_changed ("(%d/%d) %s".printf (step_idx, total_steps, step.description));
-                progress.progress_changed ((double) (step_idx - 1) / total_steps);
-                logger.step (step_idx, total_steps, step.description, step.step_type);
-                run_install_step (step, vars, paths, env, logger, cancellable);
-            }
+            var phase = new InstallPhase (
+                action.downloads, action.steps, action_redists, vars
+            );
+            phase.run_downloads (rep, "Downloading action artifacts");
+            phase.run_steps (rep, runtime.paths, runtime.env, "Run action steps");
 
-            shutdown_wineserver (paths, env, logger);
+            shutdown_wineserver (runtime.paths, runtime.env, logger);
             progress.progress_changed (1.0);
             logger.banner ("Action completed successfully");
             progress.install_finished (true, "Action complete.");
         } catch (IOError.CANCELLED e) {
-            logger.banner ("ACTION CANCELLED");
-            logger.emit_line ("%s\n".printf (e.message));
-            progress.install_finished (false, "Action cancelled.");
+            announce_install_failure (progress, logger, "ACTION CANCELLED", "Action cancelled.", e.message);
         } catch (Error e) {
-            logger.banner ("ACTION FAILED");
-            logger.emit_line ("%s\n".printf (e.message));
-            progress.install_finished (false, e.message);
+            announce_install_failure (progress, logger, "ACTION FAILED", e.message, e.message);
         } finally {
             logger.close ();
         }
+    }
+
+    private void write_install_header (RuntimeLog logger, InstallOptions opts) {
+        logger.banner ("Lumoria Install Log", false);
+        logger.emit_line ("Prefix: %s\n".printf (opts.prefix_path));
+        logger.emit_line ("Runner: %s variant=%s version=%s\n".printf (
+            opts.runner_id, opts.variant_id, opts.runner_version
+        ));
+        if (logger.is_disk_enabled ()) {
+            logger.emit_line ("Log file: %s\n".printf (logger.log_path));
+        }
+        logger.emit_line ("\n");
+    }
+
+    private Models.LauncherSpec? find_launcher_spec (string launcher_id) {
+        if (launcher_id == "") return null;
+        foreach (var ls in Models.LauncherSpec.load_all_from_resource ()) {
+            if (ls.id == launcher_id) return ls;
+        }
+        return null;
+    }
+
+    private Gee.ArrayList<string> merged_redist_ids (
+        Gee.ArrayList<string> installer_redists,
+        Models.LauncherSpec? launcher
+    ) {
+        var merged = new Gee.ArrayList<string> ();
+        merged.add_all (installer_redists);
+        if (launcher != null) merged.add_all (launcher.redists);
+        return merged;
+    }
+
+    private string ensure_cache_subdir (string category, string id) {
+        var path = Path.build_filename (Utils.cache_dir (), category, id);
+        Utils.ensure_dir (path);
+        return path;
+    }
+
+    private Gee.HashMap<string, string> make_install_vars (
+        string pfx_path,
+        string category,
+        string id,
+        Gee.HashMap<string, string> spec_vars
+    ) {
+        return build_prefix_vars (pfx_path, ensure_cache_subdir (category, id), spec_vars);
+    }
+
+    private void log_runtime_paths (RuntimeLog logger, WineRuntime runtime) {
+        logger.emit_line ("Runner extracted to: %s\n".printf (runtime.extract_result.extracted_to));
+        logger.emit_line ("Wine binary: %s\n".printf (runtime.paths.wine));
+        logger.emit_line ("Wineboot: via wine wineboot\n");
+        logger.emit_line ("Wineserver: %s\n".printf (runtime.paths.wineserver));
+        logger.emit_line ("Runner root: %s\n\n".printf (runtime.paths.root));
+    }
+
+    private void log_install_vars (RuntimeLog logger, Gee.HashMap<string, string> vars) {
+        logger.emit_line ("Installer variables:\n");
+        foreach (var e in vars.entries) {
+            logger.emit_line ("  %s = %s\n".printf (e.key, e.value));
+        }
+        logger.emit_line ("\n");
+    }
+
+    private void guard_against_existing_prefix (string pfx_path) throws Error {
+        if (FileUtils.test (Path.build_filename (pfx_path, "drive_c"), FileTest.EXISTS)) {
+            throw new IOError.FAILED (
+                "A Wine prefix already exists at:\n%s\n\nRemove it first or choose a different path.",
+                pfx_path
+            );
+        }
+    }
+
+    private string? apply_components_with_warning (
+        WineEnv env,
+        Models.PrefixEntry? prefix_entry,
+        string pfx_path,
+        RuntimeLog logger
+    ) {
+        try {
+            var comp_result = apply_enabled_components (pfx_path, prefix_entry, logger);
+            foreach (var ov in comp_result.dll_overrides.entries) {
+                env.add_dll_override (ov.key, ov.value);
+            }
+            seed_component_env_defaults (prefix_entry, pfx_path, logger);
+            apply_env_overrides (env, Utils.Preferences.instance ().get_runtime_env_vars ());
+            if (prefix_entry != null) {
+                apply_env_overrides (env, prefix_entry.runtime_env_vars);
+            }
+            return null;
+        } catch (Error e) {
+            logger.typed (LogType.WARN, "Component application failed: %s".printf (e.message));
+            return "Component setup failed: %s".printf (e.message);
+        }
+    }
+
+    private void seed_component_env_defaults (
+        Models.PrefixEntry? entry,
+        string pfx_path,
+        RuntimeLog logger
+    ) {
+        if (entry == null) return;
+        var defaults = resolve_component_env_defaults (pfx_path, entry);
+        if (defaults.size == 0) return;
+        foreach (var ce in defaults.entries) {
+            if (!entry.runtime_env_vars.has_key (ce.key)) {
+                entry.runtime_env_vars[ce.key] = ce.value;
+            }
+        }
+        var reg = Models.PrefixRegistry.load (Utils.prefix_registry_path ());
+        reg.update_entry (entry);
+        reg.save (Utils.prefix_registry_path ());
+        logger.emit_line ("Seeded %d component env default(s) into prefix runtime_env_vars\n".printf (defaults.size));
+    }
+
+    private void run_post_install (
+        InstallPhase phase,
+        StepReporter rep,
+        WinePaths paths,
+        WineEnv env,
+        Models.PostInstallSpec spec,
+        InstallOptions opts,
+        Models.PrefixEntry? prefix_entry,
+        RuntimeLog logger
+    ) throws Error {
+        string backup_path = "";
+        try {
+            logger.banner ("Post install: %s".printf (spec.display_label ()));
+            rep.label ("Backing up post install spec\u2026");
+            backup_path = backup_post_install_spec (opts.prefix_path, opts.post_install_spec_path, spec);
+            logger.typed (LogType.COPY, "%s -> %s".printf (opts.post_install_spec_path, backup_path));
+
+            phase.run_steps (rep, paths, env, null);
+
+            update_post_install_metadata (
+                prefix_entry, spec,
+                opts.post_install_spec_path, opts.post_install_spec_uri,
+                backup_path, "success", logger
+            );
+        } catch (Error e) {
+            update_post_install_metadata (
+                prefix_entry, spec,
+                opts.post_install_spec_path, opts.post_install_spec_uri,
+                backup_path, "failed", logger
+            );
+            throw e;
+        }
+    }
+
+    private void announce_install_finished (
+        InstallProgress progress,
+        RuntimeLog logger,
+        string? component_warning
+    ) {
+        if (component_warning != null) {
+            logger.banner ("Install completed with warnings");
+            progress.install_finished (true, "Install complete with warnings.\n%s".printf (component_warning));
+        } else {
+            logger.banner ("Install completed successfully");
+            progress.install_finished (true, "Install complete.");
+        }
+    }
+
+    private void announce_install_failure (
+        InstallProgress progress,
+        RuntimeLog logger,
+        string banner_title,
+        string user_message,
+        string log_message
+    ) {
+        logger.banner (banner_title);
+        logger.emit_line ("%s\n".printf (log_message));
+        progress.install_finished (false, user_message);
     }
 
     private void ensure_download_item (

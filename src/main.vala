@@ -6,6 +6,9 @@ int main (string[] args) {
 
     if (args.length >= 2) {
         var c = args[1];
+        if (c == "wrap") {
+            return Lumoria.Cli.cmd_wrap (args);
+        }
         if (c == "version" || c == "help" || c == "--help" || c == "-h" || c == "list" || c == "launch") {
             Lumoria.Utils.register_resources ();
             return Lumoria.Cli.run (args);
