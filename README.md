@@ -36,3 +36,6 @@ All trademarks or registered trademarks are the property of their respective own
 
 We are not affiliated with SQUARE ENIX CO., LTD. in any way.
 
+## Special Thanks
+- Lutris, Winetricks, and ProtonPlus for inspiration. Learned a lot from tinkering with their projects.
+- @taru on the Windower Discord server for extensive beta testing.
