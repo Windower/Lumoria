@@ -300,8 +300,29 @@ namespace Lumoria.Widgets.Dialogs {
         }
 
         private void on_close_requested () {
-            if (action_mode || (!install_failed && !install_cancelled)) {
+            if (action_mode) {
                 close ();
+                return;
+            }
+
+            if (!install_failed && !install_cancelled) {
+                var cache_dialog = new Adw.AlertDialog (
+                    _("Clear Install Cache?"),
+                    _("Cached downloads will save time if you need to reinstall.")
+                );
+                cache_dialog.add_response ("keep", _("Keep Files"));
+                cache_dialog.add_response ("remove", _("Remove Files"));
+                cache_dialog.set_response_appearance ("remove", Adw.ResponseAppearance.DESTRUCTIVE);
+                cache_dialog.default_response = "keep";
+                cache_dialog.close_response = "keep";
+                cache_dialog.response.connect ((response) => {
+                    if (response == "remove") {
+                        Utils.remove_recursive (Utils.cache_dir ());
+                        Utils.StorageCache.instance ().invalidate_all_cache ();
+                    }
+                    close ();
+                });
+                cache_dialog.present (this);
                 return;
             }
             var title = install_cancelled ? _("Installation Cancelled") : _("Installation Failed");

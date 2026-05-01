@@ -73,6 +73,8 @@
         <ul>
           <li>Post Install Scripts support.</li>
           <li>Fix GDIPlus installation issues.</li>
+          <li>Storage tab under Preferences for managing Lumoria's storage.</li>
+          <li>New reaper to better capture child process output after Windower forks.</li>
         </ul>
       </description>
     </release>

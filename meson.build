@@ -26,6 +26,8 @@ config_inc = include_directories('.')
 
 add_global_arguments('-DGETTEXT_PACKAGE="@0@"'.format(meson.project_name()), language: 'c')
 
+install_data('LICENSE', install_dir: get_option('datadir') / 'licenses' / meson.project_name())
+
 subdir('data')
 subdir('src')
 subdir('po')

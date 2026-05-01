@@ -42,16 +42,14 @@ modules:
     sources:
       - type: git
         url: https://github.com/fastfloat/fast_float.git
-        tag: v8.2.3
-        commit: 01ce95dfe46abccf3264fbccf9f5139ea9016cd2
+        tag: v8.2.5
 
   - name: simdutf
     buildsystem: cmake-ninja
     sources:
       - type: git
         url: https://github.com/simdutf/simdutf.git
-        tag: v8.0.0
-        commit: 7f3757fba1b426e7f583011ba7bc4e700a8fbb1a
+        tag: v9.0.0
 
   - name: vte
     buildsystem: meson
@@ -64,8 +62,8 @@ modules:
       - -Dvapi=true
     sources:
       - type: archive
-        url: https://download.gnome.org/sources/vte/0.82/vte-0.82.3.tar.xz
-        sha256: 6dc6278f6fee30d07d1a03e2ba3335b1ea4e8d2956ceb59d861943115d930a85
+        url: https://download.gnome.org/sources/vte/0.84/vte-0.84.0.tar.xz
+        sha256: 0414e31583836aeb7878da25f67c515f7e8879917ecc37c92e26b83e8d8fc3e3
 
   - name: libmspack
     buildsystem: autotools
