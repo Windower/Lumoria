@@ -12,10 +12,7 @@ build-options:
 
 finish-args:
   - --device=all
-  # - --device=dri
-  # for the life of me I cannot get --device=input to recognize Steam Deck Controller
-  # - --device=input
-  - --filesystem=/run/udev:ro
+  - --allow=devel
   - --socket=wayland
   - --socket=fallback-x11
   - --allow=multiarch
@@ -29,7 +26,8 @@ cleanup:
   - /share/pkgconfig
   - /share/man
   - /share/vala
-  - /bin/vte-2.91-gtk4
+  - /lib/cmake
+  - /lib/girepository-1.0
   - /libexec/vte-urlencode-cwd
   - /share/gir-1.0
   - '*.la'
@@ -43,6 +41,7 @@ modules:
       - type: git
         url: https://github.com/fastfloat/fast_float.git
         tag: v8.2.5
+        commit: 05087a303dad9c98768b33c829d398223a649bc6
 
   - name: simdutf
     buildsystem: cmake-ninja
@@ -50,6 +49,7 @@ modules:
       - type: git
         url: https://github.com/simdutf/simdutf.git
         tag: v9.0.0
+        commit: ca7acbcea967b5dcbab490066e99e3a6e6925539
 
   - name: vte
     buildsystem: meson
@@ -60,6 +60,9 @@ modules:
       - -Dglade=false
       - -Dgir=true
       - -Dvapi=true
+      - -Dapp=false
+      - -Dicu=false
+      - -D_systemd=false
     sources:
       - type: archive
         url: https://download.gnome.org/sources/vte/0.84/vte-0.84.0.tar.xz
