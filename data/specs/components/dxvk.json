@@ -15,14 +15,14 @@
     {
       "type": "copy",
       "description": "Install DXVK x32 DLLs",
-      "src": "$COMPONENT/x32",
-      "dst": "$PREFIX/drive_c/windows/syswow64"
+      "src": "${COMPONENT}/x32/",
+      "dst": "${PREFIX}/drive_c/windows/syswow64"
     },
     {
       "type": "copy",
       "description": "Install DXVK x64 DLLs",
-      "src": "$COMPONENT/x64",
-      "dst": "$PREFIX/drive_c/windows/system32"
+      "src": "${COMPONENT}/x64/",
+      "dst": "${PREFIX}/drive_c/windows/system32"
     }
   ]
 }

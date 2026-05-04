@@ -26,6 +26,19 @@ namespace Lumoria.Widgets.Preferences {
             experimental_group.add (experimental_row);
             append (experimental_group);
 
+            var input_group = SettingsShared.build_group (_("Input"));
+            var gamepad_row = new Adw.SwitchRow ();
+            gamepad_row.title = _("Gamepad Navigation");
+            gamepad_row.subtitle = _("Use a connected gamepad to navigate Lumoria's UI.");
+            gamepad_row.active = prefs.gamepad_navigation;
+            gamepad_row.notify["active"].connect (() => {
+                if (prefs.gamepad_navigation != gamepad_row.active) {
+                    prefs.set_gamepad_navigation (gamepad_row.active);
+                }
+            });
+            input_group.add (gamepad_row);
+            append (input_group);
+
             var reset_group = SettingsShared.build_group (_("Reset"));
 
             var reset_row = new Adw.ActionRow ();

@@ -131,20 +131,113 @@ namespace Lumoria.Utils {
     }
 
     public static string expand_vars (string input, Gee.HashMap<string, string> vars) {
-        var result = input;
-        var keys = new Gee.ArrayList<string> ();
-        foreach (var e in vars.entries) {
-            keys.add (e.key);
+        if (input.index_of_char ('$') < 0) return input;
+        try {
+            return var_token_regex ().replace_eval (input, input.length, 0, 0, (match, builder) => {
+                var escape = match.fetch (1);
+                var name = match.fetch (2);
+                var chain = match.fetch (3);
+                if (escape != null && escape == "$") {
+                    builder.append ("${" + name + "}");
+                    return false;
+                }
+                if (name == null) {
+                    builder.append (match.fetch (0));
+                    return false;
+                }
+                string val = vars.has_key (name) ? vars[name] : "";
+                builder.append (apply_modifier_chain (val, chain));
+                return false;
+            });
+        } catch (RegexError e) {
+            warning ("expand_vars: %s", e.message);
+            return input;
         }
-        keys.sort ((a, b) => {
-            if (a.length == b.length) return 0;
-            return a.length > b.length ? -1 : 1;
-        });
-        foreach (var key in keys) {
-            result = result.replace ("${" + key + "}", vars[key]);
-            result = result.replace ("$" + key, vars[key]);
+    }
+
+    private static string apply_modifier_chain (string raw, string? chain) {
+        if (chain == null || chain == "") return raw;
+        string result = raw;
+        foreach (var segment in chain.split ("|")) {
+            if (segment == "") continue;
+            var colon = segment.index_of_char (':');
+            string mod_name;
+            string? mod_arg;
+            if (colon < 0) {
+                mod_name = segment;
+                mod_arg = null;
+            } else {
+                mod_name = segment.substring (0, colon);
+                mod_arg = segment.substring (colon + 1);
+            }
+            result = apply_modifier (result, mod_name, mod_arg);
         }
         return result;
+    }
+
+    private static string apply_modifier (string raw, string modifier, string? arg) {
+        switch (modifier) {
+            case "upper":
+                return raw.up ();
+            case "lower":
+                return raw.down ();
+            case "capitalize":
+                if (raw.length == 0) return raw;
+                return raw.substring (0, 1).up () + raw.substring (1).down ();
+            case "truncate":
+                if (arg == null || arg == "") return raw;
+                int64 n;
+                if (int64.try_parse (arg, out n) && n >= 0 && n < raw.length)
+                    return raw.substring (0, (long) n);
+                return raw;
+            case "replace":
+                if (arg == null || arg.length < 2) return raw;
+                var delim = arg.substring (0, 1);
+                var parts = arg.substring (1).split (delim);
+                if (parts.length < 2) return raw;
+                return raw.replace (parts[0], parts[1]);
+            case "default":
+                return (raw == "") ? (arg ?? "") : raw;
+            case "urlencode":
+                return Uri.escape_string (raw, null, true);
+            default:
+                warning ("expand_vars: unknown modifier '%s'", modifier);
+                return raw;
+        }
+    }
+
+    public static void resolve_var_references (Gee.HashMap<string, string> vars) {
+        const int MAX_ITERATIONS = 16;
+        int iterations = 0;
+        bool changed = true;
+        while (changed && iterations < MAX_ITERATIONS) {
+            changed = false;
+            iterations++;
+            var keys = new Gee.ArrayList<string> ();
+            foreach (var k in vars.keys) keys.add (k);
+            foreach (var k in keys) {
+                var current = vars[k];
+                if (current.index_of_char ('$') < 0) continue;
+                var expanded = expand_vars (current, vars);
+                if (expanded != current) {
+                    vars[k] = expanded;
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            warning ("resolve_var_references: did not stabilize after %d iterations (cycle?)", MAX_ITERATIONS);
+        }
+    }
+
+    private static Regex? _var_token_regex = null;
+    private static Regex var_token_regex () throws RegexError {
+        if (_var_token_regex == null) {
+            _var_token_regex = new Regex (
+                "\\$(\\$)?\\{([A-Za-z_][A-Za-z0-9_]*)(?::([^}]+))?\\}"
+            );
+        }
+        return _var_token_regex;
     }
 
 }

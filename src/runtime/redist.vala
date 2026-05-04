@@ -33,8 +33,23 @@ namespace Lumoria.Runtime {
             case "dotnet48":
                 install_dotnet48 (opts, logger);
                 break;
+            case "win7":
+                set_winver (opts, "win7", logger);
+                break;
+            case "win10":
+                set_winver (opts, "win10", logger);
+                break;
             default:
-                throw new IOError.FAILED ("Unknown redist: %s (supported: dotnet48)", id);
+                throw new IOError.FAILED ("Unknown redist: %s (supported: dotnet48, win7, win10)", id);
+        }
+    }
+
+    public string builtin_redist_label (string id) {
+        switch (id.down ()) {
+            case "dotnet48": return _("Installing .NET Framework 4.8\u2026");
+            case "win7":     return _("Setting Windows version to Windows 7\u2026");
+            case "win10":    return _("Setting Windows version to Windows 10\u2026");
+            default:         return _("Installing %s\u2026").printf (id);
         }
     }
 

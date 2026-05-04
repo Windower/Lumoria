@@ -64,18 +64,21 @@ modules:
       - -Dicu=false
       - -D_systemd=false
     sources:
-      - type: archive
-        url: https://download.gnome.org/sources/vte/0.84/vte-0.84.0.tar.xz
-        sha256: 0414e31583836aeb7878da25f67c515f7e8879917ecc37c92e26b83e8d8fc3e3
+      - type: git
+        url: https://gitlab.gnome.org/GNOME/vte.git
+        tag: 0.84.0
+        commit: 5da1ed34b210f2b000ef954c147f9a1391da363b
 
   - name: libmspack
     buildsystem: autotools
+    subdir: libmspack
     build-options:
       strip: true
     sources:
-      - type: archive
-        url: https://www.cabextract.org.uk/libmspack/libmspack-0.11alpha.tar.gz
-        sha256: 70dd1fb2f0aecc36791b71a1e1840e62173079eadaa081192d1c323a0eeea21b
+      - type: git
+        url: https://github.com/kyz/libmspack.git
+        tag: v1.11
+        commit: 305907723a4e7ab2018e58040059ffb5e77db837
 
   - name: libportal
     buildsystem: meson
@@ -84,9 +87,36 @@ modules:
       - -Dbackend-qt5=disabled
       - -Dbackend-qt6=disabled
     sources:
-      - type: archive
-        url: https://github.com/flatpak/libportal/releases/download/0.9.1/libportal-0.9.1.tar.xz
-        sha256: de801ee349ed3c255a9af3c01b1a401fab5b3fc1c35eb2fd7dfb35d4b8194d7f
+      - type: git
+        url: https://github.com/flatpak/libportal.git
+        tag: 0.9.1
+        commit: 8f5dc8d192f6e31dafe69e35219e3b707bde71ce
+
+  - name: libgit2
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DBUILD_TESTS=OFF
+      - -DBUILD_CLI=OFF
+      - -DBUILD_SHARED_LIBS=ON
+      - -DUSE_SSH=OFF
+      - -DREGEX_BACKEND=builtin
+    sources:
+      - type: git
+        url: https://github.com/libgit2/libgit2.git
+        tag: v1.9.2
+        commit: ca225744b992bf2bf24e9a2eb357ddef78179667
+
+  - name: libgit2-glib
+    buildsystem: meson
+    config-opts:
+      - -Dpython=false
+      - -Dvapi=true
+      - -Dssh=false
+    sources:
+      - type: git
+        url: https://gitlab.gnome.org/GNOME/libgit2-glib.git
+        tag: 1.2.1
+        commit: 4684169522f31796e1d1daedd90aae35e89c4d86
 
   - name: lumoria
     builddir: true

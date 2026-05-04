@@ -1,0 +1,39 @@
+{
+  "id": "liberation",
+  "name": "Liberation Fonts",
+  "downloads": [
+    {
+      "id": "liberation_archive",
+      "url": "https://releases.pagure.org/liberation-fonts/liberation-fonts-ttf-1.07.4.tar.gz",
+      "dest": "${CACHE_REDIST}/liberation/liberation-fonts-ttf-1.07.4.tar.gz",
+      "sha256": "61a7e2b6742a43c73e8762cdfeaf6dfcf9abdd2cfa0b099a9854d69bc4cfee5c"
+    }
+  ],
+  "steps": [
+    {
+      "type": "fonts",
+      "description": "Install Liberation fonts",
+      "dst": "${FONTS}",
+      "args": ["${CACHE_REDIST}/liberation/liberation-fonts-ttf-1.07.4.tar.gz"],
+      "font_registrations": [
+        "liberationmono-bold.ttf|Liberation Mono Bold",
+        "liberationmono-bolditalic.ttf|Liberation Mono Bold Italic",
+        "liberationmono-italic.ttf|Liberation Mono Italic",
+        "liberationmono-regular.ttf|Liberation Mono",
+        "liberationsans-bold.ttf|Liberation Sans Bold",
+        "liberationsans-bolditalic.ttf|Liberation Sans Bold Italic",
+        "liberationsans-italic.ttf|Liberation Sans Italic",
+        "liberationsans-regular.ttf|Liberation Sans",
+        "liberationsansnarrow-bold.ttf|Liberation Sans Narrow Bold",
+        "liberationsansnarrow-bolditalic.ttf|Liberation Sans Narrow Bold Italic",
+        "liberationsansnarrow-italic.ttf|Liberation Sans Narrow Italic",
+        "liberationsansnarrow-regular.ttf|Liberation Sans Narrow",
+        "liberationserif-bold.ttf|Liberation Serif Bold",
+        "liberationserif-bolditalic.ttf|Liberation Serif Bold Italic",
+        "liberationserif-italic.ttf|Liberation Serif Italic",
+        "liberationserif-regular.ttf|Liberation Serif"
+      ],
+      "when": { "not": { "file_exists": "${FONTS}/liberationmono-regular.ttf" } }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "id": "vlgothic",
+  "name": "VL Gothic",
+  "downloads": [
+    {
+      "id": "vlgothic_archive",
+      "url": "https://mirrors.gigenet.com/OSDN/vlgothic/62375/VLGothic-20141206.tar.xz",
+      "dest": "${CACHE_REDIST}/vlgothic/VLGothic-20141206.tar.xz",
+      "sha256": "982040db2f9cb73d7c6ab7d9d163f2ed46d1180f330c9ba2fae303649bf8102d"
+    }
+  ],
+  "steps": [
+    {
+      "type": "fonts",
+      "description": "Install VL Gothic",
+      "dst": "${FONTS}",
+      "args": ["${CACHE_REDIST}/vlgothic/VLGothic-20141206.tar.xz"],
+      "font_registrations": [
+        "vl-gothic-regular.ttf|VL Gothic",
+        "vl-pgothic-regular.ttf|VL PGothic"
+      ],
+      "when": { "not": { "file_exists": "${FONTS}/vl-gothic-regular.ttf" } }
+    }
+  ]
+}

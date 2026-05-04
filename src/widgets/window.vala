@@ -294,7 +294,7 @@ namespace Lumoria.Widgets {
             var dialog = new Dialogs.InstallDialog ();
             track_dialog (dialog);
             dialog.install_completed.connect ((success) => {
-                if (success) refresh_list ();
+                if (success) save_and_refresh ();
             });
             dialog.present (this);
             dialog.start_action (entry, runner_specs, launcher_specs, action_id);

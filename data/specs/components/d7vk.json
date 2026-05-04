@@ -1,0 +1,24 @@
+{
+  "id": "d7vk",
+  "name": "D7VK",
+  "github_repo": "rysas/d7vk",
+  "asset_regex": "d7vk-.*\\.zip$",
+  "checksum_regex": "",
+  "default_version": "latest",
+  "system_env_defaults": {
+  },
+  "overrides": {
+    "ddraw": "n,b"
+  },
+  "steps": [
+    {
+      "type": "copy",
+      "description": "Install ddraw.dll for PlayOnline Viewer",
+      "src": "${COMPONENT}/x32/ddraw.dll",
+      "dst": "${PREFIX}/drive_c/Program Files (x86)/PlayOnline/SquareEnix/PlayOnlineViewer",
+      "when": {
+        "file_exists": "${PREFIX}/drive_c/Program Files (x86)/PlayOnline/SquareEnix/PlayOnlineViewer/pol.exe"
+      }
+    }
+  ]
+}

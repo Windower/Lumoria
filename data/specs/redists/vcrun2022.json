@@ -1,0 +1,90 @@
+{
+  "id": "vcrun2022",
+  "name": "Visual C++ 2015-2022 Runtime",
+  "downloads": [
+    {
+      "id": "vcrun2022_x86",
+      "url": "https://aka.ms/vs/17/release/vc_redist.x86.exe",
+      "dest": "${CACHE_REDIST}/vcrun2022/vc_redist.x86.exe",
+      "sha256": "0c09f2611660441084ce0df425c51c11e147e6447963c3690f97e0b25c55ed64"
+    },
+    {
+      "id": "vcrun2022_x64",
+      "url": "https://aka.ms/vs/17/release/vc_redist.x64.exe",
+      "dest": "${CACHE_REDIST}/vcrun2022/vc_redist.x64.exe",
+      "sha256": "cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b"
+    }
+  ],
+  "steps": [
+    { "type": "dll_override", "description": "concrt140 override", "command": "concrt140", "mode": "native,builtin" },
+    { "type": "dll_override", "description": "msvcp140 override", "command": "msvcp140", "mode": "native,builtin" },
+    { "type": "dll_override", "description": "msvcp140_1 override", "command": "msvcp140_1", "mode": "native,builtin" },
+    { "type": "dll_override", "description": "msvcp140_2 override", "command": "msvcp140_2", "mode": "native,builtin" },
+    { "type": "dll_override", "description": "msvcp140_atomic_wait override", "command": "msvcp140_atomic_wait", "mode": "native,builtin" },
+    { "type": "dll_override", "description": "msvcp140_codecvt_ids override", "command": "msvcp140_codecvt_ids", "mode": "native,builtin" },
+    { "type": "dll_override", "description": "vcamp140 override", "command": "vcamp140", "mode": "native,builtin" },
+    { "type": "dll_override", "description": "vccorlib140 override", "command": "vccorlib140", "mode": "native,builtin" },
+    { "type": "dll_override", "description": "vcomp140 override", "command": "vcomp140", "mode": "native,builtin" },
+    { "type": "dll_override", "description": "vcruntime140 override", "command": "vcruntime140", "mode": "native,builtin" },
+    { "type": "dll_override", "description": "vcruntime140_1 override", "command": "vcruntime140_1", "mode": "native,builtin", "idempotent": false, "when": { "ARCH": "win64" } },
+    {
+      "type": "cabextract",
+      "description": "Extract a10 from x86 installer",
+      "src": "${CACHE_REDIST}/vcrun2022/vc_redist.x86.exe",
+      "args": ["a10"],
+      "dst": "${CACHE_REDIST}/vcrun2022/a10_x86"
+    },
+    {
+      "type": "cabextract",
+      "description": "Extract msvcp140.dll (x86 -> syswow64)",
+      "src": "${CACHE_REDIST}/vcrun2022/a10_x86",
+      "args": ["msvcp140.dll_x86"],
+      "dst": "${SYSWOW64}/msvcp140.dll",
+      "idempotent": false,
+      "when": { "ARCH": "win64" }
+    },
+    {
+      "type": "cabextract",
+      "description": "Extract msvcp140.dll (x86 -> system32)",
+      "src": "${CACHE_REDIST}/vcrun2022/a10_x86",
+      "args": ["msvcp140.dll_x86"],
+      "dst": "${SYSTEM32}/msvcp140.dll",
+      "idempotent": false,
+      "when": { "ARCH": "win32" }
+    },
+    {
+      "type": "wineexec",
+      "description": "Run VC++ x86 installer",
+      "command": "${CACHE_REDIST}/vcrun2022/vc_redist.x86.exe",
+      "args": ["/q"],
+      "working_dir": "${CACHE_REDIST}/vcrun2022"
+    },
+    {
+      "type": "cabextract",
+      "description": "Extract a12 from x64 installer",
+      "src": "${CACHE_REDIST}/vcrun2022/vc_redist.x64.exe",
+      "args": ["a12"],
+      "dst": "${CACHE_REDIST}/vcrun2022/a12_x64",
+      "idempotent": false,
+      "when": { "ARCH": "win64" }
+    },
+    {
+      "type": "cabextract",
+      "description": "Extract msvcp140.dll (x64 -> system32)",
+      "src": "${CACHE_REDIST}/vcrun2022/a12_x64",
+      "args": ["msvcp140.dll_amd64"],
+      "dst": "${SYSTEM32}/msvcp140.dll",
+      "idempotent": false,
+      "when": { "ARCH": "win64" }
+    },
+    {
+      "type": "wineexec",
+      "description": "Run VC++ x64 installer",
+      "command": "${CACHE_REDIST}/vcrun2022/vc_redist.x64.exe",
+      "args": ["/q"],
+      "working_dir": "${CACHE_REDIST}/vcrun2022",
+      "idempotent": false,
+      "when": { "ARCH": "win64" }
+    }
+  ]
+}

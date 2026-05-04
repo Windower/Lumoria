@@ -69,53 +69,19 @@ namespace Lumoria.Runtime {
         var launcher_specs = Models.LauncherSpec.load_all_from_resource ();
         resolve_launcher_exe (entry, launcher_specs, "pol", out exe, out args);
 
-        foreach (var host_exe in playonline_host_exe_candidates (pfx_path, exe)) {
-            if (FileUtils.test (host_exe, FileTest.EXISTS)) {
-                return host_exe;
-            }
+        var host_exe = resolve_host_path (exe, pfx_path).replace ("\\", "/");
+        var arch = Utils.normalize_wine_arch (entry.wine_arch);
+        if (arch == "win32") {
+            host_exe = host_exe.replace ("/drive_c/Program Files (x86)/", "/drive_c/Program Files/");
         }
 
-        throw new IOError.FAILED (
-            "PlayOnline executable not found for patching under Program Files or Program Files (x86)"
-        );
-    }
-
-    private Gee.ArrayList<string> playonline_host_exe_candidates (string pfx_path, string exe) {
-        var candidates = new Gee.ArrayList<string> ();
-
-        var resolved = resolve_host_path (exe, pfx_path);
-        candidates.add (resolved);
-
-        var normalized = resolved.replace ("\\", "/");
-        add_path_variant (
-            candidates,
-            normalized,
-            "/drive_c/Program Files (x86)/",
-            "/drive_c/Program Files/"
-        );
-        add_path_variant (
-            candidates,
-            normalized,
-            "/drive_c/Program Files/",
-            "/drive_c/Program Files (x86)/"
-        );
-
-        return candidates;
-    }
-
-    private void add_path_variant (
-        Gee.ArrayList<string> candidates,
-        string path,
-        string from_segment,
-        string to_segment
-    ) {
-        if (!path.contains (from_segment)) return;
-
-        var variant = path.replace (from_segment, to_segment);
-        foreach (var existing in candidates) {
-            if (existing == variant) return;
+        if (!FileUtils.test (host_exe, FileTest.EXISTS)) {
+            throw new IOError.FAILED (
+                "PlayOnline executable not found for patching: %s", host_exe
+            );
         }
-        candidates.add (variant);
+
+        return host_exe;
     }
 
     private LargeAddressAwarePatchResult set_large_address_aware_state (

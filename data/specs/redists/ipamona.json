@@ -1,0 +1,28 @@
+{
+  "id": "ipamona",
+  "name": "IPAMona Fonts",
+  "downloads": [
+    {
+      "id": "ipamona_archive",
+      "url": "https://web.archive.org/web/20190309175311id_/http://www.geocities.jp/ipa_mona/opfc-ModuleHP-1.1.1_withIPAMonaFonts-1.0.8.tar.gz",
+      "dest": "${CACHE_REDIST}/ipamona/opfc-ModuleHP-1.1.1_withIPAMonaFonts-1.0.8.tar.gz",
+      "sha256": "ab77beea3b051abf606cd8cd3badf6cb24141ef145c60f508fcfef1e3852bb9d"
+    }
+  ],
+  "steps": [
+    {
+      "type": "fonts",
+      "description": "Install IPAMona fonts",
+      "dst": "${FONTS}",
+      "args": ["${CACHE_REDIST}/ipamona/opfc-ModuleHP-1.1.1_withIPAMonaFonts-1.0.8.tar.gz"],
+      "font_registrations": [
+        "ipagui-mona.ttf|IPAMonaUIGothic",
+        "ipag-mona.ttf|IPAMonaGothic",
+        "ipagp-mona.ttf|IPAMonaPGothic",
+        "ipam-mona.ttf|IPAMonaMincho",
+        "ipamp-mona.ttf|IPAMonaPMincho"
+      ],
+      "when": { "not": { "file_exists": "${FONTS}/ipag-mona.ttf" } }
+    }
+  ]
+}

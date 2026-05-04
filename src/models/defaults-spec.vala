@@ -7,6 +7,7 @@ namespace Lumoria.Models {
         public string sync_mode { get; set; default = "ntsync"; }
         public string wine_debug { get; set; default = ""; }
         public bool large_address_aware { get; set; default = false; }
+        public string logging_mode { get; set; default = "keep"; }
         public Gee.HashMap<string, bool> component_enabled {
             get; owned set; default = new Gee.HashMap<string, bool> ();
         }
@@ -21,6 +22,7 @@ namespace Lumoria.Models {
         public string sync_mode { get; set; default = "ntsync"; }
         public string wine_debug { get; set; default = ""; }
         public bool large_address_aware { get; set; default = false; }
+        public string logging_mode { get; set; default = "keep"; }
         public Gee.HashMap<string, bool> component_enabled {
             get; owned set; default = new Gee.HashMap<string, bool> ();
         }
@@ -44,6 +46,10 @@ namespace Lumoria.Models {
                 if (default_obj.has_member ("patches")) {
                     var patch_obj = default_obj.get_object_member ("patches");
                     spec.large_address_aware = json_bool (patch_obj, "large_address_aware", false);
+                }
+                if (default_obj.has_member ("logging")) {
+                    var logging_obj = default_obj.get_object_member ("logging");
+                    spec.logging_mode = json_string (logging_obj, "mode", "keep");
                 }
                 if (default_obj.has_member ("components")) {
                     var comps_obj = default_obj.get_object_member ("components");
@@ -99,6 +105,7 @@ namespace Lumoria.Models {
             resolved.sync_mode = sync_mode;
             resolved.wine_debug = wine_debug;
             resolved.large_address_aware = large_address_aware;
+            resolved.logging_mode = logging_mode;
             foreach (var entry in component_enabled.entries) {
                 resolved.component_enabled[entry.key] = entry.value;
             }

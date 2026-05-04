@@ -3,116 +3,255 @@
   "name": "Final Fantasy XI",
   "version": "1.0",
   "variables": {
-    "SE_DIR": "drive_c/Program Files (x86)/PlayOnline/SquareEnix"
+    "SE_DIR": "drive_c/Program Files (x86)/PlayOnline/SquareEnix",
+    "WINE_USERPROFILE_HOST": "@winepath:%USERPROFILE%",
+    "REGION": "@prefix:region"
   },
   "entrypoints": [
     {
       "id": "pol",
       "name": "PlayOnline Viewer",
-      "exe": "$SE_DIR/PlayOnlineViewer/pol.exe",
+      "exe": "${SE_DIR}/PlayOnlineViewer/pol.exe",
       "default": true
     },
     {
       "id": "pol-config",
       "name": "PlayOnline Config",
-      "exe": "$SE_DIR/PlayOnlineViewer/polcfg/polcfg.exe"
+      "exe": "${SE_DIR}/PlayOnlineViewer/polcfg/polcfg.exe"
     },
     {
       "id": "ffxi-config",
       "name": "Final Fantasy XI Config",
-      "exe": "$SE_DIR/FINAL FANTASY XI/ToolsUS/FINAL FANTASY XI Config.exe"
+      "exe": "${SE_DIR}/FINAL FANTASY XI/Tools${REGION:upper}/FINAL FANTASY XI Config.exe",
+      "when": { "not": { "REGION": "jp" } }
+    },
+    {
+      "id": "ffxi-config",
+      "name": "Final Fantasy XI Config",
+      "exe": "${SE_DIR}/FINAL FANTASY XI/Tools/FINAL FANTASY XI Config.exe",
+      "when": { "REGION": "jp" }
     },
     {
       "id": "ffxi-padconfig",
       "name": "FFXI Gamepad Config",
-      "exe": "$SE_DIR/FINAL FANTASY XI/ToolsUS/FFXiPadConfig.exe"
+      "exe": "${SE_DIR}/FINAL FANTASY XI/Tools${REGION:upper}/FFXiPadConfig.exe",
+      "when": { "not": { "REGION": "jp" } }
+    },
+    {
+      "id": "ffxi-padconfig",
+      "name": "FFXI Gamepad Config",
+      "exe": "${SE_DIR}/FINAL FANTASY XI/Tools/FFXiPadConfig.exe",
+      "when": { "REGION": "jp" }
     }
   ],
-
-  "redists": ["corefonts"],
+  "redists": ["corefonts", "gdiplus"],
+  "env": [
+    {
+      "vars": { "LANG": "ja_JP.UTF-8" },
+      "when": { "REGION": "jp" }
+    }
+  ],
   "steps": [
+    {
+      "type": "dll_override",
+      "description": "Disable mscoree when .NET is not installed",
+      "command": "mscoree",
+      "mode": "disabled",
+      "when": { "not": { "REDIST_dotnet48": "1" } }
+    },
     {
       "type": "link",
       "description": "Prepare installer archive links",
       "mode": "symlink",
-      "dst": "$CACHE",
+      "dst": "${CACHE}",
       "args": [
-        "$CACHE/installer_part1/FFXIFullSetup_US.part1.exe",
-        "$CACHE/installer_part2/FFXIFullSetup_US.part2.rar",
-        "$CACHE/installer_part3/FFXIFullSetup_US.part3.rar",
-        "$CACHE/installer_part4/FFXIFullSetup_US.part4.rar",
-        "$CACHE/installer_part5/FFXIFullSetup_US.part5.rar"
+        "${CACHE}/installer_part1/FFXIFullSetup_${REGION:upper}.part1.exe",
+        "${CACHE}/installer_part2/FFXIFullSetup_${REGION:upper}.part2.rar",
+        "${CACHE}/installer_part3/FFXIFullSetup_${REGION:upper}.part3.rar",
+        "${CACHE}/installer_part4/FFXIFullSetup_${REGION:upper}.part4.rar",
+        "${CACHE}/installer_part5/FFXIFullSetup_${REGION:upper}.part5.rar"
       ]
     },
     {
       "type": "extract_multi",
       "description": "Extract installer archive",
-      "src": "$CACHE/FFXIFullSetup_US.part1.exe",
+      "src": "${CACHE}/FFXIFullSetup_${REGION:upper}.part1.exe",
       "args": [
-        "$CACHE/FFXIFullSetup_US.part2.rar",
-        "$CACHE/FFXIFullSetup_US.part3.rar",
-        "$CACHE/FFXIFullSetup_US.part4.rar",
-        "$CACHE/FFXIFullSetup_US.part5.rar"
+        "${CACHE}/FFXIFullSetup_${REGION:upper}.part2.rar",
+        "${CACHE}/FFXIFullSetup_${REGION:upper}.part3.rar",
+        "${CACHE}/FFXIFullSetup_${REGION:upper}.part4.rar",
+        "${CACHE}/FFXIFullSetup_${REGION:upper}.part5.rar"
       ],
-      "dst": "$CACHE",
-      "skip_if_exists": [
-        "$CACHE/FFXIFullSetup_US/PlayOnline/PlayOnlineViewer.msi",
-        "$CACHE/FFXIFullSetup_US/FINAL_FANTASY_XI/FINAL_FANTASY_XI.msi"
-      ],
+      "dst": "${CACHE}",
+      "when": { "not": { "any": [
+        { "file_exists": "${CACHE}/FFXIFullSetup_${REGION:upper}/PlayOnline/PlayOnlineViewer.msi" },
+        { "file_exists": "${CACHE}/FFXIFullSetup_${REGION:upper}/FINAL_FANTASY_XI/FINAL_FANTASY_XI.msi" }
+      ] } },
       "verify_paths": [
-        "$CACHE/FFXIFullSetup_US/PlayOnline/PlayOnlineViewer.msi",
-        "$CACHE/FFXIFullSetup_US/FINAL_FANTASY_XI/FINAL_FANTASY_XI.msi"
+        "${CACHE}/FFXIFullSetup_${REGION:upper}/PlayOnline/PlayOnlineViewer.msi",
+        "${CACHE}/FFXIFullSetup_${REGION:upper}/FINAL_FANTASY_XI/FINAL_FANTASY_XI.msi"
       ]
     },
     {
       "type": "wineexec",
       "description": "Install PlayOnline",
       "command": "msiexec",
-      "args": ["-q", "-i", "$CACHE/FFXIFullSetup_US/PlayOnline/PlayOnlineViewer.msi"],
-      "working_dir": "$CACHE",
-      "skip_if_exists": ["$PREFIX/drive_c/Program Files (x86)/PlayOnline/SquareEnix/PlayOnlineViewer"],
-      "verify_paths": ["$PREFIX/drive_c/Program Files (x86)/PlayOnline/SquareEnix/PlayOnlineViewer"]
+      "args": ["-q", "-i", "${CACHE}/FFXIFullSetup_${REGION:upper}/PlayOnline/PlayOnlineViewer.msi"],
+      "working_dir": "${CACHE}",
+      "when": { "not": { "file_exists": "${PREFIX}/drive_c/Program Files (x86)/PlayOnline/SquareEnix/PlayOnlineViewer/pol.exe" } },
+      "verify_paths": ["${PREFIX}/drive_c/Program Files (x86)/PlayOnline/SquareEnix/PlayOnlineViewer"]
     },
     {
       "type": "wineexec",
       "description": "Install Final Fantasy XI",
       "command": "msiexec",
-      "args": ["-q", "-i", "$CACHE/FFXIFullSetup_US/FINAL_FANTASY_XI/FINAL_FANTASY_XI.msi"],
-      "working_dir": "$CACHE",
-      "skip_if_exists": ["$PREFIX/drive_c/Program Files (x86)/PlayOnline/SquareEnix/FINAL FANTASY XI"],
-      "verify_paths": ["$PREFIX/drive_c/Program Files (x86)/PlayOnline/SquareEnix/FINAL FANTASY XI"]
+      "args": ["-q", "-i", "${CACHE}/FFXIFullSetup_${REGION:upper}/FINAL_FANTASY_XI/FINAL_FANTASY_XI.msi"],
+      "working_dir": "${CACHE}",
+      "when": { "not": { "file_exists": "${PREFIX}/drive_c/Program Files (x86)/PlayOnline/SquareEnix/FINAL FANTASY XI" } },
+      "verify_paths": ["${PREFIX}/drive_c/Program Files (x86)/PlayOnline/SquareEnix/FINAL FANTASY XI"]
+    },
+    {
+      "type": "write",
+      "description": "lumoria_fix_missing_my_games_files.bat",
+      "dst": "${CACHE}/lumoria_fix_missing_my_games_files.bat",
+      "content": [
+        "@echo off",
+        "mkdir \"%USERPROFILE%\\Documents\\My Games\\FINAL FANTASY XI\\ffxiuser\" 2>nul",
+        "mkdir \"%USERPROFILE%\\Documents\\My Games\\FINAL FANTASY XI\\screenshots\" 2>nul",
+        "type nul > \"%USERPROFILE%\\Documents\\My Games\\FINAL FANTASY XI\\ffxiuser\\prohibited.txt\"",
+        "type nul > \"%USERPROFILE%\\Documents\\My Games\\FINAL FANTASY XI\\ffxiuser\\allowed.txt\""
+      ],
+      "when": { "not": { "any": [
+        { "file_exists": "${WINE_USERPROFILE_HOST}/Documents/My Games/FINAL FANTASY XI/ffxiuser/allowed.txt" },
+        { "file_exists": "${WINE_USERPROFILE_HOST}/Documents/My Games/FINAL FANTASY XI/ffxiuser/prohibited.txt" }
+      ] } },
+      "verify_paths": ["${CACHE}/lumoria_fix_missing_my_games_files.bat"]
+    },
+    {
+      "type": "wineexec",
+      "description": "Run lumoria_fix_missing_my_games_files.bat",
+      "command": "cmd.exe",
+      "args": ["/C", "${CACHE}/lumoria_fix_missing_my_games_files.bat"],
+      "when": { "not": { "any": [
+        { "file_exists": "${WINE_USERPROFILE_HOST}/Documents/My Games/FINAL FANTASY XI/ffxiuser/allowed.txt" },
+        { "file_exists": "${WINE_USERPROFILE_HOST}/Documents/My Games/FINAL FANTASY XI/ffxiuser/prohibited.txt" }
+      ] } },
+      "verify_paths": [
+        "${WINE_USERPROFILE_HOST}/Documents/My Games/FINAL FANTASY XI/ffxiuser/allowed.txt",
+        "${WINE_USERPROFILE_HOST}/Documents/My Games/FINAL FANTASY XI/ffxiuser/prohibited.txt"
+      ]
+    },
+    {
+      "type": "delete",
+      "description": "Remove staged lumoria_fix_missing_my_games_files.bat",
+      "dst": "${CACHE}/lumoria_fix_missing_my_games_files.bat"
     }
   ],
   "downloads": [
     {
       "id": "installer_part1",
-      "url": "https://gdl.square-enix.com/ffxi/download/us/FFXIFullSetup_US.part1.exe",
-      "dest": "$CACHE/installer_part1/FFXIFullSetup_US.part1.exe",
-      "sha256": "8b7abd42aa7c3cc4378f1fa02e3ea1e6019d2041bc8b77931f03a3f8202ceec9"
+      "url": "https://gdl.square-enix.com/ffxi/download/${REGION}/FFXIFullSetup_${REGION:upper}.part1.exe",
+      "dest": "${CACHE}/installer_part1/FFXIFullSetup_${REGION:upper}.part1.exe",
+      "sha256": "8b7abd42aa7c3cc4378f1fa02e3ea1e6019d2041bc8b77931f03a3f8202ceec9",
+      "when": { "REGION": "us" }
     },
     {
       "id": "installer_part2",
-      "url": "https://gdl.square-enix.com/ffxi/download/us/FFXIFullSetup_US.part2.rar",
-      "dest": "$CACHE/installer_part2/FFXIFullSetup_US.part2.rar",
-      "sha256": "e2a0fb85cc33b82bcf40d84bf7b8c6d87e75aaaa7560598479711f3138c7da46"
+      "url": "https://gdl.square-enix.com/ffxi/download/${REGION}/FFXIFullSetup_${REGION:upper}.part2.rar",
+      "dest": "${CACHE}/installer_part2/FFXIFullSetup_${REGION:upper}.part2.rar",
+      "sha256": "e2a0fb85cc33b82bcf40d84bf7b8c6d87e75aaaa7560598479711f3138c7da46",
+      "when": { "REGION": "us" }
     },
     {
       "id": "installer_part3",
-      "url": "https://gdl.square-enix.com/ffxi/download/us/FFXIFullSetup_US.part3.rar",
-      "dest": "$CACHE/installer_part3/FFXIFullSetup_US.part3.rar",
-      "sha256": "ec582b38c52a6656cef569a89457d61d06bf722ad474dc929407bc5688c71983"
+      "url": "https://gdl.square-enix.com/ffxi/download/${REGION}/FFXIFullSetup_${REGION:upper}.part3.rar",
+      "dest": "${CACHE}/installer_part3/FFXIFullSetup_${REGION:upper}.part3.rar",
+      "sha256": "ec582b38c52a6656cef569a89457d61d06bf722ad474dc929407bc5688c71983",
+      "when": { "REGION": "us" }
     },
     {
       "id": "installer_part4",
-      "url": "https://gdl.square-enix.com/ffxi/download/us/FFXIFullSetup_US.part4.rar",
-      "dest": "$CACHE/installer_part4/FFXIFullSetup_US.part4.rar",
-      "sha256": "55cc35ee76fae44a2b02d57bd1883aaea535fff39761b995b57bb99c28602013"
+      "url": "https://gdl.square-enix.com/ffxi/download/${REGION}/FFXIFullSetup_${REGION:upper}.part4.rar",
+      "dest": "${CACHE}/installer_part4/FFXIFullSetup_${REGION:upper}.part4.rar",
+      "sha256": "55cc35ee76fae44a2b02d57bd1883aaea535fff39761b995b57bb99c28602013",
+      "when": { "REGION": "us" }
     },
     {
       "id": "installer_part5",
-      "url": "https://gdl.square-enix.com/ffxi/download/us/FFXIFullSetup_US.part5.rar",
-      "dest": "$CACHE/installer_part5/FFXIFullSetup_US.part5.rar",
-      "sha256": "675fa16fdb18ee711174a4f6b5521b1d158786540d28cb4348cce56e16a7f903"
+      "url": "https://gdl.square-enix.com/ffxi/download/${REGION}/FFXIFullSetup_${REGION:upper}.part5.rar",
+      "dest": "${CACHE}/installer_part5/FFXIFullSetup_${REGION:upper}.part5.rar",
+      "sha256": "675fa16fdb18ee711174a4f6b5521b1d158786540d28cb4348cce56e16a7f903",
+      "when": { "REGION": "us" }
+    },
+    {
+      "id": "installer_part1",
+      "url": "https://gdl.square-enix.com/ffxi/download/${REGION}/FFXIFullSetup_${REGION:upper}.part1.exe",
+      "dest": "${CACHE}/installer_part1/FFXIFullSetup_${REGION:upper}.part1.exe",
+      "sha256": "05b882953f57831cd39af2b3fa042fdc828f84b58f0fd4b3c5aefc63753dbf69",
+      "when": { "REGION": "eu" }
+    },
+    {
+      "id": "installer_part2",
+      "url": "https://gdl.square-enix.com/ffxi/download/${REGION}/FFXIFullSetup_${REGION:upper}.part2.rar",
+      "dest": "${CACHE}/installer_part2/FFXIFullSetup_${REGION:upper}.part2.rar",
+      "sha256": "6051a2fe46e9f347f92e3ffa852cb43929d4795546c04e34c74f0761226d111e",
+      "when": { "REGION": "eu" }
+    },
+    {
+      "id": "installer_part3",
+      "url": "https://gdl.square-enix.com/ffxi/download/${REGION}/FFXIFullSetup_${REGION:upper}.part3.rar",
+      "dest": "${CACHE}/installer_part3/FFXIFullSetup_${REGION:upper}.part3.rar",
+      "sha256": "9566805eec715a8d3db4fbf79d810381582134fa1d8445fab1924e0e339cb771",
+      "when": { "REGION": "eu" }
+    },
+    {
+      "id": "installer_part4",
+      "url": "https://gdl.square-enix.com/ffxi/download/${REGION}/FFXIFullSetup_${REGION:upper}.part4.rar",
+      "dest": "${CACHE}/installer_part4/FFXIFullSetup_${REGION:upper}.part4.rar",
+      "sha256": "1ebcaba1c0ffc7dc1b57ea7a87e255f6d8dbfd472152322052045611b5c60670",
+      "when": { "REGION": "eu" }
+    },
+    {
+      "id": "installer_part5",
+      "url": "https://gdl.square-enix.com/ffxi/download/${REGION}/FFXIFullSetup_${REGION:upper}.part5.rar",
+      "dest": "${CACHE}/installer_part5/FFXIFullSetup_${REGION:upper}.part5.rar",
+      "sha256": "b08895bf20f6c5b19cbea98b6b09f5669540c496b7d86ff0db725b9c3b7ad034",
+      "when": { "REGION": "eu" }
+    },
+    {
+      "id": "installer_part1",
+      "url": "https://gdl.square-enix.com/ffxi/download/${REGION}/FFXIFullSetup_${REGION:upper}.part1.exe",
+      "dest": "${CACHE}/installer_part1/FFXIFullSetup_${REGION:upper}.part1.exe",
+      "sha256": "6e843cfa63cf3e04a0452dcacd2b587236ecd37876bb4a0e8802699ee6ebe697",
+      "when": { "REGION": "jp" }
+    },
+    {
+      "id": "installer_part2",
+      "url": "https://gdl.square-enix.com/ffxi/download/${REGION}/FFXIFullSetup_${REGION:upper}.part2.rar",
+      "dest": "${CACHE}/installer_part2/FFXIFullSetup_${REGION:upper}.part2.rar",
+      "sha256": "ee050f2c54959495adb834bb87450fe60131a146e09e744d94181fc3e8fafe32",
+      "when": { "REGION": "jp" }
+    },
+    {
+      "id": "installer_part3",
+      "url": "https://gdl.square-enix.com/ffxi/download/${REGION}/FFXIFullSetup_${REGION:upper}.part3.rar",
+      "dest": "${CACHE}/installer_part3/FFXIFullSetup_${REGION:upper}.part3.rar",
+      "sha256": "920b972e3df031718c866ff1a501d6cf26e385f56b30591264965faf647a84e5",
+      "when": { "REGION": "jp" }
+    },
+    {
+      "id": "installer_part4",
+      "url": "https://gdl.square-enix.com/ffxi/download/${REGION}/FFXIFullSetup_${REGION:upper}.part4.rar",
+      "dest": "${CACHE}/installer_part4/FFXIFullSetup_${REGION:upper}.part4.rar",
+      "sha256": "63e2d56dc5c321f9e7f58671466c15382aae1f90515c7c6205024fb420717250",
+      "when": { "REGION": "jp" }
+    },
+    {
+      "id": "installer_part5",
+      "url": "https://gdl.square-enix.com/ffxi/download/${REGION}/FFXIFullSetup_${REGION:upper}.part5.rar",
+      "dest": "${CACHE}/installer_part5/FFXIFullSetup_${REGION:upper}.part5.rar",
+      "sha256": "b5e8081da12bd5049e02e0ebde92651baa2f58afb58463804ac53eecb8c7674f",
+      "when": { "REGION": "jp" }
     }
   ]
 }

@@ -1,0 +1,25 @@
+{
+  "id": "tahoma",
+  "name": "Tahoma",
+  "downloads": [
+    {
+      "id": "font_tahoma",
+      "url": "https://downloads.sourceforge.net/corefonts/OldFiles/IELPKTH.CAB",
+      "dest": "${CACHE_REDIST}/tahoma/IELPKTH.CAB",
+      "sha256": "c1be3fb8f0042570be76ec6daa03a99142c88367c1bc810240b85827c715961a"
+    }
+  ],
+  "steps": [
+    {
+      "type": "fonts",
+      "description": "Install Tahoma",
+      "dst": "${FONTS}",
+      "args": ["${CACHE_REDIST}/tahoma/IELPKTH.CAB"],
+      "font_registrations": [
+        "tahoma.ttf|Tahoma",
+        "tahomabd.ttf|Tahoma Bold"
+      ],
+      "when": { "not": { "file_exists": "${FONTS}/tahoma.ttf" } }
+    }
+  ]
+}

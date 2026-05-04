@@ -1,0 +1,5 @@
+{
+  "id": "pptfonts",
+  "name": "All PowerPoint Viewer Fonts",
+  "redists": ["calibri", "cambria", "candara", "consolas", "constantia", "corbel", "meiryo"]
+}

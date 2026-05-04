@@ -1,0 +1,15 @@
+{
+  "id": "fakejapanese_vlgothic",
+  "name": "Japanese Font Aliases (VL Gothic)",
+  "redists": ["vlgothic"],
+  "steps": [
+    {
+      "type": "font_replacement",
+      "description": "Register Japanese font replacements (VL Gothic)",
+      "font_registrations": [
+        "Meiryo UI|VL Gothic",
+        "Meiryo|VL Gothic"
+      ]
+    }
+  ]
+}

@@ -38,6 +38,21 @@ namespace Lumoria.Models {
         return list;
     }
 
+    public static string json_string_or_lines (Json.Object obj, string key) {
+        if (!obj.has_member (key)) return "";
+        var node = obj.get_member (key);
+        if (node.get_node_type () == Json.NodeType.ARRAY) {
+            var arr = node.get_array ();
+            var parts = new string[arr.get_length ()];
+            for (uint i = 0; i < arr.get_length (); i++) {
+                parts[i] = arr.get_string_element (i);
+            }
+            return string.joinv ("\n", parts);
+        }
+        if (node.get_node_type () == Json.NodeType.NULL) return "";
+        return node.get_string ();
+    }
+
     public static Gee.HashMap<string, string> json_string_map (Json.Object obj, string key) {
         var map = new Gee.HashMap<string, string> ();
         if (!obj.has_member (key)) return map;
@@ -142,12 +157,16 @@ namespace Lumoria.Models {
         public Gee.ArrayList<DownloadItem> downloads { get; owned set; default = new Gee.ArrayList<DownloadItem> (); }
         public Gee.ArrayList<InstallStep> steps { get; owned set; default = new Gee.ArrayList<InstallStep> (); }
         public Gee.ArrayList<SpecAction> actions { get; owned set; default = new Gee.ArrayList<SpecAction> (); }
+        public Gee.ArrayList<EnvRule> env { get; owned set; default = new Gee.ArrayList<EnvRule> (); }
+        public bool reinstallable { get; set; default = true; }
 
         protected void parse_installable (Json.Object obj) throws Error {
             parse_base (obj);
             downloads = parse_downloads (obj);
             steps = parse_steps (obj);
             actions = parse_actions (obj);
+            env = parse_env_rules (obj);
+            reinstallable = json_bool (obj, "reinstallable", true);
         }
 
         protected void parse_installable_supporting_fields (

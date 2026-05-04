@@ -1,0 +1,90 @@
+{
+  "id": "droid",
+  "name": "Droid Fonts",
+  "downloads": [
+    {
+      "id": "droid_sans_bold",
+      "url": "https://github.com/android/platform_frameworks_base/blob/feef9887e8f8eb6f64fc1b4552c02efb5755cdc1/data/fonts/DroidSans-Bold.ttf?raw=true",
+      "dest": "${CACHE_REDIST}/droid/DroidSans-Bold.ttf",
+      "sha256": "2f529a3e60c007979d95d29794c3660694217fb882429fb33919d2245fe969e9"
+    },
+    {
+      "id": "droid_sans_fallback",
+      "url": "https://github.com/android/platform_frameworks_base/blob/feef9887e8f8eb6f64fc1b4552c02efb5755cdc1/data/fonts/DroidSansFallback.ttf?raw=true",
+      "dest": "${CACHE_REDIST}/droid/DroidSansFallback.ttf",
+      "sha256": "05d71b179ef97b82cf1bb91cef290c600a510f77f39b4964359e3ef88378c79d"
+    },
+    {
+      "id": "droid_sans_japanese",
+      "url": "https://github.com/android/platform_frameworks_base/blob/feef9887e8f8eb6f64fc1b4552c02efb5755cdc1/data/fonts/DroidSansJapanese.ttf?raw=true",
+      "dest": "${CACHE_REDIST}/droid/DroidSansJapanese.ttf",
+      "sha256": "935867c21b8484c959170e62879460ae9363eae91f9b35e4519d24080e2eac30"
+    },
+    {
+      "id": "droid_sans_mono",
+      "url": "https://github.com/android/platform_frameworks_base/blob/feef9887e8f8eb6f64fc1b4552c02efb5755cdc1/data/fonts/DroidSansMono.ttf?raw=true",
+      "dest": "${CACHE_REDIST}/droid/DroidSansMono.ttf",
+      "sha256": "12b552de765dc1265d64f9f5566649930dde4dba07da0251d9f92801e70a1047"
+    },
+    {
+      "id": "droid_sans",
+      "url": "https://github.com/android/platform_frameworks_base/blob/feef9887e8f8eb6f64fc1b4552c02efb5755cdc1/data/fonts/DroidSans.ttf?raw=true",
+      "dest": "${CACHE_REDIST}/droid/DroidSans.ttf",
+      "sha256": "f51b88945f4c1b236f44b8d55a2d304316869127e95248c435c23f1e4142a7db"
+    },
+    {
+      "id": "droid_serif_bold_italic",
+      "url": "https://github.com/android/platform_frameworks_base/blob/feef9887e8f8eb6f64fc1b4552c02efb5755cdc1/data/fonts/DroidSerif-BoldItalic.ttf?raw=true",
+      "dest": "${CACHE_REDIST}/droid/DroidSerif-BoldItalic.ttf",
+      "sha256": "3fdf15b911c04317e5881ae1e4b9faefcdc4bf4cfb60223597d5c9455c3e4156"
+    },
+    {
+      "id": "droid_serif_bold",
+      "url": "https://github.com/android/platform_frameworks_base/blob/feef9887e8f8eb6f64fc1b4552c02efb5755cdc1/data/fonts/DroidSerif-Bold.ttf?raw=true",
+      "dest": "${CACHE_REDIST}/droid/DroidSerif-Bold.ttf",
+      "sha256": "d28533eed8368f047eb5f57a88a91ba2ffc8b69a2dec5e50fe3f0c11ae3f4d8e"
+    },
+    {
+      "id": "droid_serif_italic",
+      "url": "https://github.com/android/platform_frameworks_base/blob/feef9887e8f8eb6f64fc1b4552c02efb5755cdc1/data/fonts/DroidSerif-Italic.ttf?raw=true",
+      "dest": "${CACHE_REDIST}/droid/DroidSerif-Italic.ttf",
+      "sha256": "8a55a4823886234792991dd304dfa1fa120ae99483ec6c2255597d7d913b9a55"
+    },
+    {
+      "id": "droid_serif_regular",
+      "url": "https://github.com/android/platform_frameworks_base/blob/feef9887e8f8eb6f64fc1b4552c02efb5755cdc1/data/fonts/DroidSerif-Regular.ttf?raw=true",
+      "dest": "${CACHE_REDIST}/droid/DroidSerif-Regular.ttf",
+      "sha256": "22aea9471bea5bce1ec3bf7136c84f075b3d11cf09dffdc3dba05e570094cbde"
+    }
+  ],
+  "steps": [
+    {
+      "type": "fonts",
+      "description": "Install Droid fonts",
+      "dst": "${FONTS}",
+      "args": [
+        "${CACHE_REDIST}/droid/DroidSans-Bold.ttf",
+        "${CACHE_REDIST}/droid/DroidSansFallback.ttf",
+        "${CACHE_REDIST}/droid/DroidSansJapanese.ttf",
+        "${CACHE_REDIST}/droid/DroidSansMono.ttf",
+        "${CACHE_REDIST}/droid/DroidSans.ttf",
+        "${CACHE_REDIST}/droid/DroidSerif-BoldItalic.ttf",
+        "${CACHE_REDIST}/droid/DroidSerif-Bold.ttf",
+        "${CACHE_REDIST}/droid/DroidSerif-Italic.ttf",
+        "${CACHE_REDIST}/droid/DroidSerif-Regular.ttf"
+      ],
+      "font_registrations": [
+        "droidsans-bold.ttf|Droid Sans Bold",
+        "droidsansfallback.ttf|Droid Sans Fallback",
+        "droidsansjapanese.ttf|Droid Sans Japanese",
+        "droidsansmono.ttf|Droid Sans Mono",
+        "droidsans.ttf|Droid Sans",
+        "droidserif-bolditalic.ttf|Droid Serif Bold Italic",
+        "droidserif-bold.ttf|Droid Serif Bold",
+        "droidserif-italic.ttf|Droid Serif Italic",
+        "droidserif-regular.ttf|Droid Serif"
+      ],
+      "when": { "not": { "file_exists": "${FONTS}/droidsans.ttf" } }
+    }
+  ]
+}

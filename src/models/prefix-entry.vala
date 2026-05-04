@@ -30,6 +30,29 @@ namespace Lumoria.Models {
         }
     }
 
+    public class AppliedComponentRecord : Object {
+        public string version { get; set; default = ""; }
+        public Gee.ArrayList<string> installed_files {
+            get; owned set; default = new Gee.ArrayList<string> ();
+        }
+
+        public Json.Object to_json () {
+            var obj = new Json.Object ();
+            obj.set_string_member ("version", version);
+            var arr = new Json.Array ();
+            foreach (var p in installed_files) arr.add_string_element (p);
+            obj.set_array_member ("installed_files", arr);
+            return obj;
+        }
+
+        public static AppliedComponentRecord from_json (Json.Object obj) {
+            var r = new AppliedComponentRecord ();
+            r.version = json_string (obj, "version");
+            r.installed_files = json_string_array (obj, "installed_files");
+            return r;
+        }
+    }
+
     public class PrefixPostInstallSpec : Object {
         public string original_path { get; set; default = ""; }
         public string original_uri { get; set; default = ""; }
@@ -77,6 +100,7 @@ namespace Lumoria.Models {
         public bool? wine_wayland = null;
         public bool? large_address_aware = null;
         public string sync_mode { get; set; default = ""; }
+        public string region { get; set; default = "us"; }
         public string prelaunch_script { get; set; default = ""; }
         public Gee.ArrayList<Entrypoint> custom_entrypoints {
             get; owned set; default = new Gee.ArrayList<Entrypoint> ();
@@ -89,6 +113,12 @@ namespace Lumoria.Models {
         }
         public Gee.HashMap<string, string> dynamic_launcher_desktop_ids {
             get; owned set; default = new Gee.HashMap<string, string> ();
+        }
+        public Gee.ArrayList<string> installed_redists {
+            get; owned set; default = new Gee.ArrayList<string> ();
+        }
+        public Gee.HashMap<string, AppliedComponentRecord> applied_components {
+            get; owned set; default = new Gee.HashMap<string, AppliedComponentRecord> ();
         }
         public PrefixPostInstallSpec? post_install_spec { get; set; default = null; }
         public string resolved_path () {
@@ -148,6 +178,7 @@ namespace Lumoria.Models {
             if (wine_wayland != null) obj.set_boolean_member ("wine_wayland", (bool) wine_wayland);
             if (large_address_aware != null) obj.set_boolean_member ("large_address_aware", (bool) large_address_aware);
             if (sync_mode != "") obj.set_string_member ("sync_mode", sync_mode);
+            if (region != "" && region != "us") obj.set_string_member ("region", region);
             if (prelaunch_script != "") obj.set_string_member ("prelaunch_script", prelaunch_script);
             if (custom_entrypoints.size > 0) {
                 var ep_arr = new Json.Array ();
@@ -190,13 +221,25 @@ namespace Lumoria.Models {
                 }
                 obj.set_object_member ("runtime_component_overrides", overrides);
             }
+            if (installed_redists.size > 0) {
+                var arr = new Json.Array ();
+                foreach (var rid in installed_redists) arr.add_string_element (rid);
+                obj.set_array_member ("installed_redists", arr);
+            }
+            if (applied_components.size > 0) {
+                var ac = new Json.Object ();
+                foreach (var entry in applied_components.entries) {
+                    ac.set_object_member (entry.key, entry.value.to_json ());
+                }
+                obj.set_object_member ("applied_components", ac);
+            }
             if (post_install_spec != null) {
                 obj.set_object_member ("post_install_spec", post_install_spec.to_json ());
             }
             return obj;
         }
 
-        public static PrefixEntry from_json (Json.Object obj) {
+        public static PrefixEntry from_json (Json.Object obj) throws Error {
             var e = new PrefixEntry ();
             e.parse_base (obj);
             e.path = json_string (obj, "path");
@@ -211,6 +254,7 @@ namespace Lumoria.Models {
             e.wine_wayland = json_bool_nullable (obj, "wine_wayland");
             e.large_address_aware = json_bool_nullable (obj, "large_address_aware");
             e.sync_mode = json_string (obj, "sync_mode");
+            e.region = json_string (obj, "region", "us");
             e.prelaunch_script = json_string (obj, "prelaunch_script");
 
             if (obj.has_member ("custom_entrypoints")) {
@@ -222,6 +266,7 @@ namespace Lumoria.Models {
 
             e.runtime_env_vars = json_string_map (obj, "runtime_env_vars");
             e.dynamic_launcher_desktop_ids = json_string_map (obj, "dynamic_launcher_desktop_ids");
+            e.installed_redists = json_string_array (obj, "installed_redists");
 
             if (obj.has_member ("runtime_component_overrides")) {
                 var overrides = obj.get_object_member ("runtime_component_overrides");
@@ -231,6 +276,12 @@ namespace Lumoria.Models {
             }
             if (obj.has_member ("post_install_spec")) {
                 e.post_install_spec = PrefixPostInstallSpec.from_json (obj.get_object_member ("post_install_spec"));
+            }
+            if (obj.has_member ("applied_components")) {
+                var ac = obj.get_object_member ("applied_components");
+                ac.foreach_member ((_, key, node) => {
+                    e.applied_components[key] = AppliedComponentRecord.from_json (node.get_object ());
+                });
             }
             return e;
         }

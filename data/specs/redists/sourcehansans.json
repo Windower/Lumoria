@@ -1,0 +1,24 @@
+{
+  "id": "sourcehansans",
+  "name": "Source Han Sans",
+  "downloads": [
+    {
+      "id": "sourcehansans_archive",
+      "url": "https://github.com/adobe-fonts/source-han-sans/releases/download/2.004R/SourceHanSans.ttc.zip",
+      "dest": "${CACHE_REDIST}/sourcehansans/SourceHanSans.ttc.zip",
+      "sha256": "6f59118a9adda5a7fe4e9e6bb538309f7e1d3c5411f9a9d32af32a79501b7e4f"
+    }
+  ],
+  "steps": [
+    {
+      "type": "fonts",
+      "description": "Install Source Han Sans",
+      "dst": "${FONTS}",
+      "args": ["${CACHE_REDIST}/sourcehansans/SourceHanSans.ttc.zip"],
+      "font_registrations": [
+        "sourcehansans.ttc|Source Han Sans"
+      ],
+      "when": { "not": { "file_exists": "${FONTS}/sourcehansans.ttc" } }
+    }
+  ]
+}

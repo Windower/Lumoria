@@ -1,0 +1,22 @@
+{
+  "id": "lucida",
+  "name": "Lucida Console",
+  "downloads": [
+    {
+      "id": "font_lucida",
+      "url": "http://ftpmirror.your.org/pub/misc/ftp.microsoft.com/bussys/winnt/winnt-public/fixes/usa/NT40TSE/hotfixes-postSP3/Euro-fix/eurofixi.exe",
+      "dest": "${CACHE_REDIST}/lucida/eurofixi.exe",
+      "sha256": "41f272a33521f6e15f2cce9ff1e049f2badd5ff0dc327fc81b60825766d5b6c7"
+    }
+  ],
+  "steps": [
+    {
+      "type": "fonts",
+      "description": "Install Lucida Console",
+      "dst": "${FONTS}",
+      "args": ["${CACHE_REDIST}/lucida/eurofixi.exe"],
+      "font_registrations": ["lucon.ttf|Lucida Console"],
+      "when": { "not": { "file_exists": "${FONTS}/lucon.ttf" } }
+    }
+  ]
+}

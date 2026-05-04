@@ -59,7 +59,9 @@ namespace Lumoria.Runtime {
 
         var pfx_path = install_prefix_path (entry.path);
         var installer_spec = Models.InstallerSpec.load_from_resource ();
-        var installer_vars = build_launch_vars (pfx_path, installer_spec.variables);
+        var launcher = entry.launcher_id != ""
+            ? find_launcher_by_id (launcher_specs, entry.launcher_id) : null;
+        var installer_vars = build_launch_vars (pfx_path, entry, installer_spec, launcher, null);
 
         if (entrypoint_id != "") {
             foreach (var custom_ep in entry.custom_entrypoints) {
@@ -74,7 +76,7 @@ namespace Lumoria.Runtime {
             if (wname != null && entry.launcher_id == "windower4") {
                 var wlauncher = find_launcher_by_id (launcher_specs, "windower4");
                 if (wlauncher != null) {
-                    var wvars = build_launch_vars (pfx_path, wlauncher.variables);
+                    var wvars = build_launch_vars (pfx_path, entry, installer_spec, wlauncher, null);
                     var wep = find_entrypoint (wlauncher.entrypoints, "");
                     if (wep != null) {
                         apply_entrypoint (wep, wvars, out exe, out args);
@@ -96,14 +98,22 @@ namespace Lumoria.Runtime {
                 apply_entrypoint (installer_ep, installer_vars, out exe, out args);
                 return;
             }
+
+            var post_install = load_prefix_post_install_spec (entry);
+            if (post_install != null) {
+                foreach (var ep in post_install.entrypoints) {
+                    if (ep.id == entrypoint_id) {
+                        var pvars = build_launch_vars (pfx_path, entry, installer_spec, launcher, post_install);
+                        apply_entrypoint (ep, pvars, out exe, out args);
+                        return;
+                    }
+                }
+            }
         }
 
-        if (entry.launcher_id == "") return;
-
-        var launcher = find_launcher_by_id (launcher_specs, entry.launcher_id);
         if (launcher == null) return;
 
-        var vars = build_launch_vars (pfx_path, launcher.variables);
+        var vars = build_launch_vars (pfx_path, entry, installer_spec, launcher, null);
 
         Models.Entrypoint? ep = null;
         if (entrypoint_id != "") {
@@ -117,6 +127,55 @@ namespace Lumoria.Runtime {
         if (ep == null) return;
 
         apply_entrypoint (ep, vars, out exe, out args);
+    }
+
+    public void apply_launch_env (
+        Models.PrefixEntry entry,
+        Gee.ArrayList<Models.LauncherSpec>? launcher_specs,
+        string entrypoint_id,
+        WineEnv env
+    ) {
+        var pfx_path = install_prefix_path (entry.path);
+        var installer_spec = Models.InstallerSpec.load_from_resource ();
+        var specs = launcher_specs ?? Models.LauncherSpec.load_all_from_resource ();
+        var launcher = entry.launcher_id != ""
+            ? find_launcher_by_id (specs, entry.launcher_id) : null;
+        var post_install = load_prefix_post_install_spec (entry);
+        var vars = build_launch_vars (pfx_path, entry, installer_spec, launcher, post_install);
+
+        apply_env_rules (env, installer_spec.env, vars);
+        if (launcher != null) apply_env_rules (env, launcher.env, vars);
+        if (post_install != null) apply_env_rules (env, post_install.env, vars);
+
+        if (entrypoint_id == "") return;
+        var ep = find_launch_entrypoint (entry, installer_spec, launcher, post_install, entrypoint_id);
+        if (ep != null) apply_env_rules (env, ep.env, vars);
+    }
+
+    private Models.Entrypoint? find_launch_entrypoint (
+        Models.PrefixEntry entry,
+        Models.InstallerSpec installer_spec,
+        Models.LauncherSpec? launcher,
+        Models.PostInstallSpec? post_install,
+        string entrypoint_id
+    ) {
+        foreach (var ep in entry.custom_entrypoints) {
+            if (ep.id == entrypoint_id) return ep;
+        }
+        foreach (var ep in installer_spec.entrypoints) {
+            if (ep.id == entrypoint_id) return ep;
+        }
+        if (launcher != null) {
+            foreach (var ep in launcher.entrypoints) {
+                if (ep.id == entrypoint_id) return ep;
+            }
+        }
+        if (post_install != null) {
+            foreach (var ep in post_install.entrypoints) {
+                if (ep.id == entrypoint_id) return ep;
+            }
+        }
+        return null;
     }
 
     public Gee.ArrayList<Models.Entrypoint> list_entrypoints (
@@ -135,15 +194,19 @@ namespace Lumoria.Runtime {
         var pfx_path = install_prefix_path (entry.path);
 
         var installer_spec = Models.InstallerSpec.load_from_resource ();
-        var base_vars = build_launch_vars (pfx_path, installer_spec.variables);
+        var launcher = entry.launcher_id != ""
+            ? find_launcher_by_id (launcher_specs, entry.launcher_id) : null;
+        var base_vars = build_launch_vars (pfx_path, entry, installer_spec, launcher, null);
         expand_entrypoints (all, installer_spec.entrypoints, base_vars);
 
-        if (entry.launcher_id != "") {
-            var launcher = find_launcher_by_id (launcher_specs, entry.launcher_id);
-            if (launcher != null) {
-                var vars = build_launch_vars (pfx_path, launcher.variables);
-                expand_entrypoints (all, launcher.entrypoints, vars);
-            }
+        if (launcher != null) {
+            expand_entrypoints (all, launcher.entrypoints, base_vars);
+        }
+
+        var post_install = load_prefix_post_install_spec (entry);
+        if (post_install != null) {
+            var pvars = build_launch_vars (pfx_path, entry, installer_spec, launcher, post_install);
+            expand_entrypoints (all, post_install.entrypoints, pvars);
         }
 
         foreach (var ep in custom_list) {
@@ -301,14 +364,52 @@ namespace Lumoria.Runtime {
 
     private Gee.HashMap<string, string> build_launch_vars (
         string pfx_path,
-        Gee.HashMap<string, string> source
+        Models.PrefixEntry entry,
+        Models.InstallerSpec installer_spec,
+        Models.LauncherSpec? launcher,
+        Models.PostInstallSpec? post_install
     ) {
         var vars = new Gee.HashMap<string, string> ();
         vars["PREFIX"] = pfx_path;
-        foreach (var e in source.entries) {
-            vars[e.key] = e.value;
-        }
+        vars["WINDOWS"] = Path.build_filename (pfx_path, "drive_c", "windows");
+        vars["SYSTEM32"] = Path.build_filename (pfx_path, "drive_c", "windows", "system32");
+        vars["SYSWOW64"] = Path.build_filename (pfx_path, "drive_c", "windows", "syswow64");
+        vars["FONTS"] = Path.build_filename (pfx_path, "drive_c", "windows", "Fonts");
+        vars["ARCH"] = Utils.normalize_wine_arch (entry.wine_arch) != "" ? Utils.normalize_wine_arch (entry.wine_arch) : "win64";
+        vars["REGION"] = entry.region;
+        merge_vars (vars, installer_spec.variables);
+        if (launcher != null) merge_vars (vars, launcher.variables);
+        if (post_install != null) merge_vars (vars, post_install.variables);
+        resolve_prefix_launch_vars (vars, entry);
+        Utils.resolve_var_references (vars);
         return vars;
+    }
+
+    private void resolve_prefix_launch_vars (Gee.HashMap<string, string> vars, Models.PrefixEntry entry) {
+        var keys = new Gee.ArrayList<string> ();
+        foreach (var k in vars.keys) keys.add (k);
+        foreach (var k in keys) {
+            var raw = vars[k];
+            if (!raw.has_prefix ("@prefix:")) continue;
+            var field = raw.substring (8);
+            string? resolved = null;
+            switch (field) {
+                case "region":         resolved = entry.region; break;
+                case "wine_arch":      resolved = entry.wine_arch; break;
+                case "runner_id":      resolved = entry.runner_id; break;
+                case "variant_id":     resolved = entry.variant_id; break;
+                case "launcher_id":    resolved = entry.launcher_id; break;
+                case "sync_mode":      resolved = entry.sync_mode; break;
+                default: break;
+            }
+            if (resolved != null) vars[k] = resolved;
+        }
+    }
+
+    private void merge_vars (Gee.HashMap<string, string> dst, Gee.HashMap<string, string> src) {
+        foreach (var e in src.entries) {
+            dst[e.key] = e.value;
+        }
     }
 
     private Models.LauncherSpec? find_launcher_by_id (
@@ -341,6 +442,7 @@ namespace Lumoria.Runtime {
         Gee.HashMap<string, string> vars
     ) {
         foreach (var ep in source) {
+            if (ep.when != null && !ep.when.evaluate (vars)) continue;
             var copy = new Models.Entrypoint ();
             copy.id = ep.id;
             copy.name = ep.name;

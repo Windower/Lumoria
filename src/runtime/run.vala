@@ -37,6 +37,7 @@ namespace Lumoria.Runtime {
         } else {
             resolve_launcher_exe (entry, launcher_specs, entrypoint_id, out exe, out wine_args);
         }
+        apply_launch_env (entry, launcher_specs, custom_exe != "" ? "" : entrypoint_id, ctx.env);
 
         var host_exe = resolve_host_path (exe, ctx.prefix_path);
         var wine_path = to_wine_path (ctx.prefix_path, host_exe);
@@ -99,6 +100,7 @@ namespace Lumoria.Runtime {
         var session_id = generate_session_id ();
         var logger = RuntimeLog.for_run (entry.path, session_id);
         var ctx = prepare_runtime_context (entry, runner_specs, true, logger);
+        apply_launch_env (entry, null, "", ctx.env);
         var argv = new Gee.ArrayList<string> ();
         argv.add (ctx.paths.wine);
         argv.add_all (wine_args);
@@ -129,6 +131,7 @@ namespace Lumoria.Runtime {
         var session_id = generate_session_id ();
         var logger = RuntimeLog.for_run (entry.path, session_id);
         var ctx = prepare_runtime_context (entry, runner_specs, false, logger);
+        apply_launch_env (entry, null, "", ctx.env);
 
         var result = new TerminalContext ();
         result.working_directory = entry.resolved_path ();
@@ -184,7 +187,7 @@ namespace Lumoria.Runtime {
             runtime.env.add_dll_override ("mscoree", DLL_DISABLED);
         }
         try {
-            var comp_result = apply_enabled_components (runtime.prefix_path, entry, logger);
+            var comp_result = apply_enabled_components (runtime.paths, runtime.prefix_path, entry, logger);
             foreach (var ov in comp_result.dll_overrides.entries) {
                 runtime.env.add_dll_override (ov.key, ov.value);
             }

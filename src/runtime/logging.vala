@@ -25,7 +25,8 @@ namespace Lumoria.Runtime {
         STDERR,
         EXIT,
         PATCH,
-        COMPONENT
+        COMPONENT,
+        GIT
     }
 
     public class RuntimeLog : Object {
@@ -41,7 +42,8 @@ namespace Lumoria.Runtime {
         public static RuntimeLog for_install (string prefix_path, owned LogFunc? sink = null) {
             return new RuntimeLog (resolve_log_path (
                 prefix_path,
-                "install-%s.log".printf (new DateTime.now_local ().format ("%Y%m%d-%H%M%S"))
+                "install-%s.log".printf (new DateTime.now_local ().format ("%Y%m%d-%H%M%S")),
+                true
             ), (owned) sink);
         }
 
@@ -122,8 +124,8 @@ namespace Lumoria.Runtime {
             }
         }
 
-        private static string resolve_log_path (string prefix_path, string filename) {
-            if (Utils.LoggingMode.from_settings () != Utils.LoggingMode.KEEP) {
+        private static string resolve_log_path (string prefix_path, string filename, bool force_disk = false) {
+            if (!force_disk && Utils.LoggingMode.from_settings () != Utils.LoggingMode.KEEP) {
                 return "";
             }
             var log_dir = Path.build_filename (prefix_path, "logs");
@@ -156,6 +158,7 @@ namespace Lumoria.Runtime {
                 case LogType.EXIT: return "exit";
                 case LogType.PATCH: return "patch";
                 case LogType.COMPONENT: return "component";
+                case LogType.GIT: return "git";
                 default: return "log";
             }
         }

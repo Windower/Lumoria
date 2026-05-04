@@ -33,6 +33,7 @@ namespace Lumoria.Widgets.Dialogs {
         private Gtk.Window host_window;
         private Services.DynamicLauncherService shortcut_service;
         private Gtk.Box shortcuts_content;
+        private Gtk.Box packages_content;
 
         public ManagePrefixDialog (
             Gtk.Window parent,
@@ -228,6 +229,10 @@ namespace Lumoria.Widgets.Dialogs {
             shortcuts_content = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
             SettingsShared.add_scrolled_settings_page (stack, shortcuts_content, SettingsShared.PAGE_SHORTCUTS, _("Shortcuts"));
             rebuild_shortcuts_ui ();
+
+            packages_content = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
+            build_packages_page (packages_content, entry);
+            SettingsShared.add_scrolled_settings_page (stack, packages_content, SettingsShared.PAGE_PACKAGES, _("Packages"));
 
             var advanced_content = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
 
@@ -911,6 +916,122 @@ namespace Lumoria.Widgets.Dialogs {
                 removed ();
                 close ();
             });
+        }
+
+        private void build_packages_page (Gtk.Box content, Models.PrefixEntry entry) {
+            var all_specs = Models.RedistSpec.load_all_from_resource ();
+            var installed = new Gee.HashSet<string> ();
+            installed.add_all (entry.installed_redists);
+
+            var installed_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
+            var available_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
+
+            var installed_group = new Adw.PreferencesGroup ();
+            installed_group.margin_start = 12;
+            installed_group.margin_end = 12;
+            installed_group.margin_top = 6;
+            var available_group = new Adw.PreferencesGroup ();
+            available_group.margin_start = 12;
+            available_group.margin_end = 12;
+            available_group.margin_top = 6;
+
+            int installed_count = 0;
+            int available_count = 0;
+
+            var sorted_ids = new Gee.ArrayList<string> ();
+            sorted_ids.add_all (all_specs.keys);
+            sorted_ids.sort ((a, b) => {
+                return all_specs[a].name.collate (all_specs[b].name);
+            });
+
+            foreach (var id in sorted_ids) {
+                var spec = all_specs[id];
+                var row = new Adw.ActionRow ();
+                row.title = spec.name;
+
+                if (installed.contains (id)) {
+                    if (spec.reinstallable) {
+                        var reinstall_btn = new Gtk.Button.with_label (_("Reinstall"));
+                        reinstall_btn.valign = Gtk.Align.CENTER;
+                        reinstall_btn.clicked.connect (() => {
+                            on_install_redist (entry, id);
+                        });
+                        row.add_suffix (reinstall_btn);
+                        row.activatable_widget = reinstall_btn;
+                    } else {
+                        var check = new Gtk.Image.from_icon_name ("emblem-ok-symbolic");
+                        check.valign = Gtk.Align.CENTER;
+                        row.add_suffix (check);
+                    }
+                    installed_group.add (row);
+                    installed_count++;
+                } else {
+                    var install_btn = new Gtk.Button.with_label (_("Install"));
+                    install_btn.valign = Gtk.Align.CENTER;
+                    install_btn.add_css_class ("suggested-action");
+                    install_btn.clicked.connect (() => {
+                        on_install_redist (entry, id);
+                    });
+                    row.add_suffix (install_btn);
+                    row.activatable_widget = install_btn;
+                    available_group.add (row);
+                    available_count++;
+                }
+            }
+
+            if (installed_count == 0) {
+                var empty_row = new Adw.ActionRow ();
+                empty_row.title = _("No packages installed yet");
+                empty_row.activatable = false;
+                installed_group.add (empty_row);
+            }
+            if (available_count == 0) {
+                var empty_row = new Adw.ActionRow ();
+                empty_row.title = _("All packages are installed");
+                empty_row.activatable = false;
+                available_group.add (empty_row);
+            }
+
+            installed_box.append (installed_group);
+            available_box.append (available_group);
+
+            var inner_stack = new Adw.ViewStack ();
+            inner_stack.vexpand = true;
+            inner_stack.add_titled (installed_box, "installed", _("Installed (%d)").printf (installed_count));
+            inner_stack.add_titled (available_box, "available", _("Available (%d)").printf (available_count));
+
+            var switcher = new Adw.ViewSwitcher ();
+            switcher.stack = inner_stack;
+            switcher.policy = Adw.ViewSwitcherPolicy.WIDE;
+            switcher.margin_start = 12;
+            switcher.margin_end = 12;
+            switcher.margin_top = 12;
+            switcher.halign = Gtk.Align.CENTER;
+
+            content.append (switcher);
+            content.append (inner_stack);
+        }
+
+        private void rebuild_packages_page () {
+            if (packages_content == null) return;
+            Gtk.Widget? child;
+            while ((child = packages_content.get_first_child ()) != null) {
+                packages_content.remove (child);
+            }
+            build_packages_page (packages_content, registry.prefixes[prefix_index]);
+        }
+
+        private void on_install_redist (Models.PrefixEntry entry, string redist_id) {
+            var dialog = new InstallDialog ();
+            dialog.install_completed.connect ((success) => {
+                if (success) {
+                    registry.save (Utils.prefix_registry_path ());
+                    saved ();
+                    rebuild_packages_page ();
+                }
+            });
+            dialog.present (host_window);
+            dialog.start_redist_install (entry, this.runner_specs, redist_id);
         }
     }
 }

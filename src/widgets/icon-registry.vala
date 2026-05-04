@@ -28,6 +28,7 @@ namespace Lumoria.Widgets {
         public const string PAGE_COMPONENTS = "applications-utilities-symbolic";
         public const string PAGE_LAUNCH = "media-playback-start-symbolic";
         public const string PAGE_SHORTCUTS = MENU;
+        public const string PAGE_PACKAGES = "application-x-addon-symbolic";
         public const string PAGE_STORAGE = "drive-harddisk-symbolic";
         public const string PAGE_ADVANCED = "applications-system-symbolic";
         public const string PAGE_ABOUT = "help-about-symbolic";
@@ -46,6 +47,8 @@ namespace Lumoria.Widgets {
                     return PAGE_LAUNCH;
                 case SettingsShared.PAGE_SHORTCUTS:
                     return PAGE_SHORTCUTS;
+                case SettingsShared.PAGE_PACKAGES:
+                    return PAGE_PACKAGES;
                 case SettingsShared.PAGE_STORAGE:
                     return PAGE_STORAGE;
                 case SettingsShared.PAGE_ADVANCED:

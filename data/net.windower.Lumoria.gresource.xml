@@ -14,6 +14,39 @@
     <file>specs/redists/corefonts.json</file>
     <file>specs/redists/gdiplus.json</file>
     <file>specs/redists/dotnet48.json</file>
+    <file>specs/redists/vcrun2022.json</file>
+    <file>specs/redists/andale.json</file>
+    <file>specs/redists/baekmuk.json</file>
+    <file>specs/redists/tahoma.json</file>
+    <file>specs/redists/eufonts.json</file>
+    <file>specs/redists/lucida.json</file>
+    <file>specs/redists/calibri.json</file>
+    <file>specs/redists/cambria.json</file>
+    <file>specs/redists/candara.json</file>
+    <file>specs/redists/consolas.json</file>
+    <file>specs/redists/constantia.json</file>
+    <file>specs/redists/corbel.json</file>
+    <file>specs/redists/meiryo.json</file>
+    <file>specs/redists/pptfonts.json</file>
+    <file>specs/redists/liberation.json</file>
+    <file>specs/redists/sourcehansans.json</file>
+    <file>specs/redists/vlgothic.json</file>
+    <file>specs/redists/wenquanyi.json</file>
+    <file>specs/redists/wenquanyizenhei.json</file>
+    <file>specs/redists/takao.json</file>
+    <file>specs/redists/ipamona.json</file>
+    <file>specs/redists/uff.json</file>
+    <file>specs/redists/droid.json</file>
+    <file>specs/redists/unifont.json</file>
+    <file>specs/redists/opensymbol.json</file>
+    <file>specs/redists/fakechinese.json</file>
+    <file>specs/redists/fakejapanese.json</file>
+    <file>specs/redists/fakejapanese_ipamona.json</file>
+    <file>specs/redists/fakejapanese_vlgothic.json</file>
+    <file>specs/redists/fakekorean.json</file>
+    <file>specs/redists/cjkfonts.json</file>
+    <file>specs/redists/allfonts.json</file>
+    <file>specs/components/d7vk.json</file>
     <file>specs/components/dxvk.json</file>
   </gresource>
 </gresources>

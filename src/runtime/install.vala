@@ -50,17 +50,20 @@ namespace Lumoria.Runtime {
             Models.InstallStep step,
             Gee.HashMap<string, string> vars,
             WinePaths paths,
-            WineEnv env
+            WineEnv env,
+            bool ignore_when = false
         ) throws Error {
             advance ();
             emit_progress (step.description);
             logger.step (idx, total, step.description, step.step_type);
-            run_install_step (step, vars, paths, env, logger, cancellable);
+            var step_env = step.env.size > 0 ? env.copy () : env;
+            if (step.env.size > 0) apply_env_rules (step_env, step.env, vars);
+            run_install_step (step, vars, paths, step_env, logger, cancellable, ignore_when);
         }
 
         public void run_download (Models.DownloadItem dl, Gee.HashMap<string, string> vars) throws Error {
             advance ();
-            ensure_download_item (dl, expand_path (dl.dest, vars), idx, total, progress, logger);
+            ensure_download_item (dl, expand_path (dl.url, vars), expand_path (dl.dest, vars), idx, total, progress, logger);
         }
 
         public DownloadProgress download_progress_cb () {
@@ -104,25 +107,46 @@ namespace Lumoria.Runtime {
             Gee.Map<string, Models.RedistSpec> all
         ) {
             var set = new ResolvedRedistSet ();
+            var deferred = new Gee.ArrayList<Models.RedistSpec> ();
             var seen = new Gee.HashSet<string> ();
-            int spec_steps = 0;
+            resolve_into (set, deferred, redist_ids, all, seen);
+            foreach (var spec in deferred) {
+                set.specs.add (spec);
+                set.downloads.add_all (spec.downloads);
+                set.step_count += spec.downloads.size + spec.steps.size;
+            }
+            return set;
+        }
+
+        private static void resolve_into (
+            ResolvedRedistSet set,
+            Gee.ArrayList<Models.RedistSpec> deferred,
+            Gee.Iterable<string> redist_ids,
+            Gee.Map<string, Models.RedistSpec> all,
+            Gee.HashSet<string> seen
+        ) {
             foreach (var rid in redist_ids) {
                 if (!seen.add (rid)) continue;
                 if (all.has_key (rid)) {
                     var spec = all[rid];
-                    set.specs.add (spec);
-                    set.downloads.add_all (spec.downloads);
-                    spec_steps += spec.steps.size;
+                    if (spec.redists.size > 0)
+                        resolve_into (set, deferred, spec.redists, all, seen);
+                    if (spec.defer) {
+                        deferred.add (spec);
+                    } else {
+                        set.specs.add (spec);
+                        set.downloads.add_all (spec.downloads);
+                        set.step_count += spec.downloads.size + spec.steps.size;
+                    }
                 } else {
                     var step = new Models.InstallStep ();
                     step.step_type = "redist";
                     step.command = rid;
-                    step.description = "Installing %s\u2026".printf (rid);
+                    step.description = builtin_redist_label (rid);
                     set.code_steps.add (step);
+                    set.step_count++;
                 }
             }
-            set.step_count = set.downloads.size + spec_steps + set.code_steps.size;
-            return set;
         }
     }
 
@@ -131,27 +155,48 @@ namespace Lumoria.Runtime {
         public Gee.ArrayList<Models.InstallStep> steps { get; private set; }
         public ResolvedRedistSet redists { get; private set; }
         public Gee.HashMap<string, string> vars { get; private set; }
+        public Models.PrefixEntry? prefix_entry { get; private set; }
+        public bool reinstall_mode { get; private set; }
 
         public InstallPhase (
             Gee.ArrayList<Models.DownloadItem> downloads,
             Gee.ArrayList<Models.InstallStep> steps,
             ResolvedRedistSet redists,
-            Gee.HashMap<string, string> vars
+            Gee.HashMap<string, string> vars,
+            Models.PrefixEntry? prefix_entry = null,
+            bool reinstall_mode = false
         ) {
             this.downloads = downloads;
             this.steps = steps;
             this.redists = redists;
             this.vars = vars;
+            this.prefix_entry = prefix_entry;
+            this.reinstall_mode = reinstall_mode;
         }
 
         public int step_count {
-            get { return redists.step_count + downloads.size + steps.size; }
+            get {
+                int count = redists.step_count;
+                foreach (var dl in downloads) {
+                    if (dl.when == null || dl.when.evaluate (vars)) count++;
+                }
+                foreach (var step in steps) {
+                    if (step.when == null || step.when.evaluate (vars)) count++;
+                }
+                return count;
+            }
         }
 
         public void run_downloads (StepReporter rep, string phase_banner) throws Error {
             rep.logger.phase (phase_banner);
-            foreach (var dl in redists.downloads) rep.run_download (dl, vars);
-            foreach (var dl in downloads) rep.run_download (dl, vars);
+            foreach (var dl in redists.downloads) {
+                if (dl.when != null && !dl.when.evaluate (vars)) continue;
+                rep.run_download (dl, vars);
+            }
+            foreach (var dl in downloads) {
+                if (dl.when != null && !dl.when.evaluate (vars)) continue;
+                rep.run_download (dl, vars);
+            }
         }
 
         public void run_steps (
@@ -162,12 +207,44 @@ namespace Lumoria.Runtime {
         ) throws Error {
             if (phase_banner != null) rep.logger.phase (phase_banner);
             foreach (var spec in redists.specs) {
-                rep.logger.banner (spec.display_label ());
-                foreach (var step in spec.steps) rep.run_step (step, vars, paths, env);
+                if (spec.defer) continue;
+                run_redist_spec (rep, spec, paths, env);
             }
-            foreach (var step in redists.code_steps) rep.run_step (step, vars, paths, env);
+            foreach (var step in redists.code_steps) {
+                rep.run_step (step, vars, paths, env);
+                mark_redist_installed (prefix_entry, step.command);
+            }
             foreach (var step in steps) rep.run_step (step, vars, paths, env);
+            // Deferred specs run AFTER installer steps but still while wineserver
+            // is alive: dropping native DLLs after wineserver -k lets the next
+            // wine bootstrap reinitialize the prefix and clobber them.
+            foreach (var spec in redists.specs) {
+                if (!spec.defer) continue;
+                run_redist_spec (rep, spec, paths, env);
+            }
         }
+
+        private void run_redist_spec (
+            StepReporter rep,
+            Models.RedistSpec spec,
+            WinePaths paths,
+            WineEnv env
+        ) throws Error {
+            rep.logger.banner (spec.display_label ());
+            var redist_env = spec.env.size > 0 ? env.copy () : env;
+            if (spec.env.size > 0) apply_env_rules (redist_env, spec.env, vars);
+            bool spec_force = reinstall_mode && spec.reinstallable;
+            foreach (var step in spec.steps) {
+                rep.run_step (step, vars, paths, redist_env, spec_force && step.idempotent);
+            }
+            mark_redist_installed (prefix_entry, spec.id);
+        }
+    }
+
+    private void mark_redist_installed (Models.PrefixEntry? entry, string redist_id) {
+        if (entry == null || redist_id == "") return;
+        if (entry.installed_redists.contains (redist_id)) return;
+        entry.installed_redists.add (redist_id);
     }
 
     public void run_full_install (
@@ -189,7 +266,7 @@ namespace Lumoria.Runtime {
                 : null;
 
             var all_redists = Models.RedistSpec.load_all_from_resource ();
-            var main_redists = ResolvedRedistSet.resolve (
+            var launcher_redists = ResolvedRedistSet.resolve (
                 merged_redist_ids (installer_spec.redists, launcher),
                 all_redists
             );
@@ -201,7 +278,7 @@ namespace Lumoria.Runtime {
             int total_steps = FIXED_STEPS
                 + installer_spec.downloads.size + installer_spec.steps.size
                 + (launcher != null ? launcher.downloads.size + launcher.steps.size : 0)
-                + main_redists.step_count
+                + launcher_redists.step_count
                 + (post_install_spec != null
                     ? 1 + post_install_spec.downloads.size + post_install_spec.steps.size + post_redists.step_count
                     : 0);
@@ -238,11 +315,19 @@ namespace Lumoria.Runtime {
             var env = runtime.env;
 
             var installer_vars = make_install_vars (pfx_path, "installer", installer_spec.id, installer_spec.variables);
-            log_install_vars (logger, installer_vars);
+            inject_redist_vars (installer_vars, launcher_redists);
+            inject_prefix_context (installer_vars, runtime, prefix_entry, logger);
+            apply_env_rules (env, installer_spec.env, installer_vars);
 
             var launcher_vars = launcher != null
                 ? make_install_vars (pfx_path, "launchers", launcher.id, launcher.variables)
                 : null;
+            if (launcher_vars != null) {
+                inject_redist_vars (launcher_vars, launcher_redists);
+                inject_prefix_context (launcher_vars, runtime, prefix_entry, logger);
+                apply_env_rules (env, launcher.env, launcher_vars);
+            }
+
             var post_install_vars = post_install_spec != null
                 ? build_post_install_vars (
                     pfx_path,
@@ -250,18 +335,26 @@ namespace Lumoria.Runtime {
                     installer_spec, launcher, post_install_spec
                 )
                 : null;
+            if (post_install_vars != null) {
+                inject_redist_vars (post_install_vars, post_redists);
+                inject_prefix_context (post_install_vars, runtime, prefix_entry, logger);
+                apply_env_rules (env, post_install_spec.env, post_install_vars);
+            }
 
             var installer_phase = new InstallPhase (
                 installer_spec.downloads, installer_spec.steps,
-                new ResolvedRedistSet (), installer_vars
+                new ResolvedRedistSet (), installer_vars, prefix_entry
             );
             var launcher_phase = launcher != null
-                ? new InstallPhase (launcher.downloads, launcher.steps, main_redists, launcher_vars)
+                ? new InstallPhase (
+                    launcher.downloads, launcher.steps,
+                    launcher_redists, launcher_vars, prefix_entry
+                )
                 : null;
             var post_phase = post_install_spec != null
                 ? new InstallPhase (
                     post_install_spec.downloads, post_install_spec.steps,
-                    post_redists, post_install_vars
+                    post_redists, post_install_vars, prefix_entry
                 )
                 : null;
 
@@ -283,9 +376,21 @@ namespace Lumoria.Runtime {
             create_wine_prefix (paths, env, logger, cancellable);
             logger.emit_line ("Wine prefix created at: %s\n\n".printf (pfx_path));
 
+            resolve_computed_vars (installer_vars, paths, env, logger);
+            Utils.resolve_var_references (installer_vars);
+            if (launcher_vars != null) {
+                resolve_computed_vars (launcher_vars, paths, env, logger);
+                Utils.resolve_var_references (launcher_vars);
+            }
+            if (post_install_vars != null) {
+                resolve_computed_vars (post_install_vars, paths, env, logger);
+                Utils.resolve_var_references (post_install_vars);
+            }
+            log_install_vars (logger, installer_vars);
+
             rep.label ("Applying components\u2026");
             logger.banner ("Applying enabled components");
-            var component_warning = apply_components_with_warning (env, prefix_entry, pfx_path, logger);
+            var component_warning = apply_components_with_warning (paths, env, prefix_entry, pfx_path, logger);
 
             installer_phase.run_steps (rep, paths, env, "Run installer steps");
             if (launcher_phase != null) {
@@ -347,9 +452,14 @@ namespace Lumoria.Runtime {
 
             var cache_root = ensure_cache_subdir (Path.build_filename ("actions", entry.id), action.id);
             var vars = build_action_vars (runtime.prefix_path, cache_root, entry, launcher_specs, action);
+            vars["ARCH"] = runtime.wine_arch;
+            vars["REGION"] = entry.region;
+            apply_env_rules (runtime.env, action.env, vars);
+            resolve_computed_vars (vars, runtime.paths, runtime.env, logger);
+            Utils.resolve_var_references (vars);
 
             var phase = new InstallPhase (
-                action.downloads, action.steps, action_redists, vars
+                action.downloads, action.steps, action_redists, vars, entry
             );
             phase.run_downloads (rep, "Downloading action artifacts");
             phase.run_steps (rep, runtime.paths, runtime.env, "Run action steps");
@@ -362,6 +472,67 @@ namespace Lumoria.Runtime {
             announce_install_failure (progress, logger, "ACTION CANCELLED", "Action cancelled.", e.message);
         } catch (Error e) {
             announce_install_failure (progress, logger, "ACTION FAILED", e.message, e.message);
+        } finally {
+            logger.close ();
+        }
+    }
+
+    public void run_redist_install (
+        Models.PrefixEntry entry,
+        Gee.ArrayList<Models.RunnerSpec> runner_specs,
+        string redist_id,
+        InstallProgress progress,
+        Cancellable? cancellable
+    ) {
+        var logger = RuntimeLog.for_install (entry.resolved_path (), (msg) => {
+            progress.log_message (msg);
+        });
+
+        try {
+            logger.banner ("Lumoria Redist Install", false);
+            logger.emit_line ("Prefix: %s\n".printf (entry.resolved_path ()));
+            logger.emit_line ("Redist: %s\n\n".printf (redist_id));
+
+            var all_redists = Models.RedistSpec.load_all_from_resource ();
+            var ids = new Gee.ArrayList<string> ();
+            ids.add (redist_id);
+            var resolved = ResolvedRedistSet.resolve (ids, all_redists);
+
+            int total_steps = 1 + resolved.step_count;
+            var rep = new StepReporter (total_steps, progress, logger, cancellable);
+
+            rep.label ("Preparing runner\u2026");
+            var runner_spec = Models.RunnerSpec.find_or_default (runner_specs, entry.runner_id);
+            var runtime = prepare_wine_runtime (
+                runner_spec, entry.variant_id, entry.runner_version,
+                entry.path, entry.wine_arch,
+                entry.sync_mode, entry.wine_debug, entry.wine_wayland,
+                entry.runtime_env_vars, null, logger
+            );
+
+            var cache_root = ensure_cache_subdir ("redist", redist_id);
+            var vars = build_prefix_vars (runtime.prefix_path, cache_root, null);
+            vars["ARCH"] = runtime.wine_arch;
+            vars["REGION"] = entry.region;
+            resolve_computed_vars (vars, runtime.paths, runtime.env, logger);
+            Utils.resolve_var_references (vars);
+
+            var phase = new InstallPhase (
+                new Gee.ArrayList<Models.DownloadItem> (),
+                new Gee.ArrayList<Models.InstallStep> (),
+                resolved, vars, entry, true
+            );
+            phase.run_downloads (rep, "Downloading redist artifacts");
+            phase.run_steps (rep, runtime.paths, runtime.env, "Installing redist");
+
+            shutdown_wineserver (runtime.paths, runtime.env, logger);
+            progress.progress_changed (1.0);
+            logger.banner ("Redist install completed successfully");
+            progress.install_finished (true, "Install complete.");
+        } catch (IOError.CANCELLED e) {
+            announce_install_failure (progress, logger, "INSTALL CANCELLED", "Install cancelled.", e.message);
+        } catch (Error e) {
+            announce_install_failure (progress, logger, "INSTALL FAILED", e.message, e.message);
         } finally {
             logger.close ();
         }
@@ -412,6 +583,15 @@ namespace Lumoria.Runtime {
         return build_prefix_vars (pfx_path, ensure_cache_subdir (category, id), spec_vars);
     }
 
+    private void inject_redist_vars (Gee.HashMap<string, string> vars, ResolvedRedistSet redists) {
+        foreach (var spec in redists.specs) {
+            vars["REDIST_%s".printf (spec.id)] = "1";
+        }
+        foreach (var step in redists.code_steps) {
+            vars["REDIST_%s".printf (step.command)] = "1";
+        }
+    }
+
     private void log_runtime_paths (RuntimeLog logger, WineRuntime runtime) {
         logger.emit_line ("Runner extracted to: %s\n".printf (runtime.extract_result.extracted_to));
         logger.emit_line ("Wine binary: %s\n".printf (runtime.paths.wine));
@@ -438,13 +618,14 @@ namespace Lumoria.Runtime {
     }
 
     private string? apply_components_with_warning (
+        WinePaths paths,
         WineEnv env,
         Models.PrefixEntry? prefix_entry,
         string pfx_path,
         RuntimeLog logger
     ) {
         try {
-            var comp_result = apply_enabled_components (pfx_path, prefix_entry, logger);
+            var comp_result = apply_enabled_components (paths, pfx_path, prefix_entry, logger);
             foreach (var ov in comp_result.dll_overrides.entries) {
                 env.add_dll_override (ov.key, ov.value);
             }
@@ -541,6 +722,7 @@ namespace Lumoria.Runtime {
 
     private void ensure_download_item (
         Models.DownloadItem dl,
+        string url,
         string dest,
         int step_idx,
         int total_steps,
@@ -558,9 +740,9 @@ namespace Lumoria.Runtime {
 
         var s_base = (double) (step_idx - 1) / total_steps;
         var s_range = 1.0 / total_steps;
-        logger.emit_line ("Downloading: %s\n  -> %s\n".printf (dl.url, dest));
+        logger.emit_line ("Downloading: %s\n  -> %s\n".printf (url, dest));
         Utils.ensure_downloaded_file (
-            dl.url,
+            url,
             dest,
             0,
             dl.sha256,
@@ -594,23 +776,14 @@ namespace Lumoria.Runtime {
         WinePaths paths,
         WineEnv env,
         RuntimeLog logger,
-        Cancellable? cancellable = null
+        Cancellable? cancellable = null,
+        bool ignore_when = false
     ) throws Error {
         check_cancelled (cancellable);
 
-        if (step.condition != "") {
-            if (!evaluate_condition (step.condition, env, logger)) {
-                logger.typed (LogType.SKIP, "condition '%s' not met".printf (step.condition));
-                return;
-            }
-        }
-
-        foreach (var skip in step.skip_if_exists) {
-            var expanded = expand_path (skip, vars);
-            if (FileUtils.test (expanded, FileTest.EXISTS)) {
-                logger.typed (LogType.SKIP, "%s exists, skipping step".printf (expanded));
-                return;
-            }
+        if (!ignore_when && step.when != null && !step.when.evaluate (vars)) {
+            logger.typed (LogType.SKIP, "when clause not met, skipping: %s".printf (step.description));
+            return;
         }
 
         switch (step.step_type) {
@@ -637,6 +810,10 @@ namespace Lumoria.Runtime {
                 var dst = expand_path (step.dst, vars);
                 logger.typed (LogType.COPY, "%s -> %s".printf (src, dst));
                 Utils.copy_path (src, dst, null);
+                break;
+
+            case "delete":
+                run_delete_step (step, vars, logger);
                 break;
 
             case "write":
@@ -681,6 +858,10 @@ namespace Lumoria.Runtime {
                 install_fonts_step (step, vars, paths, env, logger, cancellable);
                 break;
 
+            case "font_replacement":
+                install_font_replacements (step, vars, paths, env, cancellable, logger);
+                break;
+
             case "cabextract":
                 var cab_src = expand_path (step.src, vars);
                 var cab_filter = step.args.size > 0 ? step.args[0] : "";
@@ -703,6 +884,10 @@ namespace Lumoria.Runtime {
                 );
                 break;
 
+            case "git":
+                run_git_step (step, vars, logger);
+                break;
+
             default:
                 throw new IOError.FAILED ("Unknown install step type: %s", step.step_type);
         }
@@ -719,6 +904,31 @@ namespace Lumoria.Runtime {
         FileUtils.set_contents (dst, content);
         logger.typed (LogType.COPY, "wrote %s".printf (dst));
         verify_step_paths (step.verify_paths, vars);
+    }
+
+    private void run_delete_step (
+        Models.InstallStep step,
+        Gee.HashMap<string, string> vars,
+        RuntimeLog logger
+    ) throws Error {
+        var targets = new Gee.ArrayList<string> ();
+        if (step.dst != "") targets.add (expand_path (step.dst, vars));
+        foreach (var raw in step.args) targets.add (expand_path (raw, vars));
+        if (targets.size == 0) {
+            throw new IOError.FAILED ("delete requires dst or args");
+        }
+        foreach (var target in targets) {
+            if (!FileUtils.test (target, FileTest.EXISTS) && !FileUtils.test (target, FileTest.IS_SYMLINK)) {
+                logger.typed (LogType.SKIP, "delete: %s not present".printf (target));
+                continue;
+            }
+            if (FileUtils.test (target, FileTest.IS_DIR)) {
+                Utils.remove_recursive (target);
+            } else if (FileUtils.remove (target) != 0) {
+                throw new IOError.FAILED ("delete: failed to remove %s", target);
+            }
+            logger.typed (LogType.COPY, "deleted %s".printf (target));
+        }
     }
 
     private void run_text_upsert_step (
@@ -903,7 +1113,7 @@ namespace Lumoria.Runtime {
         var exe = raw_exe;
         if (!is_builtin_command) {
             host_exe = normalize_wineexec_host_path (raw_exe, vars);
-            exe = to_wine_path (vars["PREFIX"], host_exe);
+            exe = wine_arg_path (vars["PREFIX"], host_exe);
         }
         var expanded_args = new Gee.ArrayList<string> ();
         for (int i = 0; i < step.args.size; i++) {
@@ -951,6 +1161,7 @@ namespace Lumoria.Runtime {
                 Thread.usleep (750000);
                 try {
                     run_wine_command (paths.wine, args, env, working, logger, cancellable);
+                    all_verified = verify_paths_with_logging (step.verify_paths, vars, logger);
                 } catch (Error retry_e) {
                     if (retry_e is IOError.CANCELLED) throw retry_e;
                     all_verified = verify_paths_with_logging (step.verify_paths, vars, logger);
@@ -958,9 +1169,6 @@ namespace Lumoria.Runtime {
                     logger.typed (LogType.WARN, "retry failed (exit non-zero) but verify_paths all exist, continuing");
                     return;
                 }
-            }
-            if (!all_verified) {
-                all_verified = verify_paths_with_logging (step.verify_paths, vars, logger);
             }
             if (!all_verified) throw e;
             logger.typed (LogType.WARN, "command failed (exit non-zero) but verify_paths all exist, continuing");
@@ -1028,6 +1236,46 @@ namespace Lumoria.Runtime {
         }
     }
 
+    private void run_git_step (
+        Models.InstallStep step,
+        Gee.HashMap<string, string> vars,
+        RuntimeLog logger
+    ) throws Error {
+        var git_dst = expand_path (step.dst, vars);
+        if (git_dst == "") throw new IOError.FAILED ("git step requires dst");
+
+        var target = new Utils.GitTarget () {
+            branch = Utils.expand_vars (step.git_branch, vars),
+            tag = Utils.expand_vars (step.git_tag, vars),
+            commit = Utils.expand_vars (step.git_commit, vars)
+        };
+        var summary = "%s%s%s%s".printf (
+            git_dst,
+            target.branch != "" ? " branch=" + target.branch : "",
+            target.tag != "" ? " tag=" + target.tag : "",
+            target.commit != "" ? " commit=" + target.commit : ""
+        );
+
+        switch (step.command) {
+            case "clone":
+                var git_url = expand_path (step.src, vars);
+                if (git_url == "") throw new IOError.FAILED ("git clone requires src (url)");
+                logger.typed (LogType.GIT, "clone %s -> %s".printf (git_url, summary));
+                Utils.git_clone (git_url, git_dst, target, null);
+                break;
+
+            case "pull":
+                logger.typed (LogType.GIT, "pull %s".printf (summary));
+                Utils.git_pull (git_dst, target, null);
+                break;
+
+            default:
+                throw new IOError.FAILED ("Unknown git command: %s", step.command);
+        }
+
+        verify_step_paths (step.verify_paths, vars);
+    }
+
     private void run_extract_multi_step (
         Models.InstallStep step,
         Gee.HashMap<string, string> vars,
@@ -1076,6 +1324,18 @@ namespace Lumoria.Runtime {
         foreach (var raw_path in step.args) {
             packages_processed++;
             var exe_path = expand_path (raw_path, vars);
+            var exe_lower = exe_path.down ();
+
+            if (exe_lower.has_suffix (".ttf") || exe_lower.has_suffix (".ttc")) {
+                var dst = Path.build_filename (fonts_dir, Path.get_basename (exe_path).down ());
+                uint8[] data;
+                FileUtils.get_data (exe_path, out data);
+                FileUtils.set_data (dst, data);
+                fonts_copied_total++;
+                logger.typed (LogType.FONTS, "copied %s".printf (dst));
+                continue;
+            }
+
             var basename = Path.get_basename (exe_path).replace (".exe", "");
             var extract_dir = Path.build_filename (tmp_dir, basename);
             Utils.ensure_dir (extract_dir);
@@ -1083,27 +1343,17 @@ namespace Lumoria.Runtime {
             logger.typed (LogType.FONTS, "extracting %s".printf (Path.get_basename (exe_path)));
             Utils.extract_archive (exe_path, extract_dir);
 
-            bool copied_any = false;
-            try {
-                var dir = Dir.open (extract_dir);
-                string? name;
-                while ((name = dir.read_name ()) != null) {
-                    if (!name.down ().has_suffix (".ttf")) continue;
-                    var src = Path.build_filename (extract_dir, name);
-                    var dst = Path.build_filename (fonts_dir, name.down ());
-                    uint8[] data;
-                    FileUtils.get_data (src, out data);
-                    FileUtils.set_data (dst, data);
-                    copied_any = true;
-                    fonts_copied_total++;
-                    logger.typed (LogType.FONTS, "copied %s".printf (dst));
-                }
-            } catch (Error e) {
-                logger.typed (LogType.FONTS, "warning: %s".printf (e.message));
+            var found = collect_font_files (extract_dir);
+            if (found.size == 0) {
+                throw new IOError.FAILED ("No font files found in extracted package: %s", exe_path);
             }
-
-            if (!copied_any) {
-                throw new IOError.FAILED ("No .ttf files found in extracted font package: %s", exe_path);
+            foreach (var src in found) {
+                var dst = Path.build_filename (fonts_dir, Path.get_basename (src).down ());
+                uint8[] data;
+                FileUtils.get_data (src, out data);
+                FileUtils.set_data (dst, data);
+                fonts_copied_total++;
+                logger.typed (LogType.FONTS, "copied %s".printf (dst));
             }
         }
 
@@ -1170,16 +1420,66 @@ namespace Lumoria.Runtime {
         logger.typed (LogType.FONTS, "registered %d/%d font(s)".printf (entries.size, declared));
     }
 
-    private bool evaluate_condition (string condition, WineEnv env, RuntimeLog logger) {
-        if (condition.has_prefix ("arch:")) {
-            var expected = condition.substring (5).down ().strip ();
-            var actual_arch = env.get_var ("WINEARCH") ?? "win64";
-            var norm = (actual_arch == "win32") ? "win32" : "win64";
-            return norm == expected;
-        }
-        logger.typed (LogType.WARN, "Unknown condition: %s; skipping step".printf (condition));
-        return false;
+    private Gee.ArrayList<string> collect_font_files (string dir_path) {
+        var results = new Gee.ArrayList<string> ();
+        try {
+            var dir = Dir.open (dir_path);
+            string? name;
+            while ((name = dir.read_name ()) != null) {
+                var path = Path.build_filename (dir_path, name);
+                var lower = name.down ();
+                if (lower.has_suffix (".ttf") || lower.has_suffix (".ttc")) {
+                    results.add (path);
+                } else if (FileUtils.test (path, FileTest.IS_DIR)) {
+                    results.add_all (collect_font_files (path));
+                }
+            }
+        } catch (Error e) {}
+        return results;
     }
+
+    private void install_font_replacements (
+        Models.InstallStep step,
+        Gee.HashMap<string, string> vars,
+        WinePaths paths,
+        WineEnv env,
+        Cancellable? cancellable,
+        RuntimeLog logger
+    ) throws Error {
+        if (step.font_registrations.size == 0) return;
+
+        var entries = new Gee.ArrayList<string> ();
+        foreach (var raw in step.font_registrations) {
+            var parts = raw.split ("|", 2);
+            if (parts.length != 2) continue;
+            var alias = parts[0].strip ();
+            var target = parts[1].strip ();
+            if (alias == "" || target == "") continue;
+            entries.add ("\"%s\"=\"%s\"\r\n".printf (alias, target));
+        }
+
+        if (entries.size == 0) return;
+
+        var payload = new StringBuilder ("REGEDIT4\r\n\r\n");
+        payload.append ("[HKEY_CURRENT_USER\\Software\\Wine\\Fonts\\Replacements]\r\n");
+        foreach (var line in entries) payload.append (line);
+        payload.append ("\r\n");
+
+        var tmp_dir = DirUtils.make_tmp ("fontrep-XXXXXX");
+        var reg_path = Path.build_filename (tmp_dir, "replacements.reg");
+        FileUtils.set_contents (reg_path, payload.str);
+
+        var pfx = vars.has_key ("PREFIX") ? vars["PREFIX"] : "";
+        wine_reg (
+            build_redist_options (pfx, paths, env, cancellable),
+            { "import", reg_path },
+            logger
+        );
+
+        Utils.remove_recursive (tmp_dir);
+        logger.typed (LogType.FONTS, "registered %d font replacement(s)".printf (entries.size));
+    }
+
 
     private void cabextract_file (string archive, string cab_filter, string dest, RuntimeLog logger) throws Error {
         var decomp = new MsPack.CabDecompressor ();
@@ -1286,6 +1586,17 @@ namespace Lumoria.Runtime {
             }
         }
         return vars;
+    }
+
+    private void inject_prefix_context (
+        Gee.HashMap<string, string> vars,
+        WineRuntime runtime,
+        Models.PrefixEntry? entry,
+        RuntimeLog logger
+    ) {
+        vars["ARCH"] = runtime.wine_arch;
+        resolve_prefix_vars (vars, entry, logger);
+        Utils.resolve_var_references (vars);
     }
 
     private Gee.HashMap<string, string> build_post_install_vars (
@@ -1471,6 +1782,8 @@ namespace Lumoria.Runtime {
 
     private bool is_builtin_wine_command (string command) {
         switch (command) {
+            case "cmd":
+            case "cmd.exe":
             case "msiexec":
             case "regedit":
             case "regsvr32":
@@ -1479,6 +1792,14 @@ namespace Lumoria.Runtime {
             default:
                 return false;
         }
+    }
+
+    private string wine_arg_path (string pfx_path, string host_exe) {
+        var drive_c = Path.build_filename (pfx_path, "drive_c");
+        if (host_exe.has_prefix (drive_c + "/")) {
+            return to_wine_path (pfx_path, host_exe);
+        }
+        return host_exe;
     }
 
     private string normalize_wineexec_host_path (string value, Gee.HashMap<string, string> vars) {

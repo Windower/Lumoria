@@ -36,43 +36,71 @@ namespace Lumoria.Runtime {
     }
 
     public ComponentResult apply_enabled_components (
+        WinePaths wine_paths,
         string pfx_path,
         Models.PrefixEntry? entry,
         RuntimeLog logger
     ) throws Error {
         var result = new ComponentResult ();
+        var specs = Models.ComponentSpec.load_all_from_resource ();
+        var defaults = Utils.Preferences.instance ();
+        var arch = entry != null ? Utils.normalize_wine_arch (entry.wine_arch) : "";
+        if (arch == "") arch = "win64";
+        bool dirty = false;
 
-        foreach (var component in resolve_component_selections (entry)) {
-            logger.typed (LogType.COMPONENT, "%s: enabled, version=%s".printf (
-                component.spec.id, component.version
-            ));
+        foreach (var spec in specs) {
+            var active = is_component_active (spec, entry, defaults);
+            var desired_version = resolve_component_version (spec, entry, defaults);
+            Models.AppliedComponentRecord? applied = null;
+            if (entry != null && entry.applied_components.has_key (spec.id)) {
+                applied = entry.applied_components[spec.id];
+            }
 
-            if (component.installed_path == "" || !FileUtils.test (component.installed_path, FileTest.IS_DIR)) {
-                logger.typed (LogType.COMPONENT, "%s: installed path not found (predownload required), skipping steps".printf (
-                    component.spec.id
-                ));
+            if (active) {
+                foreach (var ov in spec.overrides.entries) {
+                    result.dll_overrides[ov.key] = ov.value;
+                }
+
+                if (applied != null && applied.version == desired_version) {
+                    logger.typed (LogType.COMPONENT, "%s: %s already applied".printf (spec.id, desired_version));
+                    continue;
+                }
+
+                if (applied != null) {
+                    logger.typed (LogType.COMPONENT, "%s: replacing %s with %s".printf (
+                        spec.id, applied.version, desired_version
+                    ));
+                    sweep_component_files (applied, wine_paths, arch, logger);
+                    if (entry != null) entry.applied_components.unset (spec.id);
+                }
+
+                var record = run_component_install (spec, desired_version, pfx_path, entry, logger);
+                if (record != null && entry != null) {
+                    entry.applied_components[spec.id] = record;
+                    dirty = true;
+                }
                 continue;
             }
 
-            if (!run_component_steps (component.spec, component.installed_path, pfx_path, logger)) {
-                logger.typed (LogType.COMPONENT, "%s: component steps failed, skipping overrides/env".printf (
-                    component.spec.id
-                ));
-                continue;
+            if (applied != null) {
+                logger.typed (LogType.COMPONENT, "%s: disabled, removing %s".printf (spec.id, applied.version));
+                sweep_component_files (applied, wine_paths, arch, logger);
+                if (entry != null) {
+                    entry.applied_components.unset (spec.id);
+                    dirty = true;
+                }
             }
+        }
 
-            foreach (var ov_entry in component.spec.overrides.entries) {
-                result.dll_overrides[ov_entry.key] = ov_entry.value;
-            }
+        if (dirty && entry != null) {
+            var reg = Models.PrefixRegistry.load (Utils.prefix_registry_path ());
+            reg.update_entry (entry);
+            reg.save (Utils.prefix_registry_path ());
         }
 
         return result;
     }
 
-    /**
-     * Resolve the expanded env defaults from all active component specs.
-     * Used at install time to seed prefix runtime_env_vars.
-     */
     public Gee.HashMap<string, string> resolve_component_env_defaults (
         string pfx_path,
         Models.PrefixEntry? entry
@@ -140,32 +168,89 @@ namespace Lumoria.Runtime {
         return defaults.get_tool_version (Utils.ToolKind.COMPONENT, spec.id);
     }
 
-    private bool run_component_steps (
+    private Models.AppliedComponentRecord? run_component_install (
         Models.ComponentSpec spec,
-        string component_path,
+        string version,
         string pfx_path,
+        Models.PrefixEntry? entry,
         RuntimeLog logger
     ) throws Error {
-        bool ok = true;
+        var adapter = new Models.ComponentToolAdapter (spec);
+        var version_obj = (version == "latest")
+            ? new Models.ToolVersion.latest ("")
+            : new Models.ToolVersion (version);
+
+        if (!adapter.is_installed (version_obj)) {
+            logger.typed (LogType.COMPONENT, "%s: cache miss, fetching %s".printf (spec.id, version));
+            adapter.install_version (version_obj, null);
+        }
+        var installed_path = adapter.installed_path (version_obj);
+        if (installed_path == "" || !FileUtils.test (installed_path, FileTest.IS_DIR)) {
+            logger.typed (LogType.COMPONENT, "%s: install path missing, aborting apply".printf (spec.id));
+            return null;
+        }
+        logger.typed (LogType.COMPONENT, "%s: applying %s".printf (spec.id, version));
+
+        var record = new Models.AppliedComponentRecord ();
+        record.version = version;
+
         var vars = new Gee.HashMap<string, string> ();
-        vars["COMPONENT"] = component_path;
+        vars["COMPONENT"] = installed_path;
         vars["PREFIX"] = pfx_path;
+        if (entry != null) {
+            vars["ARCH"] = Utils.normalize_wine_arch (entry.wine_arch) != "" ? Utils.normalize_wine_arch (entry.wine_arch) : "win64";
+            vars["REGION"] = entry.region;
+        }
+
         foreach (var step in spec.steps) {
+            if (step.when != null && !step.when.evaluate (vars)) continue;
             var src = resolve_component_src (step.src, vars);
             var dst = Utils.expand_vars (step.dst, vars);
-
             logger.typed (LogType.COMPONENT, "%s: %s %s -> %s".printf (spec.id, step.step_type, src, dst));
 
             switch (step.step_type) {
                 case "copy":
-                    if (!copy_component_files (src, dst, logger)) ok = false;
+                    if (!FileUtils.test (src, FileTest.EXISTS)) {
+                        logger.typed (LogType.COMPONENT, "  source missing: %s".printf (src));
+                        break;
+                    }
+                    Utils.copy_path (src, dst, (copied_src, copied_dst) => {
+                        logger.typed (LogType.COMPONENT, "  copied %s".printf (Path.get_basename (copied_src)));
+                        record.installed_files.add (copied_dst);
+                    });
                     break;
                 default:
-                    logger.typed (LogType.COMPONENT, "%s: unknown step type '%s', skipping".printf (spec.id, step.step_type));
+                    logger.typed (LogType.COMPONENT, "%s: unknown step type '%s'".printf (spec.id, step.step_type));
                     break;
             }
         }
-        return ok;
+        return record;
+    }
+
+    private void sweep_component_files (
+        Models.AppliedComponentRecord record,
+        WinePaths wine_paths,
+        string arch,
+        RuntimeLog logger
+    ) {
+        foreach (var path in record.installed_files) {
+            if (!FileUtils.test (path, FileTest.EXISTS)) continue;
+            if (FileUtils.unlink (path) != 0) {
+                logger.typed (LogType.COMPONENT, "  failed to remove %s".printf (path));
+                continue;
+            }
+            logger.typed (LogType.COMPONENT, "  removed %s".printf (path));
+
+            var src = runner_builtin_for_dst (wine_paths, path, arch);
+            if (src == "") continue;
+            try {
+                Utils.copy_path (src, path);
+                logger.typed (LogType.COMPONENT, "  restored %s from runner".printf (Path.get_basename (path)));
+            } catch (Error e) {
+                logger.typed (LogType.COMPONENT,
+                    "  failed to restore %s: %s".printf (Path.get_basename (path), e.message));
+            }
+        }
     }
 
     private string resolve_component_src (string step_src, Gee.HashMap<string, string> vars) throws Error {
@@ -197,17 +282,6 @@ namespace Lumoria.Runtime {
             only = full;
         }
         return only;
-    }
-
-    private bool copy_component_files (string src, string dst, RuntimeLog logger) throws Error {
-        if (!FileUtils.test (src, FileTest.EXISTS)) {
-            logger.typed (LogType.COMPONENT, "source not found: %s".printf (src));
-            return false;
-        }
-        Utils.copy_path (src, dst, (copied_src, _) => {
-            logger.typed (LogType.COMPONENT, "  copied %s".printf (Path.get_basename (copied_src)));
-        });
-        return true;
     }
 
 }

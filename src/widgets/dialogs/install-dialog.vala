@@ -233,6 +233,23 @@ namespace Lumoria.Widgets.Dialogs {
             });
         }
 
+        public void start_redist_install (
+            Models.PrefixEntry entry,
+            Gee.ArrayList<Models.RunnerSpec> runner_specs,
+            string redist_id
+        ) {
+            action_mode = true;
+            this.prefix_path = entry.resolved_path ();
+            open_logs_btn.sensitive = Utils.LoggingMode.from_settings () == Utils.LoggingMode.KEEP;
+            install_progress = new Runtime.InstallProgress ();
+            bind_progress_handlers ();
+
+            new Thread<bool> ("redist-install-worker", () => {
+                Runtime.run_redist_install (entry, runner_specs, redist_id, install_progress, cancellable);
+                return true;
+            });
+        }
+
         private void bind_progress_handlers () {
             install_progress.step_changed.connect ((desc) => {
                 Idle.add (() => {
@@ -310,9 +327,10 @@ namespace Lumoria.Widgets.Dialogs {
                     _("Clear Install Cache?"),
                     _("Cached downloads will save time if you need to reinstall.")
                 );
-                cache_dialog.add_response ("keep", _("Keep Files"));
                 cache_dialog.add_response ("remove", _("Remove Files"));
+                cache_dialog.add_response ("keep", _("Keep Files"));
                 cache_dialog.set_response_appearance ("remove", Adw.ResponseAppearance.DESTRUCTIVE);
+                cache_dialog.set_response_appearance ("keep", Adw.ResponseAppearance.SUGGESTED);
                 cache_dialog.default_response = "keep";
                 cache_dialog.close_response = "keep";
                 cache_dialog.response.connect ((response) => {

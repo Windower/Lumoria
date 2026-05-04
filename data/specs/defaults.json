@@ -9,6 +9,9 @@
       "sync_mode": "ntsync",
       "debug": ""
     },
+    "logging": {
+      "mode": "memory"
+    },
     "patches": {
       "large_address_aware": false
     },

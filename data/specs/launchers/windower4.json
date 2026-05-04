@@ -11,7 +11,7 @@
     {
       "id": "windower",
       "name": "Windower",
-      "exe": "$WINDOWER/Windower.exe",
+      "exe": "${WINDOWER}/Windower.exe",
       "args": [],
       "default": true
     }
@@ -20,16 +20,16 @@
     {
       "id": "windower4",
       "url": "https://update.windower.net/live/Windower.exe",
-      "dest": "$CACHE/windower/Windower.exe"
+      "dest": "${CACHE}/windower/Windower.exe"
     }
   ],
-  "redists": ["dotnet48", "gdiplus"],
+  "redists": ["dotnet48"],
   "steps": [
     {
       "type": "copy",
       "description": "Install Windower 4",
-      "src": "$CACHE/windower/Windower.exe",
-      "dst": "$PREFIX/$WINDOWER"
+      "src": "${CACHE}/windower/Windower.exe",
+      "dst": "${PREFIX}/${WINDOWER}"
     }
   ]
 }

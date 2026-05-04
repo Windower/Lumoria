@@ -1,0 +1,22 @@
+{
+  "id": "andale",
+  "name": "Andale Mono",
+  "downloads": [
+    {
+      "id": "font_andale",
+      "url": "https://github.com/pushcx/corefonts/raw/master/andale32.exe",
+      "dest": "${CACHE_REDIST}/corefonts/andale32.exe",
+      "sha256": "0524fe42951adc3a7eb870e32f0920313c71f170c859b5f770d82b4ee111e970"
+    }
+  ],
+  "steps": [
+    {
+      "type": "fonts",
+      "description": "Install Andale Mono",
+      "dst": "${FONTS}",
+      "args": ["${CACHE_REDIST}/corefonts/andale32.exe"],
+      "font_registrations": ["andalemo.ttf|Andale Mono"],
+      "when": { "not": { "file_exists": "${FONTS}/andalemo.ttf" } }
+    }
+  ]
+}

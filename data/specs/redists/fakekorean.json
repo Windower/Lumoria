@@ -1,0 +1,22 @@
+{
+  "id": "fakekorean",
+  "name": "Korean Font Aliases",
+  "redists": ["sourcehansans"],
+  "steps": [
+    {
+      "type": "font_replacement",
+      "description": "Register Korean font replacements",
+      "font_registrations": [
+        "Batang|Source Han Sans K",
+        "BatangChe|Source Han Sans K",
+        "Dotum|Source Han Sans K",
+        "DotumChe|Source Han Sans K",
+        "Gulim|Source Han Sans K",
+        "GulimChe|Source Han Sans K",
+        "Gungsuh|Source Han Sans K",
+        "GungsuhChe|Source Han Sans K",
+        "Malgun Gothic|Source Han Sans K"
+      ]
+    }
+  ]
+}

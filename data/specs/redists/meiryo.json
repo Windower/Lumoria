@@ -1,0 +1,32 @@
+{
+  "id": "meiryo",
+  "name": "Meiryo",
+  "downloads": [
+    {
+      "id": "pptviewer",
+      "url": "https://web.archive.org/web/20171225132744if_/https://download.microsoft.com/download/E/6/7/E675FFFC-2A6D-4AB0-B3EB-27C9F8C8F696/PowerPointViewer.exe",
+      "dest": "${CACHE_REDIST}/pptfonts/PowerPointViewer.exe",
+      "sha256": "249473568eba7a1e4f95498acba594e0f42e6581add4dead70c1dfb908a09423"
+    }
+  ],
+  "steps": [
+    {
+      "type": "cabextract",
+      "description": "Extract ppviewer.cab",
+      "src": "${CACHE_REDIST}/pptfonts/PowerPointViewer.exe",
+      "args": ["ppviewer.cab"],
+      "dst": "${CACHE_REDIST}/pptfonts/ppviewer.cab"
+    },
+    {
+      "type": "fonts",
+      "description": "Install Meiryo",
+      "dst": "${FONTS}",
+      "args": ["${CACHE_REDIST}/pptfonts/ppviewer.cab"],
+      "font_registrations": [
+        "meiryo.ttc|Meiryo",
+        "meiryob.ttc|Meiryo Bold"
+      ],
+      "when": { "not": { "file_exists": "${FONTS}/meiryo.ttc" } }
+    }
+  ]
+}

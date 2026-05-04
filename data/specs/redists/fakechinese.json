@@ -1,0 +1,30 @@
+{
+  "id": "fakechinese",
+  "name": "Chinese Font Aliases",
+  "redists": ["sourcehansans"],
+  "steps": [
+    {
+      "type": "font_replacement",
+      "description": "Register Chinese font replacements",
+      "font_registrations": [
+        "Dengxian|Source Han Sans SC",
+        "FangSong|Source Han Sans SC",
+        "KaiTi|Source Han Sans SC",
+        "Microsoft YaHei|Source Han Sans SC",
+        "Microsoft YaHei UI|Source Han Sans SC",
+        "NSimSun|Source Han Sans SC",
+        "SimHei|Source Han Sans SC",
+        "SimKai|Source Han Sans SC",
+        "SimSun|Source Han Sans SC",
+        "SimSun-ExtB|Source Han Sans SC",
+        "DFKai-SB|Source Han Sans TC",
+        "Microsoft JhengHei|Source Han Sans TC",
+        "Microsoft JhengHei UI|Source Han Sans TC",
+        "MingLiU|Source Han Sans TC",
+        "PMingLiU|Source Han Sans TC",
+        "MingLiU-ExtB|Source Han Sans TC",
+        "PMingLiU-ExtB|Source Han Sans TC"
+      ]
+    }
+  ]
+}

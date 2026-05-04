@@ -1,0 +1,24 @@
+{
+  "id": "wenquanyizenhei",
+  "name": "WenQuanYi ZenHei",
+  "downloads": [
+    {
+      "id": "wenquanyizenhei_archive",
+      "url": "http://downloads.sourceforge.net/wqy/wqy-zenhei-0.8.38-1.tar.gz",
+      "dest": "${CACHE_REDIST}/wenquanyizenhei/wqy-zenhei-0.8.38-1.tar.gz",
+      "sha256": "6018eb54243eddc41e9cbe0b71feefa5cb2570ecbaccd39daa025961235dea22"
+    }
+  ],
+  "steps": [
+    {
+      "type": "fonts",
+      "description": "Install WenQuanYi ZenHei",
+      "dst": "${FONTS}",
+      "args": ["${CACHE_REDIST}/wenquanyizenhei/wqy-zenhei-0.8.38-1.tar.gz"],
+      "font_registrations": [
+        "wqy-zenhei.ttc|WenQuanYi Zen Hei"
+      ],
+      "when": { "not": { "file_exists": "${FONTS}/wqy-zenhei.ttc" } }
+    }
+  ]
+}

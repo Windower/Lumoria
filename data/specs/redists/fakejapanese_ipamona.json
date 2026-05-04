@@ -1,0 +1,18 @@
+{
+  "id": "fakejapanese_ipamona",
+  "name": "Japanese Font Aliases (IPAMona)",
+  "redists": ["ipamona"],
+  "steps": [
+    {
+      "type": "font_replacement",
+      "description": "Register Japanese font replacements (IPAMona)",
+      "font_registrations": [
+        "MS UI Gothic|IPAMonaUIGothic",
+        "MS Gothic|IPAMonaGothic",
+        "MS PGothic|IPAMonaPGothic",
+        "MS Mincho|IPAMonaMincho",
+        "MS PMincho|IPAMonaPMincho"
+      ]
+    }
+  ]
+}

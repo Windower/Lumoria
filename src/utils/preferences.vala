@@ -42,12 +42,13 @@ namespace Lumoria.Utils {
         private bool _updates_lumoria = true;
         private bool _updates_runners = true;
         private bool _updates_components = true;
-        private string _logging_mode = "keep";
+        private string _logging_mode = "memory";
         private bool _wine_wayland = false;
         private string _sync_mode = "ntsync";
         private string _wine_debug = "";
         private bool _large_address_aware = false;
         private bool _experimental_features = false;
+        private bool _gamepad_navigation = true;
 
         public bool updates_lumoria { get { return _updates_lumoria; } }
         public bool updates_runners { get { return _updates_runners; } }
@@ -58,6 +59,7 @@ namespace Lumoria.Utils {
         public string wine_debug { get { return _wine_debug; } }
         public bool large_address_aware { get { return _large_address_aware; } }
         public bool experimental_features { get { return _experimental_features; } }
+        public bool gamepad_navigation { get { return _gamepad_navigation; } }
 
         private Gee.HashMap<string, string> component_versions;
         private Gee.HashMap<string, bool?> component_enabled;
@@ -129,6 +131,11 @@ namespace Lumoria.Utils {
 
         public void set_experimental_features (bool enabled) {
             _experimental_features = enabled;
+            save ();
+        }
+
+        public void set_gamepad_navigation (bool enabled) {
+            _gamepad_navigation = enabled;
             save ();
         }
 
@@ -243,7 +250,9 @@ namespace Lumoria.Utils {
             _sync_mode = defaults.sync_mode;
             _wine_debug = defaults.wine_debug;
             _large_address_aware = defaults.large_address_aware;
+            _logging_mode = defaults.logging_mode;
             _experimental_features = false;
+            _gamepad_navigation = true;
 
             component_versions.clear ();
             component_enabled.clear ();
@@ -268,7 +277,7 @@ namespace Lumoria.Utils {
 
         private void load () {
             if (!FileUtils.test (file_path, FileTest.EXISTS)) {
-                if (seed_missing_defaults (false, false, false, false, false, false)) {
+                if (seed_missing_defaults (false, false, false, false, false, false, false)) {
                     save ();
                 }
                 return;
@@ -285,6 +294,7 @@ namespace Lumoria.Utils {
                 bool has_sync_mode = false;
                 bool has_wine_debug = false;
                 bool has_large_address_aware = false;
+                bool has_logging_mode = false;
 
                 if (obj.has_member ("runner_id")) {
                     runner_id = obj.get_string_member ("runner_id");
@@ -304,6 +314,10 @@ namespace Lumoria.Utils {
                     var patch_obj = obj.get_object_member ("patches");
                     has_large_address_aware = patch_obj.has_member ("large_address_aware");
                 }
+                if (obj.has_member ("logging")) {
+                    var logging_obj = obj.get_object_member ("logging");
+                    has_logging_mode = logging_obj.has_member ("mode");
+                }
                 if (obj.has_member ("experimental_features"))
                     _experimental_features = obj.get_boolean_member ("experimental_features");
 
@@ -311,6 +325,7 @@ namespace Lumoria.Utils {
                 load_logging (obj);
                 load_wine (obj);
                 load_patches (obj);
+                load_input (obj);
                 load_components (obj);
                 load_runtime (obj);
 
@@ -320,7 +335,8 @@ namespace Lumoria.Utils {
                     has_wine_wayland,
                     has_sync_mode,
                     has_wine_debug,
-                    has_large_address_aware
+                    has_large_address_aware,
+                    has_logging_mode
                 )) {
                     save ();
                 }
@@ -335,7 +351,8 @@ namespace Lumoria.Utils {
             bool has_wine_wayland,
             bool has_sync_mode,
             bool has_wine_debug,
-            bool has_large_address_aware
+            bool has_large_address_aware,
+            bool has_logging_mode
         ) {
             bool changed = false;
             var defaults = resolved_defaults ();
@@ -362,6 +379,10 @@ namespace Lumoria.Utils {
             }
             if (!has_large_address_aware) {
                 _large_address_aware = defaults.large_address_aware;
+                changed = true;
+            }
+            if (!has_logging_mode) {
+                _logging_mode = defaults.logging_mode;
                 changed = true;
             }
 
@@ -431,6 +452,13 @@ namespace Lumoria.Utils {
                 _large_address_aware = patches_obj.get_boolean_member ("large_address_aware");
         }
 
+        private void load_input (Json.Object obj) {
+            if (!obj.has_member ("input")) return;
+            var input_obj = obj.get_object_member ("input");
+            if (input_obj.has_member ("gamepad_navigation"))
+                _gamepad_navigation = input_obj.get_boolean_member ("gamepad_navigation");
+        }
+
         private void load_runtime (Json.Object obj) {
             if (!obj.has_member ("runtime")) return;
             var runtime_obj = obj.get_object_member ("runtime");
@@ -443,6 +471,62 @@ namespace Lumoria.Utils {
             }
         }
 
+        public Json.Object snapshot () {
+            var obj = new Json.Object ();
+
+            obj.set_string_member ("runner_id", runner_id);
+            obj.set_string_member ("runner_version", runner_version);
+            obj.set_boolean_member ("experimental_features", _experimental_features);
+
+            var upd = new Json.Object ();
+            upd.set_boolean_member ("lumoria", _updates_lumoria);
+            upd.set_boolean_member ("runners", _updates_runners);
+            upd.set_boolean_member ("components", _updates_components);
+            obj.set_object_member ("updates", upd);
+
+            var log_obj = new Json.Object ();
+            log_obj.set_string_member ("mode", _logging_mode);
+            obj.set_object_member ("logging", log_obj);
+
+            var wine_obj = new Json.Object ();
+            wine_obj.set_boolean_member ("wayland", _wine_wayland);
+            wine_obj.set_string_member ("sync_mode", _sync_mode);
+            wine_obj.set_string_member ("debug", _wine_debug);
+            obj.set_object_member ("wine", wine_obj);
+
+            var patches_obj = new Json.Object ();
+            patches_obj.set_boolean_member ("large_address_aware", _large_address_aware);
+            obj.set_object_member ("patches", patches_obj);
+
+            var input_obj = new Json.Object ();
+            input_obj.set_boolean_member ("gamepad_navigation", _gamepad_navigation);
+            obj.set_object_member ("input", input_obj);
+
+            var runtime_obj = new Json.Object ();
+            var env_obj = new Json.Object ();
+            foreach (var entry in runtime_env_vars.entries) {
+                env_obj.set_string_member (entry.key, entry.value);
+            }
+            runtime_obj.set_object_member ("env", env_obj);
+            obj.set_object_member ("runtime", runtime_obj);
+
+            var all_comp_keys = new Gee.HashSet<string> ();
+            foreach (var k in component_versions.keys) all_comp_keys.add (k);
+            foreach (var k in component_enabled.keys) all_comp_keys.add (k);
+            var comps = new Json.Object ();
+            foreach (var key in all_comp_keys) {
+                var entry = new Json.Object ();
+                entry.set_string_member ("version",
+                    component_versions.has_key (key) ? component_versions[key] : "latest");
+                entry.set_boolean_member ("enabled",
+                    component_enabled.has_key (key) ? component_enabled[key] : false);
+                comps.set_object_member (key, entry);
+            }
+            obj.set_object_member ("components", comps);
+
+            return obj;
+        }
+
         private void save () {
             if (_freeze_count > 0) {
                 _dirty = true;
@@ -451,60 +535,8 @@ namespace Lumoria.Utils {
             _dirty = false;
             try {
                 ensure_dir (Path.get_dirname (file_path));
-                var obj = new Json.Object ();
-
-                obj.set_string_member ("runner_id", runner_id);
-                obj.set_string_member ("runner_version", runner_version);
-                obj.set_boolean_member ("experimental_features", _experimental_features);
-
-                var upd = new Json.Object ();
-                upd.set_boolean_member ("lumoria", _updates_lumoria);
-                upd.set_boolean_member ("runners", _updates_runners);
-                upd.set_boolean_member ("components", _updates_components);
-                obj.set_object_member ("updates", upd);
-
-                var log_obj = new Json.Object ();
-                log_obj.set_string_member ("mode", _logging_mode);
-                obj.set_object_member ("logging", log_obj);
-
-                var wine_obj = new Json.Object ();
-                wine_obj.set_boolean_member ("wayland", _wine_wayland);
-                wine_obj.set_string_member ("sync_mode", _sync_mode);
-                wine_obj.set_string_member ("debug", _wine_debug);
-                obj.set_object_member ("wine", wine_obj);
-
-                var patches_obj = new Json.Object ();
-                patches_obj.set_boolean_member ("large_address_aware", _large_address_aware);
-                obj.set_object_member ("patches", patches_obj);
-
-                var runtime_obj = new Json.Object ();
-                if (runtime_env_vars.size > 0) {
-                    var env_obj = new Json.Object ();
-                    foreach (var entry in runtime_env_vars.entries) {
-                        env_obj.set_string_member (entry.key, entry.value);
-                    }
-                    runtime_obj.set_object_member ("env", env_obj);
-                }
-                obj.set_object_member ("runtime", runtime_obj);
-
-                var all_comp_keys = new Gee.HashSet<string> ();
-                foreach (var k in component_versions.keys) all_comp_keys.add (k);
-                foreach (var k in component_enabled.keys) all_comp_keys.add (k);
-                if (all_comp_keys.size > 0) {
-                    var comps = new Json.Object ();
-                    foreach (var key in all_comp_keys) {
-                        var entry = new Json.Object ();
-                        entry.set_string_member ("version",
-                            component_versions.has_key (key) ? component_versions[key] : "latest");
-                        entry.set_boolean_member ("enabled",
-                            component_enabled.has_key (key) ? component_enabled[key] : false);
-                        comps.set_object_member (key, entry);
-                    }
-                    obj.set_object_member ("components", comps);
-                }
-
                 var root = new Json.Node (Json.NodeType.OBJECT);
-                root.set_object (obj);
+                root.set_object (snapshot ());
                 var gen = new Json.Generator ();
                 gen.root = root;
                 gen.pretty = true;

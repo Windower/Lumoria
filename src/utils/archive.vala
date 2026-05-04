@@ -7,6 +7,9 @@ namespace Lumoria.Utils {
         size_t block_size
     );
 
+    private const int RAR_SFX_SCAN_SIZE = 1048576;
+    private const uint8[] RAR5_SIGNATURE = { 0x52, 0x61, 0x72, 0x21, 0x1a, 0x07 };
+
     public static void extract_archive (string archive_path, string extract_to) throws Error {
         extract_archive_multi ({ archive_path }, extract_to);
     }
@@ -18,6 +21,74 @@ namespace Lumoria.Utils {
 
         ensure_dir (extract_to);
 
+        try {
+            extract_archive_multi_libarchive (archive_paths, extract_to);
+        } catch (Error e) {
+            int offset = find_rar_sfx_offset (archive_paths[0]);
+            if (offset < 0) throw e;
+
+            var rar_payload_path = extract_rar_sfx_payload (archive_paths[0], offset);
+            if (rar_payload_path == null) throw e;
+
+            var patched = new string[archive_paths.length];
+            patched[0] = rar_payload_path;
+            for (int i = 1; i < archive_paths.length; i++) {
+                patched[i] = archive_paths[i];
+            }
+
+            try {
+                extract_archive_multi_libarchive (patched, extract_to);
+            } finally {
+                FileUtils.remove (rar_payload_path);
+            }
+        }
+    }
+
+    private static int find_rar_sfx_offset (string path) {
+        int fd = Posix.open (path, Posix.O_RDONLY);
+        if (fd < 0) return -1;
+
+        var scan = new uint8[RAR_SFX_SCAN_SIZE];
+        var n = Posix.read (fd, scan, scan.length);
+        Posix.close (fd);
+
+        if (n < 8 || scan[0] != 'M' || scan[1] != 'Z') return -1;
+
+        for (int i = 0; i <= n - RAR5_SIGNATURE.length; i++) {
+            bool match = true;
+            for (int j = 0; j < RAR5_SIGNATURE.length; j++) {
+                if (scan[i + j] != RAR5_SIGNATURE[j]) { match = false; break; }
+            }
+            if (match) return i;
+        }
+        return -1;
+    }
+
+    private static string? extract_rar_sfx_payload (string sfx_path, int rar_offset) {
+        string tmp_path;
+        int dst;
+        try {
+            dst = FileUtils.open_tmp ("lumoria-rar-sfx-XXXXXX", out tmp_path);
+        } catch (Error e) {
+            return null;
+        }
+
+        int src = Posix.open (sfx_path, Posix.O_RDONLY);
+        if (src < 0) { Posix.close (dst); FileUtils.remove (tmp_path); return null; }
+
+        Posix.lseek (src, rar_offset, Posix.SEEK_SET);
+        var buf = new uint8[65536];
+        ssize_t bytes;
+        while ((bytes = Posix.read (src, buf, buf.length)) > 0) {
+            Posix.write (dst, buf, bytes);
+        }
+        Posix.close (src);
+        Posix.close (dst);
+
+        return tmp_path;
+    }
+
+    private static void extract_archive_multi_libarchive (string[] archive_paths, string extract_to) throws Error {
         var reader = new Archive.Read ();
         reader.support_filter_all ();
         reader.support_format_all ();

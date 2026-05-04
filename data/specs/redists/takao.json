@@ -1,0 +1,29 @@
+{
+  "id": "takao",
+  "name": "Takao Fonts",
+  "downloads": [
+    {
+      "id": "takao_archive",
+      "url": "https://launchpad.net/takao-fonts/trunk/003.02.01/+download/takao-fonts-ttf-003.02.01.zip",
+      "dest": "${CACHE_REDIST}/takao/takao-fonts-ttf-003.02.01.zip",
+      "sha256": "2f526a16c7931958f560697d494d8304949b3ce0aef246fb0c727fbbcc39089e"
+    }
+  ],
+  "steps": [
+    {
+      "type": "fonts",
+      "description": "Install Takao fonts",
+      "dst": "${FONTS}",
+      "args": ["${CACHE_REDIST}/takao/takao-fonts-ttf-003.02.01.zip"],
+      "font_registrations": [
+        "takaogothic.ttf|TakaoGothic",
+        "takaopgothic.ttf|TakaoPGothic",
+        "takaomincho.ttf|TakaoMincho",
+        "takaopmincho.ttf|TakaoPMincho",
+        "takaoexgothic.ttf|TakaoExGothic",
+        "takaoexmincho.ttf|TakaoExMincho"
+      ],
+      "when": { "not": { "file_exists": "${FONTS}/takaogothic.ttf" } }
+    }
+  ]
+}

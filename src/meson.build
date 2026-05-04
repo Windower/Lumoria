@@ -21,6 +21,7 @@ lumoria_sources = files(
   'utils/environment.vala',
   'utils/filesystem.vala',
   'utils/web.vala',
+  'utils/git.vala',
   'utils/integrity.vala',
   'utils/preferences.vala',
   'utils/archive.vala',
@@ -84,6 +85,7 @@ lumoria_deps = [
   dependency('manette-0.2'),
   dependency('libportal'),
   dependency('libportal-gtk4'),
+  dependency('libgit2-glib-1.0'),
 ]
 
 cc = meson.get_compiler('c')
@@ -99,6 +101,7 @@ lumoria_vala_args = [
   '--pkg', 'mspack',
   '--pkg', 'libportal',
   '--pkg', 'libportal-gtk4',
+  '--pkg', 'libgit2-glib-1.0',
 ]
 
 executable(

@@ -1,0 +1,26 @@
+{
+  "id": "fakejapanese",
+  "name": "Japanese Font Aliases",
+  "redists": ["sourcehansans"],
+  "steps": [
+    {
+      "type": "font_replacement",
+      "description": "Register Japanese font replacements",
+      "font_registrations": [
+        "Meiryo|Source Han Sans",
+        "Meiryo UI|Source Han Sans",
+        "MS Gothic|Source Han Sans",
+        "MS PGothic|Source Han Sans",
+        "MS Mincho|Source Han Sans",
+        "MS PMincho|Source Han Sans",
+        "MS UI Gothic|Source Han Sans",
+        "UD Digi KyoKasho N-R|Source Han Sans",
+        "UD Digi KyoKasho NK-R|Source Han Sans",
+        "UD Digi KyoKasho NP-R|Source Han Sans",
+        "Yu Gothic|Source Han Sans",
+        "Yu Gothic UI|Source Han Sans",
+        "Yu Mincho|Source Han Sans"
+      ]
+    }
+  ]
+}

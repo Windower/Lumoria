@@ -17,6 +17,7 @@ namespace Lumoria.Widgets.Dialogs {
         private OptionListRow wayland_combo;
         private OptionListRow laa_combo;
         private OptionListRow launcher_combo;
+        private OptionListRow region_combo;
         private Adw.ActionRow post_install_row;
         private Gtk.Button clear_post_install_btn;
         private Gtk.Button create_btn;
@@ -157,6 +158,18 @@ namespace Lumoria.Widgets.Dialogs {
                 launcher_group.add (launcher_combo);
                 game_content.append (launcher_group);
             }
+
+            var region_group = SettingsShared.build_group (_("Region"), 12, 12);
+            var region_model = new Gtk.StringList (null);
+            region_model.append (_("US (North America)"));
+            region_model.append (_("EU (Europe)"));
+            region_model.append (_("JP (Japan)"));
+            region_combo = new OptionListRow ();
+            region_combo.title = _("Region");
+            region_combo.model = region_model;
+            region_combo.selected = 0;
+            region_group.add (region_combo);
+            game_content.append (region_group);
 
             if (Utils.Preferences.instance ().experimental_features) {
                 var patches_group = SettingsShared.build_group (_("Patches"), 12, 12);
@@ -396,6 +409,11 @@ namespace Lumoria.Widgets.Dialogs {
                 }
             }
 
+            string[] region_values = { "us", "eu", "jp" };
+            var region = region_combo != null && region_combo.selected < region_values.length
+                ? region_values[region_combo.selected]
+                : "us";
+
             var runner_version = Utils.Preferences.resolve_version (runner_id, "");
 
             var entry = new Models.PrefixEntry ();
@@ -410,6 +428,7 @@ namespace Lumoria.Widgets.Dialogs {
             entry.wine_wayland = wine_wayland;
             entry.sync_mode = sync_mode;
             entry.launcher_id = launcher_id;
+            entry.region = region;
             entry.large_address_aware = large_address_aware;
             if (selected_post_install_path != "") {
                 var post_install = new Models.PrefixPostInstallSpec ();

@@ -1,0 +1,22 @@
+{
+  "id": "opensymbol",
+  "name": "OpenSymbol",
+  "downloads": [
+    {
+      "id": "opensymbol_ttf",
+      "url": "https://raw.githubusercontent.com/apache/openoffice/5f13fa00702a0abe48858d443bc306f5c5ba26d8/main/extras/source/truetype/symbol/opens___.ttf",
+      "dest": "${CACHE_REDIST}/opensymbol/opens___.ttf",
+      "sha256": "86f6a40ca61adfc5942fb4d2fc360ffba9abd972a7e21c1ee91e494299ff0cbc"
+    }
+  ],
+  "steps": [
+    {
+      "type": "fonts",
+      "description": "Install OpenSymbol",
+      "dst": "${FONTS}",
+      "args": ["${CACHE_REDIST}/opensymbol/opens___.ttf"],
+      "font_registrations": ["opens___.ttf|OpenSymbol"],
+      "when": { "not": { "file_exists": "${FONTS}/opens___.ttf" } }
+    }
+  ]
+}

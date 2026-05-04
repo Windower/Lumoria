@@ -86,9 +86,9 @@ namespace Lumoria.Widgets.Services {
             if (value == 0) return;
 
             if (axis == 0 || axis == 16) {
-                action_pressed (value < 0 ? GamepadAction.NAVIGATE_LEFT : GamepadAction.NAVIGATE_RIGHT);
+                dispatch (value < 0 ? GamepadAction.NAVIGATE_LEFT : GamepadAction.NAVIGATE_RIGHT);
             } else if (axis == 1 || axis == 17) {
-                action_pressed (value < 0 ? GamepadAction.NAVIGATE_UP : GamepadAction.NAVIGATE_DOWN);
+                dispatch (value < 0 ? GamepadAction.NAVIGATE_UP : GamepadAction.NAVIGATE_DOWN);
             }
         }
 
@@ -127,12 +127,12 @@ namespace Lumoria.Widgets.Services {
             }
 
             stick_held_action = action;
-            action_pressed ((GamepadAction) action);
+            dispatch ((GamepadAction) action);
 
             stick_repeat_source = Timeout.add (STICK_REPEAT_INITIAL_MS, () => {
                 stick_repeat_source = Timeout.add (STICK_REPEAT_MS, () => {
                     if (stick_held_action != null) {
-                        action_pressed ((GamepadAction) stick_held_action);
+                        dispatch ((GamepadAction) stick_held_action);
                     }
                     return stick_held_action != null;
                 });
@@ -151,6 +151,11 @@ namespace Lumoria.Widgets.Services {
             if (should_debounce_button_action (action)) {
                 return;
             }
+            dispatch (action);
+        }
+
+        private void dispatch (GamepadAction action) {
+            if (!Utils.Preferences.instance ().gamepad_navigation) return;
             action_pressed (action);
         }
 

@@ -1,0 +1,38 @@
+{
+  "id": "eufonts",
+  "name": "EU Update Fonts",
+  "downloads": [
+    {
+      "id": "font_euupdate",
+      "url": "https://sourceforge.net/projects/mscorefonts2/files/cabs/EUupdate.EXE",
+      "dest": "${CACHE_REDIST}/eufonts/EUupdate.EXE",
+      "sha256": "464dd2cd5f09f489f9ac86ea7790b7b8548fc4e46d9f889b68d2cdce47e09ea8"
+    }
+  ],
+  "steps": [
+    {
+      "type": "fonts",
+      "description": "Install EU update fonts",
+      "dst": "${FONTS}",
+      "args": ["${CACHE_REDIST}/eufonts/EUupdate.EXE"],
+      "font_registrations": [
+        "arial.ttf|Arial",
+        "arialbd.ttf|Arial Bold",
+        "arialbi.ttf|Arial Bold Italic",
+        "ariali.ttf|Arial Italic",
+        "times.ttf|Times New Roman",
+        "timesbd.ttf|Times New Roman Bold",
+        "timesbi.ttf|Times New Roman Bold Italic",
+        "timesi.ttf|Times New Roman Italic",
+        "trebuc.ttf|Trebuchet MS",
+        "trebucbd.ttf|Trebuchet MS Bold",
+        "trebucbi.ttf|Trebuchet MS Bold Italic",
+        "trebucit.ttf|Trebuchet MS Italic",
+        "verdana.ttf|Verdana",
+        "verdanab.ttf|Verdana Bold",
+        "verdanai.ttf|Verdana Italic",
+        "verdanaz.ttf|Verdana Bold Italic"
+      ]
+    }
+  ]
+}

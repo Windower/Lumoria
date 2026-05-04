@@ -71,7 +71,13 @@ namespace Lumoria.Utils {
 
     public static void copy_path (string src, string dst, CopyFileCallback? on_file = null) throws Error {
         if (FileUtils.test (src, FileTest.IS_DIR)) {
-            copy_dir_recursive (src, dst, on_file);
+            var src_treated_as_contents = src.has_suffix ("/");
+            var src_clean = strip_trailing_slashes (src);
+            var nest_into_existing_dir = !src_treated_as_contents && FileUtils.test (dst, FileTest.IS_DIR);
+            var actual_dst = nest_into_existing_dir
+                ? Path.build_filename (dst, Path.get_basename (src_clean))
+                : dst;
+            copy_dir_recursive (src_clean, actual_dst, on_file);
             return;
         }
 
@@ -88,6 +94,14 @@ namespace Lumoria.Utils {
             copy_file (src, dst);
             if (on_file != null) on_file (src, dst);
         }
+    }
+
+    private static string strip_trailing_slashes (string path) {
+        var s = path;
+        while (s.length > 1 && s.has_suffix ("/")) {
+            s = s.substring (0, s.length - 1);
+        }
+        return s;
     }
 
     private static void copy_dir_recursive (string src, string dst, CopyFileCallback? on_file) throws Error {
