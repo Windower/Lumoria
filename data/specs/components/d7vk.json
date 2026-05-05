@@ -12,12 +12,45 @@
   },
   "steps": [
     {
-      "type": "copy",
-      "description": "Install ddraw.dll for PlayOnline Viewer",
-      "src": "${COMPONENT}/x32/ddraw.dll",
-      "dst": "${PREFIX}/drive_c/Program Files (x86)/PlayOnline/SquareEnix/PlayOnlineViewer",
+      "type": "rename",
+      "description": "Rename Wine builtin ddraw.dll to ddraw_.dll (win64 syswow64)",
+      "src": "${PREFIX}/drive_c/windows/syswow64/ddraw.dll",
+      "dst": "${PREFIX}/drive_c/windows/syswow64/ddraw_.dll",
+      "overwrite_existing": false,
+      "idempotent": true,
       "when": {
-        "file_exists": "${PREFIX}/drive_c/Program Files (x86)/PlayOnline/SquareEnix/PlayOnlineViewer/pol.exe"
+        "ARCH": "win64"
+      }
+    },
+    {
+      "type": "copy",
+      "description": "Install d7vk ddraw.dll to syswow64 (win64)",
+      "src": "${COMPONENT}/x32/ddraw.dll",
+      "dst": "${PREFIX}/drive_c/windows/syswow64",
+      "when": {
+        "ARCH": "win64",
+        "file_exists": "${PREFIX}/drive_c/windows/syswow64/ddraw_.dll"
+      }
+    },
+    {
+      "type": "rename",
+      "description": "Rename Wine builtin ddraw.dll to ddraw_.dll (win32 system32)",
+      "src": "${PREFIX}/drive_c/windows/system32/ddraw.dll",
+      "dst": "${PREFIX}/drive_c/windows/system32/ddraw_.dll",
+      "overwrite_existing": false,
+      "idempotent": true,
+      "when": {
+        "ARCH": "win32"
+      }
+    },
+    {
+      "type": "copy",
+      "description": "Install d7vk ddraw.dll to system32 (win32)",
+      "src": "${COMPONENT}/x32/ddraw.dll",
+      "dst": "${PREFIX}/drive_c/windows/system32",
+      "when": {
+        "ARCH": "win32",
+        "file_exists": "${PREFIX}/drive_c/windows/system32/ddraw_.dll"
       }
     }
   ]

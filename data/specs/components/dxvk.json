@@ -8,8 +8,6 @@
   "system_env_defaults": {
   },
   "overrides": {
-    "d3d8": "n,b",
-    "d3d9": "n,b"
   },
   "steps": [
     {

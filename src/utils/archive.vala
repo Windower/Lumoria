@@ -20,9 +20,13 @@ namespace Lumoria.Utils {
         }
 
         ensure_dir (extract_to);
+        var extract_root = Posix.realpath (extract_to);
+        if (extract_root == null) {
+            throw new IOError.FAILED ("Failed to resolve extraction directory: %s", extract_to);
+        }
 
         try {
-            extract_archive_multi_libarchive (archive_paths, extract_to);
+            extract_archive_multi_libarchive (archive_paths, extract_root);
         } catch (Error e) {
             int offset = find_rar_sfx_offset (archive_paths[0]);
             if (offset < 0) throw e;
@@ -37,7 +41,7 @@ namespace Lumoria.Utils {
             }
 
             try {
-                extract_archive_multi_libarchive (patched, extract_to);
+                extract_archive_multi_libarchive (patched, extract_root);
             } finally {
                 FileUtils.remove (rar_payload_path);
             }

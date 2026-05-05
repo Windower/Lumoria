@@ -195,6 +195,27 @@ namespace Lumoria.Models {
                     if (ep.prelaunch_script != "") {
                         ep_obj.set_string_member ("prelaunch_script", ep.prelaunch_script);
                     }
+                    if (ep.component_overrides.size > 0) {
+                        var ov_obj = new Json.Object ();
+                        foreach (var ov in ep.component_overrides.entries) {
+                            ov_obj.set_object_member (ov.key, ov.value.to_json ());
+                        }
+                        ep_obj.set_object_member ("component_overrides", ov_obj);
+                    }
+                    if (ep.runtime_dll_overrides.size > 0) {
+                        var dll_obj = new Json.Object ();
+                        foreach (var dll in ep.runtime_dll_overrides.entries) {
+                            dll_obj.set_string_member (dll.key, dll.value);
+                        }
+                        ep_obj.set_object_member ("runtime_dll_overrides", dll_obj);
+                    }
+                    if (ep.runtime_env_overrides.size > 0) {
+                        var env_obj = new Json.Object ();
+                        foreach (var env in ep.runtime_env_overrides.entries) {
+                            env_obj.set_string_member (env.key, env.value);
+                        }
+                        ep_obj.set_object_member ("runtime_env_overrides", env_obj);
+                    }
                     ep_arr.add_object_element (ep_obj);
                 }
                 obj.set_array_member ("custom_entrypoints", ep_arr);

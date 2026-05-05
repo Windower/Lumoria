@@ -152,6 +152,20 @@ namespace Lumoria.Runtime {
         if (ep != null) apply_env_rules (env, ep.env, vars);
     }
 
+    public Models.Entrypoint? resolve_launch_entrypoint (
+        Models.PrefixEntry entry,
+        Gee.ArrayList<Models.LauncherSpec>? launcher_specs,
+        string entrypoint_id
+    ) {
+        if (entrypoint_id == "") return null;
+        var installer_spec = Models.InstallerSpec.load_from_resource ();
+        var specs = launcher_specs ?? Models.LauncherSpec.load_all_from_resource ();
+        var launcher = entry.launcher_id != ""
+            ? find_launcher_by_id (specs, entry.launcher_id) : null;
+        var post_install = load_prefix_post_install_spec (entry);
+        return find_launch_entrypoint (entry, installer_spec, launcher, post_install, entrypoint_id);
+    }
+
     private Models.Entrypoint? find_launch_entrypoint (
         Models.PrefixEntry entry,
         Models.InstallerSpec installer_spec,

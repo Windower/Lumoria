@@ -23,10 +23,13 @@ namespace Lumoria.Runtime {
 
         var session_id = generate_session_id ();
         var logger = RuntimeLog.for_run (entry.path, session_id);
-        var ctx = prepare_runtime_context (entry, runner_specs, false, logger);
 
-        if (entrypoint_id == "") {
-            entrypoint_id = entry.launch_entrypoint_id;
+        var active_entrypoint_id = entrypoint_id;
+        if (active_entrypoint_id == "") {
+            active_entrypoint_id = entry.launch_entrypoint_id;
+            if (active_entrypoint_id == "") {
+                active_entrypoint_id = resolve_effective_entrypoint_id (entry, launcher_specs);
+            }
         }
 
         string exe;
@@ -35,9 +38,15 @@ namespace Lumoria.Runtime {
             exe = custom_exe;
             wine_args = custom_wine_args != null ? custom_wine_args : new string[] {};
         } else {
-            resolve_launcher_exe (entry, launcher_specs, entrypoint_id, out exe, out wine_args);
+            resolve_launcher_exe (entry, launcher_specs, active_entrypoint_id, out exe, out wine_args);
         }
-        apply_launch_env (entry, launcher_specs, custom_exe != "" ? "" : entrypoint_id, ctx.env);
+
+        var active_entrypoint = custom_exe == ""
+            ? resolve_launch_entrypoint (entry, launcher_specs, active_entrypoint_id)
+            : null;
+        var ctx = prepare_runtime_context (entry, runner_specs, false, logger, active_entrypoint);
+        apply_launch_env (entry, launcher_specs, custom_exe != "" ? "" : active_entrypoint_id, ctx.env);
+        apply_entrypoint_runtime_overrides (active_entrypoint, ctx.env, logger);
 
         var host_exe = resolve_host_path (exe, ctx.prefix_path);
         var wine_path = to_wine_path (ctx.prefix_path, host_exe);
@@ -68,19 +77,9 @@ namespace Lumoria.Runtime {
             }
         }
 
-        string ep_prelaunch = "";
-        if (custom_exe == "") {
-            foreach (var ep in entry.custom_entrypoints) {
-                if (ep.id == entrypoint_id) {
-                    ep_prelaunch = ep.prelaunch_script;
-                    break;
-                }
-            }
-        }
-
         var argv = wine_argv;
         if (!Utils.EnvironmentInfo.is_gamescope ()) {
-            argv = wrap_with_prelaunch (ep_prelaunch, argv);
+            argv = wrap_with_prelaunch (active_entrypoint != null ? active_entrypoint.prelaunch_script : "", argv);
             argv = wrap_with_prelaunch (entry.prelaunch_script, argv);
         }
 
@@ -99,7 +98,7 @@ namespace Lumoria.Runtime {
 
         var session_id = generate_session_id ();
         var logger = RuntimeLog.for_run (entry.path, session_id);
-        var ctx = prepare_runtime_context (entry, runner_specs, true, logger);
+        var ctx = prepare_runtime_context (entry, runner_specs, true, logger, null);
         apply_launch_env (entry, null, "", ctx.env);
         var argv = new Gee.ArrayList<string> ();
         argv.add (ctx.paths.wine);
@@ -130,7 +129,7 @@ namespace Lumoria.Runtime {
 
         var session_id = generate_session_id ();
         var logger = RuntimeLog.for_run (entry.path, session_id);
-        var ctx = prepare_runtime_context (entry, runner_specs, false, logger);
+        var ctx = prepare_runtime_context (entry, runner_specs, false, logger, null);
         apply_launch_env (entry, null, "", ctx.env);
 
         var result = new TerminalContext ();
@@ -147,7 +146,7 @@ namespace Lumoria.Runtime {
 
         var session_id = generate_session_id ();
         var logger = RuntimeLog.for_run (entry.path, session_id);
-        var ctx = prepare_runtime_context (entry, runner_specs, true, logger);
+        var ctx = prepare_runtime_context (entry, runner_specs, true, logger, null);
         shutdown_wineserver (ctx.paths, ctx.env, logger);
     }
 
@@ -173,7 +172,8 @@ namespace Lumoria.Runtime {
         Models.PrefixEntry entry,
         Gee.ArrayList<Models.RunnerSpec> runner_specs,
         bool disable_mscoree,
-        RuntimeLog logger
+        RuntimeLog logger,
+        Models.Entrypoint? active_entrypoint
     ) throws Error {
         var runner_spec = resolve_runner_spec_for_entry (entry, runner_specs);
         var runtime = prepare_wine_runtime (
@@ -187,7 +187,13 @@ namespace Lumoria.Runtime {
             runtime.env.add_dll_override ("mscoree", DLL_DISABLED);
         }
         try {
-            var comp_result = apply_enabled_components (runtime.paths, runtime.prefix_path, entry, logger);
+            var comp_result = apply_enabled_components (
+                runtime.paths,
+                runtime.prefix_path,
+                entry,
+                active_entrypoint,
+                logger
+            );
             foreach (var ov in comp_result.dll_overrides.entries) {
                 runtime.env.add_dll_override (ov.key, ov.value);
             }
@@ -197,6 +203,27 @@ namespace Lumoria.Runtime {
         apply_env_overrides (runtime.env, Utils.Preferences.instance ().get_runtime_env_vars ());
         apply_env_overrides (runtime.env, entry.runtime_env_vars);
         return runtime;
+    }
+
+    private void apply_entrypoint_runtime_overrides (
+        Models.Entrypoint? entrypoint,
+        WineEnv env,
+        RuntimeLog logger
+    ) {
+        if (entrypoint == null) return;
+        if (entrypoint.runtime_env_overrides.size > 0) {
+            apply_env_overrides (env, entrypoint.runtime_env_overrides);
+            logger.typed (LogType.DEBUG, "applied entrypoint runtime env overrides");
+        }
+        foreach (var ov in entrypoint.runtime_dll_overrides.entries) {
+            var dll = ov.key.strip ();
+            var mode = ov.value.strip ();
+            if (dll == "" || mode == "") continue;
+            env.set_dll_override (dll, mode);
+        }
+        if (entrypoint.runtime_dll_overrides.size > 0) {
+            logger.typed (LogType.DEBUG, "applied entrypoint runtime dll overrides");
+        }
     }
 
     private Models.RunnerSpec resolve_runner_spec_for_entry (

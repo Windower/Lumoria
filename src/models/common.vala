@@ -115,6 +115,15 @@ namespace Lumoria.Models {
         public string prelaunch_script { get; set; default = ""; }
         public WhenClause? when { get; set; default = null; }
         public Gee.ArrayList<EnvRule> env { get; owned set; default = new Gee.ArrayList<EnvRule> (); }
+        public Gee.HashMap<string, RuntimeComponentOverride> component_overrides {
+            get; owned set; default = new Gee.HashMap<string, RuntimeComponentOverride> ();
+        }
+        public Gee.HashMap<string, string> runtime_dll_overrides {
+            get; owned set; default = new Gee.HashMap<string, string> ();
+        }
+        public Gee.HashMap<string, string> runtime_env_overrides {
+            get; owned set; default = new Gee.HashMap<string, string> ();
+        }
 
         public static Entrypoint from_json (Json.Object obj) throws Error {
             var e = new Entrypoint ();
@@ -125,6 +134,9 @@ namespace Lumoria.Models {
             e.prelaunch_script = json_string (obj, "prelaunch_script");
             e.when = WhenClause.from_json_member (obj);
             e.env = parse_env_rules (obj);
+            e.component_overrides = json_component_override_map (obj, "component_overrides");
+            e.runtime_dll_overrides = json_string_map (obj, "runtime_dll_overrides");
+            e.runtime_env_overrides = json_string_map (obj, "runtime_env_overrides");
             return e;
         }
     }
@@ -240,5 +252,18 @@ namespace Lumoria.Models {
 
     public static Gee.ArrayList<EnvRule> parse_env_rules (Json.Object obj) throws Error {
         return parse_json_array<EnvRule> (obj, "env", (o) => EnvRule.from_json (o));
+    }
+
+    public static Gee.HashMap<string, RuntimeComponentOverride> json_component_override_map (
+        Json.Object obj,
+        string key
+    ) {
+        var map = new Gee.HashMap<string, RuntimeComponentOverride> ();
+        if (!obj.has_member (key)) return map;
+        var overrides = obj.get_object_member (key);
+        overrides.foreach_member ((_, member, node) => {
+            map[member] = RuntimeComponentOverride.from_json (node.get_object ());
+        });
+        return map;
     }
 }

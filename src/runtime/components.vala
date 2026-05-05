@@ -39,6 +39,7 @@ namespace Lumoria.Runtime {
         WinePaths wine_paths,
         string pfx_path,
         Models.PrefixEntry? entry,
+        Models.Entrypoint? entrypoint,
         RuntimeLog logger
     ) throws Error {
         var result = new ComponentResult ();
@@ -49,17 +50,26 @@ namespace Lumoria.Runtime {
         bool dirty = false;
 
         foreach (var spec in specs) {
-            var active = is_component_active (spec, entry, defaults);
+            var prefix_active = is_component_active (spec, entry, defaults, null);
+            var runtime_active = is_component_active (
+                spec,
+                entry,
+                defaults,
+                entrypoint != null ? entrypoint.component_overrides : null
+            );
             var desired_version = resolve_component_version (spec, entry, defaults);
             Models.AppliedComponentRecord? applied = null;
             if (entry != null && entry.applied_components.has_key (spec.id)) {
                 applied = entry.applied_components[spec.id];
             }
 
-            if (active) {
+            if (runtime_active) {
                 foreach (var ov in spec.overrides.entries) {
                     result.dll_overrides[ov.key] = ov.value;
                 }
+            }
+
+            if (prefix_active) {
 
                 if (applied != null && applied.version == desired_version) {
                     logger.typed (LogType.COMPONENT, "%s: %s already applied".printf (spec.id, desired_version));
@@ -128,7 +138,7 @@ namespace Lumoria.Runtime {
         var defaults = Utils.Preferences.instance ();
 
         foreach (var spec in specs) {
-            if (!is_component_active (spec, entry, defaults)) continue;
+            if (!is_component_active (spec, entry, defaults, null)) continue;
 
             var selection = new ResolvedComponentSelection ();
             selection.spec = spec;
@@ -147,8 +157,13 @@ namespace Lumoria.Runtime {
     private bool is_component_active (
         Models.ComponentSpec spec,
         Models.PrefixEntry? entry,
-        Utils.Preferences defaults
+        Utils.Preferences defaults,
+        Gee.HashMap<string, Models.RuntimeComponentOverride>? entrypoint_overrides
     ) {
+        if (entrypoint_overrides != null && entrypoint_overrides.has_key (spec.id)) {
+            var ov = entrypoint_overrides[spec.id];
+            if (ov.enabled != null) return (bool) ov.enabled;
+        }
         if (entry != null && entry.runtime_component_overrides.has_key (spec.id)) {
             var ov = entry.runtime_component_overrides[spec.id];
             if (ov.enabled != null) return (bool) ov.enabled;
@@ -218,6 +233,23 @@ namespace Lumoria.Runtime {
                         logger.typed (LogType.COMPONENT, "  copied %s".printf (Path.get_basename (copied_src)));
                         record.installed_files.add (copied_dst);
                     });
+                    break;
+                case "rename":
+                    if (!FileUtils.test (src, FileTest.EXISTS)) {
+                        if (step.idempotent && FileUtils.test (dst, FileTest.EXISTS)) {
+                            logger.typed (LogType.COMPONENT, "  rename target already present: %s".printf (dst));
+                            record.installed_files.add (dst);
+                            break;
+                        }
+                        logger.typed (LogType.COMPONENT, "  source missing: %s".printf (src));
+                        break;
+                    }
+                    Utils.ensure_dir (Path.get_dirname (dst));
+                    if (FileUtils.rename (src, dst) != 0) {
+                        throw new IOError.FAILED ("rename failed: %s -> %s".printf (src, dst));
+                    }
+                    logger.typed (LogType.COMPONENT, "  renamed %s -> %s".printf (src, dst));
+                    record.installed_files.add (dst);
                     break;
                 default:
                     logger.typed (LogType.COMPONENT, "%s: unknown step type '%s'".printf (spec.id, step.step_type));

@@ -22,6 +22,7 @@ namespace Lumoria.Widgets.Dialogs {
         private Gtk.Button clear_post_install_btn;
         private Gtk.Button create_btn;
         private Gee.ArrayList<Models.RunnerVariant> visible_variants;
+        private Gee.HashMap<string, OptionListRow> component_mode_rows;
 
         private string selected_path;
         private string selected_uri = "";
@@ -45,6 +46,7 @@ namespace Lumoria.Widgets.Dialogs {
             this.runner_specs = runner_specs;
             this.launcher_specs = launcher_specs;
             visible_variants = new Gee.ArrayList<Models.RunnerVariant> ();
+            component_mode_rows = new Gee.HashMap<string, OptionListRow> ();
 
             selected_path = Utils.next_available_prefix_path (registry);
             build_ui ();
@@ -170,6 +172,24 @@ namespace Lumoria.Widgets.Dialogs {
             region_combo.selected = 0;
             region_group.add (region_combo);
             game_content.append (region_group);
+
+            var component_specs = Models.ComponentSpec.load_all_from_resource ();
+            if (component_specs.size > 0) {
+                var components_group = SettingsShared.build_group (_("Runtime Components"), 12, 12);
+                foreach (var spec in component_specs) {
+                    var default_label = Utils.Preferences.instance ().default_component_enabled (spec.id)
+                        ? _("enabled")
+                        : _("disabled");
+                    var mode_row = SettingsShared.build_toggle_override_combo (
+                        spec.display_label (),
+                        null,
+                        default_label
+                    );
+                    component_mode_rows[spec.id] = mode_row;
+                    components_group.add (mode_row);
+                }
+                game_content.append (components_group);
+            }
 
             if (Utils.Preferences.instance ().experimental_features) {
                 var patches_group = SettingsShared.build_group (_("Patches"), 12, 12);
@@ -430,6 +450,14 @@ namespace Lumoria.Widgets.Dialogs {
             entry.launcher_id = launcher_id;
             entry.region = region;
             entry.large_address_aware = large_address_aware;
+            foreach (var mode_entry in component_mode_rows.entries) {
+                var spec_id = mode_entry.key;
+                var selected_mode = (ToggleOverrideState) ((int) mode_entry.value.selected);
+                if (selected_mode == ToggleOverrideState.INHERIT) continue;
+                var ov = new Models.RuntimeComponentOverride ();
+                ov.enabled = selected_mode.to_nullable_bool ();
+                entry.runtime_component_overrides[spec_id] = ov;
+            }
             if (selected_post_install_path != "") {
                 var post_install = new Models.PrefixPostInstallSpec ();
                 post_install.original_path = selected_post_install_path;

@@ -625,7 +625,7 @@ namespace Lumoria.Runtime {
         RuntimeLog logger
     ) {
         try {
-            var comp_result = apply_enabled_components (paths, pfx_path, prefix_entry, logger);
+            var comp_result = apply_enabled_components (paths, pfx_path, prefix_entry, null, logger);
             foreach (var ov in comp_result.dll_overrides.entries) {
                 env.add_dll_override (ov.key, ov.value);
             }
@@ -812,6 +812,10 @@ namespace Lumoria.Runtime {
                 Utils.copy_path (src, dst, null);
                 break;
 
+            case "rename":
+                run_rename_step (step, vars, logger);
+                break;
+
             case "delete":
                 run_delete_step (step, vars, logger);
                 break;
@@ -888,6 +892,10 @@ namespace Lumoria.Runtime {
                 run_git_step (step, vars, logger);
                 break;
 
+            case "set_component_override":
+                run_set_component_override_step (step, vars, logger);
+                break;
+
             default:
                 throw new IOError.FAILED ("Unknown install step type: %s", step.step_type);
         }
@@ -929,6 +937,125 @@ namespace Lumoria.Runtime {
             }
             logger.typed (LogType.COPY, "deleted %s".printf (target));
         }
+    }
+
+    private void run_rename_step (
+        Models.InstallStep step,
+        Gee.HashMap<string, string> vars,
+        RuntimeLog logger
+    ) throws Error {
+        var src = expand_path (step.src, vars);
+        var dst = expand_path (step.dst, vars);
+        if (src == "" || dst == "") {
+            throw new IOError.FAILED ("rename requires src and dst");
+        }
+        if (!FileUtils.test (src, FileTest.EXISTS)) {
+            if (step.idempotent && FileUtils.test (dst, FileTest.EXISTS)) {
+                logger.typed (LogType.SKIP, "rename: target already present %s".printf (dst));
+                return;
+            }
+            throw new IOError.FAILED ("rename source missing: %s", src);
+        }
+        Utils.ensure_dir (Path.get_dirname (dst));
+        if (FileUtils.test (dst, FileTest.EXISTS) || FileUtils.test (dst, FileTest.IS_SYMLINK)) {
+            if (step.overwrite_existing) {
+                if (FileUtils.remove (dst) != 0) {
+                    throw new IOError.FAILED ("rename: failed to remove existing target %s", dst);
+                }
+            } else {
+                throw new IOError.FAILED ("rename target exists: %s", dst);
+            }
+        }
+        if (FileUtils.rename (src, dst) != 0) {
+            throw new IOError.FAILED ("rename failed: %s -> %s", src, dst);
+        }
+        logger.typed (LogType.COPY, "renamed %s -> %s".printf (src, dst));
+        verify_step_paths (step.verify_paths, vars);
+    }
+
+    private void run_set_component_override_step (
+        Models.InstallStep step,
+        Gee.HashMap<string, string> vars,
+        RuntimeLog logger
+    ) throws Error {
+        var component_id = step.command.strip ();
+        var mode = step.mode.strip ().down ();
+        if (component_id == "") {
+            throw new IOError.FAILED ("set_component_override requires command=component id");
+        }
+        if (mode == "") mode = "inherit";
+        bool? enabled = null;
+        switch (mode) {
+            case "enable":
+            case "enabled":
+            case "true":
+            case "on":
+                enabled = true;
+                break;
+            case "disable":
+            case "disabled":
+            case "false":
+            case "off":
+                enabled = false;
+                break;
+            case "inherit":
+            case "default":
+                enabled = null;
+                break;
+            default:
+                throw new IOError.FAILED ("set_component_override invalid mode: %s", step.mode);
+        }
+
+        var pfx_path = vars.has_key ("PREFIX") ? vars["PREFIX"] : "";
+        if (pfx_path == "") {
+            throw new IOError.FAILED ("set_component_override requires PREFIX in vars");
+        }
+
+        var reg_path = Utils.prefix_registry_path ();
+        var reg = Models.PrefixRegistry.load (reg_path);
+        Models.PrefixEntry? target = null;
+        foreach (var p in reg.prefixes) {
+            if (install_prefix_path (p.path) == pfx_path) {
+                target = p;
+                break;
+            }
+        }
+        if (target == null) {
+            throw new IOError.FAILED ("set_component_override: prefix not found for %s", pfx_path);
+        }
+
+        if (enabled == null) {
+            if (target.runtime_component_overrides.has_key (component_id)) {
+                var ov = target.runtime_component_overrides[component_id];
+                ov.enabled = null;
+                if (ov.version == "" && ov.system_env.size == 0) {
+                    target.runtime_component_overrides.unset (component_id);
+                } else {
+                    target.runtime_component_overrides[component_id] = ov;
+                }
+            }
+        } else {
+            Models.RuntimeComponentOverride ov;
+            if (target.runtime_component_overrides.has_key (component_id)) {
+                ov = target.runtime_component_overrides[component_id];
+            } else {
+                ov = new Models.RuntimeComponentOverride ();
+            }
+            ov.enabled = enabled;
+            target.runtime_component_overrides[component_id] = ov;
+        }
+        reg.update_entry (target);
+        if (!reg.save (reg_path)) {
+            throw new IOError.FAILED ("set_component_override: failed saving prefix registry");
+        }
+        logger.typed (
+            LogType.COMPONENT,
+            "set_component_override: %s=%s for %s".printf (
+                component_id,
+                enabled == null ? "inherit" : ((bool) enabled ? "enabled" : "disabled"),
+                target.display_name ()
+            )
+        );
     }
 
     private void run_text_upsert_step (

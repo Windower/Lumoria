@@ -115,6 +115,26 @@ namespace Lumoria.Widgets.Dialogs {
                 copy.exe = ep.exe;
                 copy.args = new Gee.ArrayList<string> ();
                 copy.args.add_all (ep.args);
+                copy.prelaunch_script = ep.prelaunch_script;
+                copy.component_overrides = new Gee.HashMap<string, Models.RuntimeComponentOverride> ();
+                foreach (var ov in ep.component_overrides.entries) {
+                    var ov_copy = new Models.RuntimeComponentOverride ();
+                    ov_copy.enabled = ov.value.enabled;
+                    ov_copy.version = ov.value.version;
+                    ov_copy.system_env = new Gee.HashMap<string, string> ();
+                    foreach (var env in ov.value.system_env.entries) {
+                        ov_copy.system_env[env.key] = env.value;
+                    }
+                    copy.component_overrides[ov.key] = ov_copy;
+                }
+                copy.runtime_dll_overrides = new Gee.HashMap<string, string> ();
+                foreach (var dll in ep.runtime_dll_overrides.entries) {
+                    copy.runtime_dll_overrides[dll.key] = dll.value;
+                }
+                copy.runtime_env_overrides = new Gee.HashMap<string, string> ();
+                foreach (var env in ep.runtime_env_overrides.entries) {
+                    copy.runtime_env_overrides[env.key] = env.value;
+                }
                 custom_entries.add (copy);
             }
             custom_entry_rows = new Gee.ArrayList<Gtk.Widget> ();
@@ -724,6 +744,48 @@ namespace Lumoria.Widgets.Dialogs {
             entry_prelaunch_note.activatable = false;
             group.add (entry_prelaunch_note);
 
+            var component_specs = Models.ComponentSpec.load_all_from_resource ();
+            var entry_component_mode_rows = new Gee.HashMap<string, OptionListRow> ();
+            if (component_specs.size > 0) {
+                var component_header = new Adw.ActionRow ();
+                component_header.title = _("Runtime Components for This Entrypoint");
+                component_header.subtitle = _("Inherit uses the prefix-level component setting.");
+                component_header.activatable = false;
+                group.add (component_header);
+                foreach (var spec in component_specs) {
+                    bool? current_mode = null;
+                    if (existing != null && existing.component_overrides.has_key (spec.id)) {
+                        current_mode = existing.component_overrides[spec.id].enabled;
+                    }
+                    var mode_row = SettingsShared.build_toggle_override_combo (
+                        spec.display_label (),
+                        current_mode,
+                        _("prefix setting")
+                    );
+                    entry_component_mode_rows[spec.id] = mode_row;
+                    group.add (mode_row);
+                }
+            }
+
+            var dll_row = new Adw.EntryRow ();
+            dll_row.title = _("DLL Overrides (dll=mode;...)");
+            dll_row.text = stringify_dll_overrides (
+                existing != null ? existing.runtime_dll_overrides : null
+            );
+            group.add (dll_row);
+
+            var entry_env_label = new Adw.ActionRow ();
+            entry_env_label.title = _("Entrypoint Runtime Environment Overrides");
+            entry_env_label.activatable = false;
+            group.add (entry_env_label);
+            var entry_env_editor = new Lumoria.Widgets.EnvVarsEditor (
+                existing != null ? existing.runtime_env_overrides : null
+            );
+            entry_env_editor.margin_start = 8;
+            entry_env_editor.margin_end = 8;
+            entry_env_editor.margin_bottom = 8;
+            group.add (entry_env_editor);
+
             var actions = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8);
             actions.margin_start = 16;
             actions.margin_end = 16;
@@ -759,6 +821,17 @@ namespace Lumoria.Widgets.Dialogs {
             save_btn.add_css_class ("suggested-action");
             save_btn.clicked.connect (() => {
                 if (exe_path == "") return;
+                string entry_env_error;
+                if (!entry_env_editor.validate (out entry_env_error)) {
+                    toast_overlay.add_toast (new Adw.Toast (entry_env_error));
+                    return;
+                }
+                string dll_error;
+                var parsed_dll_overrides = parse_dll_overrides (dll_row.text, out dll_error);
+                if (parsed_dll_overrides == null) {
+                    toast_overlay.add_toast (new Adw.Toast (dll_error));
+                    return;
+                }
 
                 var ep = existing ?? new Models.Entrypoint ();
                 ep.name = name_row.text.strip ();
@@ -772,6 +845,17 @@ namespace Lumoria.Widgets.Dialogs {
                 if (ep.id == "") {
                     ep.id = "custom-%s".printf (Checksum.compute_for_string (ChecksumType.MD5, ep.exe));
                 }
+                ep.component_overrides = new Gee.HashMap<string, Models.RuntimeComponentOverride> ();
+                foreach (var spec in component_specs) {
+                    var mode_row = entry_component_mode_rows[spec.id];
+                    var selected_mode = (ToggleOverrideState) ((int) mode_row.selected);
+                    if (selected_mode == ToggleOverrideState.INHERIT) continue;
+                    var ov = new Models.RuntimeComponentOverride ();
+                    ov.enabled = selected_mode.to_nullable_bool ();
+                    ep.component_overrides[spec.id] = ov;
+                }
+                ep.runtime_dll_overrides = (Gee.HashMap<string, string>) parsed_dll_overrides;
+                ep.runtime_env_overrides = entry_env_editor.values ();
 
                 if (index >= 0) {
                     custom_entries[index] = ep;
@@ -790,6 +874,42 @@ namespace Lumoria.Widgets.Dialogs {
             dialog.child = toolbar;
 
             dialog.present (this);
+        }
+
+        private string stringify_dll_overrides (Gee.HashMap<string, string>? overrides) {
+            if (overrides == null || overrides.size == 0) return "";
+            var parts = new Gee.ArrayList<string> ();
+            foreach (var ov in overrides.entries) {
+                var dll = ov.key.strip ();
+                var mode = ov.value.strip ();
+                if (dll == "" || mode == "") continue;
+                parts.add ("%s=%s".printf (dll, mode));
+            }
+            return string.joinv (";", Utils.arraylist_to_strv (parts));
+        }
+
+        private Gee.HashMap<string, string>? parse_dll_overrides (string raw, out string error) {
+            error = "";
+            var map = new Gee.HashMap<string, string> ();
+            var text = raw.strip ();
+            if (text == "") return map;
+            foreach (var part in text.split (";")) {
+                var trimmed = part.strip ();
+                if (trimmed == "") continue;
+                var eq = trimmed.index_of ("=");
+                if (eq <= 0 || eq == trimmed.length - 1) {
+                    error = _("Invalid DLL override entry: %s").printf (trimmed);
+                    return null;
+                }
+                var dll = trimmed.substring (0, eq).strip ();
+                var mode = trimmed.substring (eq + 1).strip ();
+                if (dll == "" || mode == "") {
+                    error = _("Invalid DLL override entry: %s").printf (trimmed);
+                    return null;
+                }
+                map[dll] = mode;
+            }
+            return map;
         }
 
         private void on_browse_prelaunch () {

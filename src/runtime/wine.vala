@@ -61,6 +61,22 @@ namespace Lumoria.Runtime {
             set_var ("WINEDLLOVERRIDES", existing == "" ? entry : existing + ";" + entry);
         }
 
+        public void set_dll_override (string dll, string mode) {
+            var parts = new Gee.ArrayList<string> ();
+            var dll_key = dll.down ();
+            var existing = get_var ("WINEDLLOVERRIDES") ?? "";
+            foreach (var part in existing.split (";")) {
+                var trimmed = part.strip ();
+                if (trimmed == "") continue;
+                var eq = trimmed.index_of ("=");
+                var key = eq >= 0 ? trimmed.substring (0, eq).down () : trimmed.down ();
+                if (key == dll_key) continue;
+                parts.add (trimmed);
+            }
+            parts.add ("%s=%s".printf (dll, mode));
+            set_var ("WINEDLLOVERRIDES", string.joinv (";", Utils.arraylist_to_strv (parts)));
+        }
+
         public WineEnv copy () {
             var c = new WineEnv ();
             foreach (var entry in vars.entries) {
