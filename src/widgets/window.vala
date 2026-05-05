@@ -151,15 +151,19 @@ namespace Lumoria.Widgets {
 
         public void refresh_list () {
             string? expanded_prefix_id = null;
+            bool forced_expand = false;
             if (expand_prefix_id_on_refresh != "") {
                 expanded_prefix_id = expand_prefix_id_on_refresh;
+                forced_expand = true;
                 expand_prefix_id_on_refresh = "";
             }
-            for (int i = 0; i < registry.prefixes.size; i++) {
-                var existing_row = prefix_list.get_row_at_index (i) as PrefixRowWidget;
-                if (existing_row != null && existing_row.expanded) {
-                    expanded_prefix_id = registry.prefixes[i].id;
-                    break;
+            if (!forced_expand) {
+                for (int i = 0; i < registry.prefixes.size; i++) {
+                    var existing_row = prefix_list.get_row_at_index (i) as PrefixRowWidget;
+                    if (existing_row != null && existing_row.expanded) {
+                        expanded_prefix_id = registry.prefixes[i].id;
+                        break;
+                    }
                 }
             }
 
