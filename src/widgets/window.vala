@@ -19,6 +19,7 @@ namespace Lumoria.Widgets {
         private Gee.ArrayList<Adw.Dialog> active_dialogs;
         private Gtk.Widget? gamepad_focus_widget;
         private bool allow_window_close = false;
+        private string expand_prefix_id_on_refresh = "";
 
         public Window (Application app) {
             Object (
@@ -150,6 +151,10 @@ namespace Lumoria.Widgets {
 
         public void refresh_list () {
             string? expanded_prefix_id = null;
+            if (expand_prefix_id_on_refresh != "") {
+                expanded_prefix_id = expand_prefix_id_on_refresh;
+                expand_prefix_id_on_refresh = "";
+            }
             for (int i = 0; i < registry.prefixes.size; i++) {
                 var existing_row = prefix_list.get_row_at_index (i) as PrefixRowWidget;
                 if (existing_row != null && existing_row.expanded) {
@@ -267,7 +272,8 @@ namespace Lumoria.Widgets {
         private void on_add_prefix () {
             var dialog = new Dialogs.CreatePrefixDialog (this, registry, runner_specs, launcher_specs);
             track_dialog (dialog);
-            dialog.prefix_created.connect (() => {
+            dialog.prefix_created.connect ((prefix_id) => {
+                expand_prefix_id_on_refresh = prefix_id;
                 Utils.StorageCache.instance ().invalidate (Utils.StorageCategory.PREFIXES);
                 save_and_refresh ();
             });

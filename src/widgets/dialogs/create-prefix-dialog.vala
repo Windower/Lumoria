@@ -1,7 +1,7 @@
 namespace Lumoria.Widgets.Dialogs {
 
     public class CreatePrefixDialog : Adw.Dialog {
-        public signal void prefix_created ();
+        public signal void prefix_created (string prefix_id);
 
         private Models.PrefixRegistry registry;
         private Gee.ArrayList<Models.RunnerSpec> runner_specs;
@@ -468,7 +468,7 @@ namespace Lumoria.Widgets.Dialogs {
             }
 
             registry.add_prefix (entry);
-            prefix_created ();
+            prefix_created (entry.id);
 
             var parent_win = (Gtk.Window) ((Gtk.Widget) this).get_root ();
             close ();
@@ -489,7 +489,7 @@ namespace Lumoria.Widgets.Dialogs {
             var install_dlg = new InstallDialog ();
             install_dlg.install_completed.connect ((success) => {
                 if (success) {
-                    prefix_created ();
+                    prefix_created (entry.id);
                 }
             });
             install_dlg.prefix_delete_requested.connect (() => {
@@ -499,7 +499,7 @@ namespace Lumoria.Widgets.Dialogs {
                     if (idx >= 0) registry.remove_at (idx);
                 }
                 Utils.remove_recursive (resolved);
-                prefix_created ();
+                prefix_created ("");
             });
             install_dlg.present (parent_win);
             install_dlg.start_install (install_opts);
