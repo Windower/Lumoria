@@ -26,6 +26,7 @@ cleanup:
   - /share/pkgconfig
   - /share/man
   - /share/vala
+  - /share/cmake
   - /lib/cmake
   - /lib/girepository-1.0
   - /libexec/vte-urlencode-cwd
