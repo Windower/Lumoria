@@ -1,11 +1,10 @@
 {
   "default": {
     "runner": {
-      "id": "proton-ge",
+      "id": "wine-kron4ek-staging",
       "version": "latest"
     },
     "wine": {
-      "wayland": false,
       "sync_mode": "ntsync",
       "debug": ""
     },
