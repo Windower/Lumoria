@@ -253,51 +253,67 @@ namespace Lumoria.Widgets {
             dialog.close_response = "cancel";
             dialog.response.connect ((response) => {
                 if (response == "remove") {
-                    Utils.StorageCache.instance ().invalidate (Utils.StorageCategory.PREFIXES);
-                    on_confirm (false);
+                    var removing_dialog = present_removing_prefix_dialog (parent, _("Removing prefix…"));
+                    Idle.add (() => {
+                        finish_prefix_removal (removing_dialog, false, (owned) on_confirm);
+                        return false;
+                    });
                     return;
                 }
                 if (response != "delete") return;
 
-                var removing_dialog = new Adw.Dialog ();
-                removing_dialog.title = _("Removing Prefix");
-                removing_dialog.content_width = 300;
-                removing_dialog.content_height = 150;
-                removing_dialog.can_close = false;
-
-                var box = new Gtk.Box (Gtk.Orientation.VERTICAL, 16);
-                box.halign = Gtk.Align.CENTER;
-                box.valign = Gtk.Align.CENTER;
-                box.margin_start = 24;
-                box.margin_end = 24;
-
-                var spinner = new Gtk.Spinner ();
-                spinner.spinning = true;
-                spinner.width_request = 32;
-                spinner.height_request = 32;
-                box.append (spinner);
-
-                var label = new Gtk.Label (_("Removing prefix files\u2026"));
-                label.add_css_class ("heading");
-                box.append (label);
-
-                removing_dialog.child = box;
-                removing_dialog.present (parent);
+                var removing_dialog = present_removing_prefix_dialog (parent, _("Removing prefix files\u2026"));
 
                 var remove_path = entry.resolved_path ();
                 new Thread<bool> ("remove-prefix", () => {
                     var ok = Utils.remove_recursive (remove_path);
                     Idle.add (() => {
-                        removing_dialog.can_close = true;
-                        removing_dialog.close ();
-                        Utils.StorageCache.instance ().invalidate (Utils.StorageCategory.PREFIXES);
-                        on_confirm (ok);
+                        finish_prefix_removal (removing_dialog, ok, (owned) on_confirm);
                         return false;
                     });
                     return true;
                 });
             });
             dialog.present (parent);
+        }
+
+        private static Adw.Dialog present_removing_prefix_dialog (Gtk.Widget parent, string label_text) {
+            var removing_dialog = new Adw.Dialog ();
+            removing_dialog.title = _("Removing Prefix");
+            removing_dialog.content_width = 300;
+            removing_dialog.content_height = 150;
+            removing_dialog.can_close = false;
+
+            var box = new Gtk.Box (Gtk.Orientation.VERTICAL, 16);
+            box.halign = Gtk.Align.CENTER;
+            box.valign = Gtk.Align.CENTER;
+            box.margin_start = 24;
+            box.margin_end = 24;
+
+            var spinner = new Gtk.Spinner ();
+            spinner.spinning = true;
+            spinner.width_request = 32;
+            spinner.height_request = 32;
+            box.append (spinner);
+
+            var label = new Gtk.Label (label_text);
+            label.add_css_class ("heading");
+            box.append (label);
+
+            removing_dialog.child = box;
+            removing_dialog.present (parent);
+            return removing_dialog;
+        }
+
+        private static void finish_prefix_removal (
+            Adw.Dialog removing_dialog,
+            bool deleted_files,
+            owned PrefixRemoveCallback on_confirm
+        ) {
+            Utils.StorageCache.instance ().invalidate (Utils.StorageCategory.PREFIXES);
+            on_confirm (deleted_files);
+            removing_dialog.can_close = true;
+            removing_dialog.close ();
         }
     }
 }

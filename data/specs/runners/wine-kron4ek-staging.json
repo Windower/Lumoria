@@ -4,6 +4,7 @@
   "wine_arch": "win64",
   "host_arches": ["x86_64"],
   "github_repo": "Kron4ek/Wine-Builds",
+  "skip_versions": ["11.8"],
   "checksum_regex": "sha256sums\\.txt$",
   "variants": [
     {

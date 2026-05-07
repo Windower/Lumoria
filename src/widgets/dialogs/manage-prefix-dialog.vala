@@ -211,6 +211,7 @@ namespace Lumoria.Widgets.Dialogs {
             version_values = new Gee.ArrayList<string> ();
             runner_group.add (version_combo);
             rebuild_version_combo (entry.runner_version);
+            variant_combo.notify["selected"].connect (on_variant_changed);
 
             sync_combo = RunnerSettingsShared.build_sync_override_combo (entry.sync_mode);
             runner_group.add (sync_combo);
@@ -357,46 +358,15 @@ namespace Lumoria.Widgets.Dialogs {
         }
 
         private void rebuild_version_combo (string preselect = "default") {
-            var model = new Gtk.StringList (null);
-            version_values.clear ();
-
-            var sel_idx = (int) runner_combo.selected;
-            var runner_id = (sel_idx >= 0 && sel_idx < runner_specs.size) ? runner_specs[sel_idx].id : "";
-
-            var defaults = Utils.Preferences.instance ();
-            var default_id = defaults.runner_id;
-            var default_ver = defaults.get_default_runner_version ();
-            if (runner_id != "" && runner_id != default_id) {
-                model.append (_("Use Runner Default (%s latest)").printf (runner_id));
-            } else {
-                var default_label = default_id != "" ? "%s %s".printf (default_id, default_ver) : default_ver;
-                model.append (_("Use Global Default (%s)").printf (default_label));
-            }
-            version_values.add ("default");
-
-            model.append (_("Latest (always newest)"));
-            version_values.add ("latest");
-
-            if (runner_id != "") {
-                var base_dir = Path.build_filename (Utils.runner_dir (), runner_id);
-                var installed = Utils.list_dirs (base_dir);
-                installed.sort ((a, b) => strcmp (b, a));
-                foreach (var dir_name in installed) {
-                    model.append (dir_name);
-                    version_values.add (dir_name);
-                }
-            }
-
-            version_combo.model = model;
-
-            int selected = 0;
-            for (int i = 0; i < version_values.size; i++) {
-                if (version_values[i] == preselect) {
-                    selected = i;
-                    break;
-                }
-            }
-            version_combo.selected = selected;
+            RunnerSettingsShared.rebuild_version_combo (
+                runner_combo,
+                variant_combo,
+                version_combo,
+                runner_specs,
+                visible_variants,
+                version_values,
+                preselect
+            );
         }
 
         private void rebuild_variant_combo (string preselect = "") {
@@ -410,8 +380,14 @@ namespace Lumoria.Widgets.Dialogs {
         }
 
         private void on_runner_changed () {
+            var preselect = RunnerSettingsShared.selected_version_value (version_combo, version_values);
             rebuild_variant_combo ();
-            rebuild_version_combo ();
+            rebuild_version_combo (preselect);
+        }
+
+        private void on_variant_changed () {
+            var preselect = RunnerSettingsShared.selected_version_value (version_combo, version_values);
+            rebuild_version_combo (preselect);
         }
 
         private void rebuild_custom_entries_ui () {
@@ -941,11 +917,7 @@ namespace Lumoria.Widgets.Dialogs {
                 return;
             }
 
-            var ver_idx = (int) version_combo.selected;
-            var runner_version = "default";
-            if (ver_idx >= 0 && ver_idx < version_values.size) {
-                runner_version = version_values[ver_idx];
-            }
+            var runner_version = RunnerSettingsShared.selected_version_value (version_combo, version_values);
 
             registry.update_runner (prefix_index, runner_specs[sel].id, runner_version);
 

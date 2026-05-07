@@ -1,7 +1,7 @@
 project(
   'net.windower.Lumoria',
   ['c', 'vala'],
-  version: '0.1.8',
+  version: '0.1.9',
   meson_version: '>= 1.0.0',
   license: 'GPL-3.0-or-later',
 )

@@ -22,10 +22,13 @@ namespace Lumoria.Runtime {
         Utils.ensure_dir (cache_root);
         Utils.ensure_dir (extract_root);
 
+        var installed = find_installed_runner (spec, extract_root, version, logger);
+        if (installed != null) return installed;
+
         var releases_path = Path.build_filename (cache_root, "releases.json");
         var releases = Utils.fetch_github_releases_sync (spec.github_repo, releases_path, 6 * 3600);
 
-        Utils.GitHubRelease? release = select_release (releases, version, logger);
+        Utils.GitHubRelease? release = select_release (spec, releases, version, logger);
         if (release == null) {
             throw new IOError.FAILED ("No release found for version: %s", version);
         }
@@ -81,14 +84,49 @@ namespace Lumoria.Runtime {
         return result;
     }
 
+    private DownloadResult? find_installed_runner (
+        Models.RunnerSpec spec,
+        string extract_root,
+        string version,
+        RuntimeLog logger
+    ) {
+        if (version == "" || version == "latest") return null;
+
+        var version_dir = spec.resolve_version_dir (version);
+        var extract_to = Path.build_filename (extract_root, version_dir);
+        if (FileUtils.test (extract_to, FileTest.IS_DIR)) {
+            var result = new DownloadResult ();
+            result.version = version;
+            result.extracted_to = normalize_runner_root (extract_to, logger);
+            return result;
+        }
+
+        var alt_path = Path.build_filename (extract_root, version);
+        if (alt_path != extract_to && FileUtils.test (alt_path, FileTest.IS_DIR)) {
+            var result = new DownloadResult ();
+            result.version = version;
+            result.extracted_to = normalize_runner_root (alt_path, logger);
+            return result;
+        }
+
+        return null;
+    }
+
     private Utils.GitHubRelease? select_release (
+        Models.RunnerSpec spec,
         Gee.ArrayList<Utils.GitHubRelease> releases,
         string version,
         RuntimeLog logger
     ) {
         if (releases.size == 0) return null;
-        if (version == "" || version == "latest") return releases[0];
+        if (version == "" || version == "latest") {
+            foreach (var r in releases) {
+                if (!spec.skips_version (r.tag_name)) return r;
+            }
+            return null;
+        }
         foreach (var r in releases) {
+            if (spec.skips_version (r.tag_name)) continue;
             if (r.tag_name == version) return r;
         }
         logger.typed (LogType.WARN, "No release matching tag '%s'; %d releases available".printf (

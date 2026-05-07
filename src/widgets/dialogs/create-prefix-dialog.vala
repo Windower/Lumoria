@@ -12,6 +12,7 @@ namespace Lumoria.Widgets.Dialogs {
         private Adw.ActionRow dir_row;
         private OptionListRow runner_combo;
         private OptionListRow variant_combo;
+        private OptionListRow version_combo;
         private OptionListRow sync_combo;
         private OptionListRow debug_combo;
         private OptionListRow wayland_combo;
@@ -21,6 +22,7 @@ namespace Lumoria.Widgets.Dialogs {
         private Adw.ActionRow post_install_row;
         private Gtk.Button clear_post_install_btn;
         private Gtk.Button create_btn;
+        private Gee.ArrayList<string> version_values;
         private Gee.ArrayList<Models.RunnerVariant> visible_variants;
         private Gee.HashMap<string, OptionListRow> component_mode_rows;
 
@@ -45,6 +47,7 @@ namespace Lumoria.Widgets.Dialogs {
             this.registry = registry;
             this.runner_specs = runner_specs;
             this.launcher_specs = launcher_specs;
+            version_values = new Gee.ArrayList<string> ();
             visible_variants = new Gee.ArrayList<Models.RunnerVariant> ();
             component_mode_rows = new Gee.HashMap<string, OptionListRow> ();
 
@@ -123,7 +126,13 @@ namespace Lumoria.Widgets.Dialogs {
             variant_combo = new OptionListRow ();
             variant_combo.title = _("Variant");
             runner_group.add (variant_combo);
+
+            version_combo = new OptionListRow ();
+            version_combo.title = _("Version");
+            runner_group.add (version_combo);
             rebuild_variant_combo ();
+            rebuild_version_combo ();
+            variant_combo.notify["selected"].connect (on_variant_changed);
 
             runner_content.append (runner_group);
 
@@ -267,8 +276,27 @@ namespace Lumoria.Widgets.Dialogs {
             );
         }
 
+        private void rebuild_version_combo (string preselect = "default") {
+            RunnerSettingsShared.rebuild_version_combo (
+                runner_combo,
+                variant_combo,
+                version_combo,
+                runner_specs,
+                visible_variants,
+                version_values,
+                preselect
+            );
+        }
+
         private void on_runner_changed () {
+            var preselect = RunnerSettingsShared.selected_version_value (version_combo, version_values);
             rebuild_variant_combo ();
+            rebuild_version_combo (preselect);
+        }
+
+        private void on_variant_changed () {
+            var preselect = RunnerSettingsShared.selected_version_value (version_combo, version_values);
+            rebuild_version_combo (preselect);
         }
 
         private void on_browse () {
@@ -434,7 +462,7 @@ namespace Lumoria.Widgets.Dialogs {
                 ? region_values[region_combo.selected]
                 : "us";
 
-            var runner_version = Utils.Preferences.resolve_version (runner_id, "");
+            var runner_version = RunnerSettingsShared.selected_version_value (version_combo, version_values);
 
             var entry = new Models.PrefixEntry ();
             entry.id = id;

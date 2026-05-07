@@ -12,6 +12,7 @@ namespace Lumoria.Models {
         protected abstract Utils.GitHubAsset? match_asset (Utils.GitHubRelease release);
         protected abstract string version_dir_for (string tag);
         protected virtual string checksum_regex () { return ""; }
+        protected virtual bool skips_version (string tag) { return false; }
 
         protected string releases_cache_path () {
             return Path.build_filename (Utils.cache_dir (), cache_kind, tool_id, "releases.json");
@@ -25,8 +26,9 @@ namespace Lumoria.Models {
         protected Utils.GitHubRelease? find_release_for (ToolVersion ver) throws Error {
             var releases = fetch_releases ();
             if (releases.size == 0) return null;
-            if (ver.tag == "latest" || ver.is_latest) return releases[0];
+            if (ver.tag == "latest" || ver.is_latest) return latest_release (releases);
             foreach (var r in releases) {
+                if (skips_version (r.tag_name)) continue;
                 if (r.tag_name == ver.tag) return r;
             }
             return null;
@@ -41,21 +43,30 @@ namespace Lumoria.Models {
 
         public string resolve_latest_tag () throws Error {
             var releases = fetch_releases ();
-            if (releases.size == 0) return "";
-            return releases[0].tag_name;
+            var release = latest_release (releases);
+            return release != null ? release.tag_name : "";
         }
 
         public Gee.ArrayList<ToolVersion> list_versions () throws Error {
             var releases = fetch_releases ();
             var versions = new Gee.ArrayList<ToolVersion> ();
 
-            var latest_tag = releases.size > 0 ? releases[0].tag_name : "";
+            var latest = latest_release (releases);
+            var latest_tag = latest != null ? latest.tag_name : "";
             versions.add (new ToolVersion.latest (latest_tag));
 
             foreach (var rel in releases) {
+                if (skips_version (rel.tag_name)) continue;
                 versions.add (new ToolVersion (rel.tag_name, rel.published_at));
             }
             return versions;
+        }
+
+        private Utils.GitHubRelease? latest_release (Gee.ArrayList<Utils.GitHubRelease> releases) {
+            foreach (var release in releases) {
+                if (!skips_version (release.tag_name)) return release;
+            }
+            return null;
         }
 
         public virtual void install_version (ToolVersion ver, VersionProgress? progress) throws Error {
@@ -165,6 +176,10 @@ namespace Lumoria.Models {
             }
         }
 
+        protected override bool skips_version (string tag) {
+            return spec.skips_version (tag);
+        }
+
         public override string installed_path (ToolVersion ver) {
             if (ver.is_latest) {
                 try {
@@ -218,6 +233,10 @@ namespace Lumoria.Models {
 
         protected override string checksum_regex () {
             return spec.checksum_regex;
+        }
+
+        protected override bool skips_version (string tag) {
+            return spec.skips_version (tag);
         }
     }
 

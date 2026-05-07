@@ -71,6 +71,147 @@ namespace Lumoria.Widgets.Dialogs {
             variant_combo.selected = selected_idx;
         }
 
+        public static void rebuild_version_combo (
+            OptionListRow runner_combo,
+            OptionListRow variant_combo,
+            OptionListRow version_combo,
+            Gee.ArrayList<Models.RunnerSpec> runner_specs,
+            Gee.ArrayList<Models.RunnerVariant> visible_variants,
+            Gee.ArrayList<string> version_values,
+            string preselect = "default"
+        ) {
+            var model = new Gtk.StringList (null);
+            version_values.clear ();
+
+            var runner = selected_runner (runner_combo, runner_specs);
+            var runner_id = runner != null ? runner.id : "";
+
+            add_default_version_option (model, version_values, runner_id);
+            add_version_option (model, version_values, _("Latest (always newest)"), "latest");
+
+            if (runner != null) {
+                add_installed_versions (model, version_values, runner);
+                add_release_versions (model, version_values, runner, selected_variant (variant_combo, visible_variants));
+            }
+
+            version_combo.model = model;
+            version_combo.selected = selected_version_index (version_values, preselect);
+        }
+
+        public static string selected_version_value (
+            OptionListRow version_combo,
+            Gee.ArrayList<string> version_values
+        ) {
+            var idx = (int) version_combo.selected;
+            if (idx >= 0 && idx < version_values.size) return version_values[idx];
+            return "default";
+        }
+
+        private static Models.RunnerSpec? selected_runner (
+            OptionListRow runner_combo,
+            Gee.ArrayList<Models.RunnerSpec> runner_specs
+        ) {
+            var sel = (int) runner_combo.selected;
+            if (sel < 0 || sel >= runner_specs.size) return null;
+            return runner_specs[sel];
+        }
+
+        private static Models.RunnerVariant? selected_variant (
+            OptionListRow variant_combo,
+            Gee.ArrayList<Models.RunnerVariant> visible_variants
+        ) {
+            if (visible_variants.size == 0) return null;
+            var sel = (int) variant_combo.selected;
+            if (sel < 0 || sel >= visible_variants.size) return visible_variants[0];
+            return visible_variants[sel];
+        }
+
+        private static void add_default_version_option (
+            Gtk.StringList model,
+            Gee.ArrayList<string> version_values,
+            string runner_id
+        ) {
+            var defaults = Utils.Preferences.instance ();
+            var default_id = defaults.runner_id;
+            var default_ver = defaults.get_default_runner_version ();
+            if (runner_id != "" && runner_id != default_id) {
+                model.append (_("Use Runner Default (%s latest)").printf (runner_id));
+            } else {
+                var default_label = default_id != "" ? "%s %s".printf (default_id, default_ver) : default_ver;
+                model.append (_("Use Global Default (%s)").printf (default_label));
+            }
+            version_values.add ("default");
+        }
+
+        private static void add_installed_versions (
+            Gtk.StringList model,
+            Gee.ArrayList<string> version_values,
+            Models.RunnerSpec runner
+        ) {
+            var installed = Utils.list_dirs (Path.build_filename (Utils.runner_dir (), runner.id));
+            installed.sort ((a, b) => strcmp (b, a));
+            foreach (var dir_name in installed) {
+                add_version_option (model, version_values, dir_name, dir_name);
+            }
+        }
+
+        private static void add_release_versions (
+            Gtk.StringList model,
+            Gee.ArrayList<string> version_values,
+            Models.RunnerSpec runner,
+            Models.RunnerVariant? variant
+        ) {
+            if (runner.github_repo == "" || variant == null) return;
+            var selected = (Models.RunnerVariant) variant;
+
+            try {
+                var cache_path = Path.build_filename (Utils.cache_dir (), "runners", runner.id, "releases.json");
+                var releases = Utils.fetch_github_releases_sync (runner.github_repo, cache_path, 6 * 3600);
+                foreach (var release in releases) {
+                    if (runner.skips_version (release.tag_name)) continue;
+                    if (release_has_variant_asset (release, selected)) {
+                        add_version_option (model, version_values, release.tag_name, release.tag_name);
+                    }
+                }
+            } catch (Error e) {
+                warning ("Failed to load runner releases for %s: %s", runner.id, e.message);
+            }
+        }
+
+        private static bool release_has_variant_asset (
+            Utils.GitHubRelease release,
+            Models.RunnerVariant variant
+        ) {
+            try {
+                return Utils.find_github_asset_by_regex (release, variant.asset_regex) != null;
+            } catch (RegexError e) {
+                warning ("Invalid runner variant asset regex '%s': %s", variant.asset_regex, e.message);
+                return false;
+            }
+        }
+
+        private static void add_version_option (
+            Gtk.StringList model,
+            Gee.ArrayList<string> version_values,
+            string label,
+            string value
+        ) {
+            if (value == "") return;
+            if (version_values.contains (value)) return;
+            model.append (label);
+            version_values.add (value);
+        }
+
+        private static uint selected_version_index (
+            Gee.ArrayList<string> version_values,
+            string preselect
+        ) {
+            for (int i = 0; i < version_values.size; i++) {
+                if (version_values[i] == preselect) return (uint) i;
+            }
+            return 0;
+        }
+
         public static OptionListRow build_sync_combo (string selected_mode = "ntsync") {
             var model = new Gtk.StringList (null);
             model.append (_("NTSync (recommended)"));
