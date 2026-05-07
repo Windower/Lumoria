@@ -68,6 +68,15 @@
   </screenshots>
 
   <releases>
+    <release version="0.1.9" date="2026-05-07">
+      <description>
+        <ul>
+          <li>Select specific Wine runner version for each prefix at installation time.</li>
+          <li>Support for disabling problematic Wine versions.</li>
+        </ul>
+      </description>
+    </release>
+
     <release version="0.1.7" date="2026-05-03">
       <description>
         <ul>
@@ -80,6 +89,7 @@
         </ul>
       </description>
     </release>
+
     <release version="0.1.6" date="2026-04-29">
       <description>
         <ul>
