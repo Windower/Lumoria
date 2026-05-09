@@ -13,10 +13,13 @@
       "default": true,
       "wine_bin": "files/bin-wow64/wine",
       "wineserver": "files/bin-wow64/wineserver",
+      "wine_bins": ["files/bin-wow64/wine", "files/bin/wine"],
+      "wineservers": ["files/bin-wow64/wineserver", "files/bin/wineserver"],
       "binary_kind": "wow64",
       "sandbox_supported": true,
       "paths": {
         "bin": "files/bin-wow64",
+        "bin_paths": ["files/bin-wow64", "files/bin"],
         "lib": ["files/lib"],
         "lib_32": ["files/lib/i386-linux-gnu"],
         "lib_64": ["files/lib/x86_64-linux-gnu"],

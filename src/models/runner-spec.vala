@@ -2,6 +2,7 @@ namespace Lumoria.Models {
 
     public class RunnerPaths : Object {
         public string bin { get; set; default = ""; }
+        public Gee.ArrayList<string> bin_paths { get; owned set; default = new Gee.ArrayList<string> (); }
         public Gee.ArrayList<string> lib { get; owned set; default = new Gee.ArrayList<string> (); }
         public Gee.ArrayList<string> lib_32 { get; owned set; default = new Gee.ArrayList<string> (); }
         public Gee.ArrayList<string> lib_64 { get; owned set; default = new Gee.ArrayList<string> (); }
@@ -12,6 +13,7 @@ namespace Lumoria.Models {
 
         public bool is_empty () {
             return bin == ""
+                && bin_paths.size == 0
                 && lib.size == 0 && lib_32.size == 0 && lib_64.size == 0
                 && wine_dll.size == 0 && wine_dll_32.size == 0 && wine_dll_64.size == 0
                 && wine_unix.size == 0;
@@ -20,6 +22,8 @@ namespace Lumoria.Models {
         public static RunnerPaths from_json (Json.Object obj) {
             var p = new RunnerPaths ();
             p.bin = json_string (obj, "bin");
+            p.bin_paths = json_string_array (obj, "bin_paths");
+            if (p.bin_paths.size == 0 && p.bin != "") p.bin_paths.add (p.bin);
             p.lib = json_string_array (obj, "lib");
             p.lib_32 = json_string_array (obj, "lib_32");
             p.lib_64 = json_string_array (obj, "lib_64");
@@ -31,12 +35,32 @@ namespace Lumoria.Models {
         }
     }
 
+    public class RunnerSupportFile : Object {
+        public string id { get; set; default = ""; }
+        public Gee.ArrayList<string> src {
+            get; owned set; default = new Gee.ArrayList<string> ();
+        }
+        public string dst { get; set; default = ""; }
+        public WhenClause? when { get; set; default = null; }
+
+        public static RunnerSupportFile from_json (Json.Object obj) throws Error {
+            var f = new RunnerSupportFile ();
+            f.id = json_string (obj, "id");
+            f.src = json_string_array (obj, "src");
+            f.dst = json_string (obj, "dst");
+            f.when = WhenClause.from_json_member (obj);
+            return f;
+        }
+    }
+
     public class RunnerVariant : BaseSpec {
         public bool is_default { get; set; default = false; }
         public string asset_regex { get; set; default = ""; }
         public string checksum_regex { get; set; default = ""; }
         public string wine_bin { get; set; default = ""; }
         public string wineserver { get; set; default = ""; }
+        public Gee.ArrayList<string> wine_bins { get; owned set; default = new Gee.ArrayList<string> (); }
+        public Gee.ArrayList<string> wineservers { get; owned set; default = new Gee.ArrayList<string> (); }
         public string wine_arch { get; set; default = ""; }
         public string binary_kind { get; set; default = "wow64"; }
         public bool sandbox_supported { get; set; default = true; }
@@ -50,6 +74,10 @@ namespace Lumoria.Models {
             v.checksum_regex = json_string (obj, "checksum_regex");
             v.wine_bin = json_string (obj, "wine_bin");
             v.wineserver = json_string (obj, "wineserver");
+            v.wine_bins = json_string_array (obj, "wine_bins");
+            v.wineservers = json_string_array (obj, "wineservers");
+            if (v.wine_bins.size == 0 && v.wine_bin != "") v.wine_bins.add (v.wine_bin);
+            if (v.wineservers.size == 0 && v.wineserver != "") v.wineservers.add (v.wineserver);
             var arch = json_string (obj, "wine_arch").down ().strip ();
             if (arch != "" && arch != "win64" && arch != "win32") {
                 throw new IOError.FAILED (
@@ -77,10 +105,15 @@ namespace Lumoria.Models {
         public string checksum_regex { get; set; default = ""; }
         public string wine_bin { get; set; default = ""; }
         public string wineserver { get; set; default = ""; }
+        public Gee.ArrayList<string> wine_bins { get; owned set; default = new Gee.ArrayList<string> (); }
+        public Gee.ArrayList<string> wineservers { get; owned set; default = new Gee.ArrayList<string> (); }
         public string wine_arch { get; set; default = ""; }
         public string version_dir { get; set; default = ""; }
         public bool is_default { get; set; default = false; }
         public RunnerPaths paths { get; owned set; default = new RunnerPaths (); }
+        public Gee.ArrayList<RunnerSupportFile> support_files {
+            get; owned set; default = new Gee.ArrayList<RunnerSupportFile> ();
+        }
         public Gee.ArrayList<RunnerVariant> variants { get; owned set; default = new Gee.ArrayList<RunnerVariant> (); }
 
         public bool supports_host_arch (string host_arch) {
@@ -102,6 +135,8 @@ namespace Lumoria.Models {
                 base_variant.checksum_regex = checksum_regex;
                 base_variant.wine_bin = wine_bin;
                 base_variant.wineserver = wineserver;
+                copy_strings (wine_bins, base_variant.wine_bins);
+                copy_strings (wineservers, base_variant.wineservers);
                 base_variant.wine_arch = wine_arch;
                 base_variant.binary_kind = "wow64";
                 base_variant.sandbox_supported = true;
@@ -176,11 +211,21 @@ namespace Lumoria.Models {
             m.checksum_regex = v.checksum_regex != "" ? v.checksum_regex : checksum_regex;
             m.wine_bin = v.wine_bin != "" ? v.wine_bin : wine_bin;
             m.wineserver = v.wineserver != "" ? v.wineserver : wineserver;
+            copy_strings (v.wine_bins.size > 0 ? v.wine_bins : wine_bins, m.wine_bins);
+            copy_strings (v.wineservers.size > 0 ? v.wineservers : wineservers, m.wineservers);
+            if (m.wine_bins.size == 0 && m.wine_bin != "") m.wine_bins.add (m.wine_bin);
+            if (m.wineservers.size == 0 && m.wineserver != "") m.wineservers.add (m.wineserver);
             m.wine_arch = v.wine_arch != "" ? v.wine_arch : wine_arch;
             m.binary_kind = v.binary_kind;
             m.sandbox_supported = v.sandbox_supported;
             m.paths = v.paths.is_empty () ? paths : v.paths;
             return m;
+        }
+
+        private static void copy_strings (Gee.ArrayList<string> source, Gee.ArrayList<string> target) {
+            foreach (var value in source) {
+                target.add (value);
+            }
         }
 
         private bool variant_supported_in_sandbox (RunnerVariant v) {
@@ -223,6 +268,10 @@ namespace Lumoria.Models {
             s.checksum_regex = json_string (obj, "checksum_regex");
             s.wine_bin = json_string (obj, "wine_bin");
             s.wineserver = json_string (obj, "wineserver");
+            s.wine_bins = json_string_array (obj, "wine_bins");
+            s.wineservers = json_string_array (obj, "wineservers");
+            if (s.wine_bins.size == 0 && s.wine_bin != "") s.wine_bins.add (s.wine_bin);
+            if (s.wineservers.size == 0 && s.wineserver != "") s.wineservers.add (s.wineserver);
             s.wine_arch = parse_arch_strict (obj, "wine_arch");
             s.version_dir = json_string (obj, "version_dir");
             s.is_default = json_bool (obj, "default");
@@ -230,6 +279,11 @@ namespace Lumoria.Models {
             if (obj.has_member ("paths")) {
                 s.paths = RunnerPaths.from_json (obj.get_object_member ("paths"));
             }
+            s.support_files = parse_json_array<RunnerSupportFile> (
+                obj,
+                "support_files",
+                (o) => RunnerSupportFile.from_json (o)
+            );
             s.variants = parse_json_array<RunnerVariant> (obj, "variants", (o) => RunnerVariant.from_json (o));
             return s;
         }

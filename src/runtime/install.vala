@@ -316,7 +316,7 @@ namespace Lumoria.Runtime {
 
             var installer_vars = make_install_vars (pfx_path, "installer", installer_spec.id, installer_spec.variables);
             inject_redist_vars (installer_vars, launcher_redists);
-            inject_prefix_context (installer_vars, runtime, prefix_entry, logger);
+            inject_prefix_context (installer_vars, runtime, prefix_entry, logger, installer_spec.variable_rules);
             apply_env_rules (env, installer_spec.env, installer_vars);
 
             var launcher_vars = launcher != null
@@ -324,7 +324,7 @@ namespace Lumoria.Runtime {
                 : null;
             if (launcher_vars != null) {
                 inject_redist_vars (launcher_vars, launcher_redists);
-                inject_prefix_context (launcher_vars, runtime, prefix_entry, logger);
+                inject_prefix_context (launcher_vars, runtime, prefix_entry, logger, launcher.variable_rules);
                 apply_env_rules (env, launcher.env, launcher_vars);
             }
 
@@ -337,7 +337,13 @@ namespace Lumoria.Runtime {
                 : null;
             if (post_install_vars != null) {
                 inject_redist_vars (post_install_vars, post_redists);
-                inject_prefix_context (post_install_vars, runtime, prefix_entry, logger);
+                inject_prefix_context (
+                    post_install_vars,
+                    runtime,
+                    prefix_entry,
+                    logger,
+                    merged_variable_rules (installer_spec, launcher)
+                );
                 apply_env_rules (env, post_install_spec.env, post_install_vars);
             }
 
@@ -374,6 +380,9 @@ namespace Lumoria.Runtime {
             guard_against_existing_prefix (pfx_path);
             logger.banner ("Creating wine prefix");
             create_wine_prefix (paths, env, logger, cancellable);
+            if (prefix_entry != null) {
+                ensure_prefix_runner_current (prefix_entry, runtime, logger, false);
+            }
             logger.emit_line ("Wine prefix created at: %s\n\n".printf (pfx_path));
 
             resolve_computed_vars (installer_vars, paths, env, logger);
@@ -449,11 +458,23 @@ namespace Lumoria.Runtime {
                 entry.sync_mode, entry.wine_debug, entry.wine_wayland,
                 entry.runtime_env_vars, null, logger
             );
+            ensure_prefix_runner_current (entry, runtime, logger);
 
             var cache_root = ensure_cache_subdir (Path.build_filename ("actions", entry.id), action.id);
             var vars = build_action_vars (runtime.prefix_path, cache_root, entry, launcher_specs, action);
             vars["ARCH"] = runtime.wine_arch;
             vars["REGION"] = entry.region;
+            var installer_spec = Models.InstallerSpec.load_from_resource ();
+            Models.LauncherSpec? launcher = null;
+            if (entry.launcher_id != "") {
+                foreach (var spec in launcher_specs) {
+                    if (spec.id == entry.launcher_id) {
+                        launcher = spec;
+                        break;
+                    }
+                }
+            }
+            apply_install_variable_rules (vars, merged_variable_rules (installer_spec, launcher));
             apply_env_rules (runtime.env, action.env, vars);
             resolve_computed_vars (vars, runtime.paths, runtime.env, logger);
             Utils.resolve_var_references (vars);
@@ -509,6 +530,7 @@ namespace Lumoria.Runtime {
                 entry.sync_mode, entry.wine_debug, entry.wine_wayland,
                 entry.runtime_env_vars, null, logger
             );
+            ensure_prefix_runner_current (entry, runtime, logger);
 
             var cache_root = ensure_cache_subdir ("redist", redist_id);
             var vars = build_prefix_vars (runtime.prefix_path, cache_root, null);
@@ -1719,11 +1741,37 @@ namespace Lumoria.Runtime {
         Gee.HashMap<string, string> vars,
         WineRuntime runtime,
         Models.PrefixEntry? entry,
-        RuntimeLog logger
+        RuntimeLog logger,
+        Gee.ArrayList<Models.EnvRule>? variable_rules = null
     ) {
         vars["ARCH"] = runtime.wine_arch;
         resolve_prefix_vars (vars, entry, logger);
+        if (variable_rules != null) {
+            apply_install_variable_rules (vars, variable_rules);
+        }
         Utils.resolve_var_references (vars);
+    }
+
+    private void apply_install_variable_rules (
+        Gee.HashMap<string, string> vars,
+        Gee.ArrayList<Models.EnvRule> rules
+    ) {
+        foreach (var rule in rules) {
+            if (rule.when != null && !rule.when.evaluate (vars)) continue;
+            foreach (var entry in rule.vars.entries) {
+                vars[entry.key] = Utils.expand_vars (entry.value, vars);
+            }
+        }
+    }
+
+    private Gee.ArrayList<Models.EnvRule> merged_variable_rules (
+        Models.InstallerSpec installer_spec,
+        Models.LauncherSpec? launcher
+    ) {
+        var rules = new Gee.ArrayList<Models.EnvRule> ();
+        rules.add_all (installer_spec.variable_rules);
+        if (launcher != null) rules.add_all (launcher.variable_rules);
+        return rules;
     }
 
     private Gee.HashMap<string, string> build_post_install_vars (

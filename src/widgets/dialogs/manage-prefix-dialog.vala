@@ -11,13 +11,12 @@ namespace Lumoria.Widgets.Dialogs {
 
         private OptionListRow runner_combo;
         private OptionListRow variant_combo;
-        private OptionListRow version_combo;
+        private Adw.ActionRow version_row;
         private OptionListRow sync_combo;
         private OptionListRow debug_combo;
         private OptionListRow wayland_combo;
         private OptionListRow laa_combo;
 
-        private Gee.ArrayList<string> version_values;
         private Gee.ArrayList<Models.RunnerVariant> visible_variants;
         private Gee.HashMap<string, OptionListRow> component_mode_rows;
         private OptionListRow entrypoint_combo;
@@ -34,6 +33,8 @@ namespace Lumoria.Widgets.Dialogs {
         private Services.DynamicLauncherService shortcut_service;
         private Gtk.Box shortcuts_content;
         private Gtk.Box packages_content;
+        private string selected_runner_version = "default";
+        private string selected_runner_version_label = "";
 
         public ManagePrefixDialog (
             Gtk.Window parent,
@@ -52,6 +53,9 @@ namespace Lumoria.Widgets.Dialogs {
             this.prefix_index = prefix_index;
             this.runner_specs = runner_specs;
             this.launcher_specs = launcher_specs;
+            selected_runner_version = registry.prefixes[prefix_index].runner_version != ""
+                ? registry.prefixes[prefix_index].runner_version
+                : "default";
             visible_variants = new Gee.ArrayList<Models.RunnerVariant> ();
             component_mode_rows = new Gee.HashMap<string, OptionListRow> ();
             entrypoint_values = new Gee.ArrayList<string> ();
@@ -206,11 +210,12 @@ namespace Lumoria.Widgets.Dialogs {
             runner_group.add (variant_combo);
             rebuild_variant_combo (entry.variant_id);
 
-            version_combo = new OptionListRow ();
-            version_combo.title = _("Version");
-            version_values = new Gee.ArrayList<string> ();
-            runner_group.add (version_combo);
-            rebuild_version_combo (entry.runner_version);
+            version_row = new Adw.ActionRow ();
+            version_row.title = _("Version");
+            version_row.activatable = true;
+            version_row.activated.connect (open_version_picker);
+            runner_group.add (version_row);
+            update_version_row ();
             variant_combo.notify["selected"].connect (on_variant_changed);
 
             sync_combo = RunnerSettingsShared.build_sync_override_combo (entry.sync_mode);
@@ -357,18 +362,6 @@ namespace Lumoria.Widgets.Dialogs {
             this.child = toolbar;
         }
 
-        private void rebuild_version_combo (string preselect = "default") {
-            RunnerSettingsShared.rebuild_version_combo (
-                runner_combo,
-                variant_combo,
-                version_combo,
-                runner_specs,
-                visible_variants,
-                version_values,
-                preselect
-            );
-        }
-
         private void rebuild_variant_combo (string preselect = "") {
             RunnerSettingsShared.rebuild_variant_combo (
                 runner_combo,
@@ -380,14 +373,56 @@ namespace Lumoria.Widgets.Dialogs {
         }
 
         private void on_runner_changed () {
-            var preselect = RunnerSettingsShared.selected_version_value (version_combo, version_values);
+            selected_runner_version = "default";
+            selected_runner_version_label = "";
             rebuild_variant_combo ();
-            rebuild_version_combo (preselect);
+            update_version_row ();
         }
 
         private void on_variant_changed () {
-            var preselect = RunnerSettingsShared.selected_version_value (version_combo, version_values);
-            rebuild_version_combo (preselect);
+            selected_runner_version = "default";
+            selected_runner_version_label = "";
+            update_version_row ();
+        }
+
+        private void open_version_picker () {
+            var runner = selected_runner ();
+            if (runner == null) return;
+            var picker = new RunnerVersionPickerDialog (
+                runner,
+                selected_variant (),
+                selected_runner_version
+            );
+            picker.version_selected.connect ((label, value) => {
+                selected_runner_version = value;
+                selected_runner_version_label = label;
+                update_version_row ();
+            });
+            picker.present ((Gtk.Widget) this);
+        }
+
+        private Models.RunnerSpec? selected_runner () {
+            var sel = (int) runner_combo.selected;
+            if (sel < 0 || sel >= runner_specs.size) return null;
+            return runner_specs[sel];
+        }
+
+        private Models.RunnerVariant? selected_variant () {
+            if (visible_variants.size == 0) return null;
+            var sel = (int) variant_combo.selected;
+            if (sel < 0 || sel >= visible_variants.size) return visible_variants[0];
+            return visible_variants[sel];
+        }
+
+        private void update_version_row () {
+            if (selected_runner_version_label != "") {
+                version_row.subtitle = selected_runner_version_label;
+                return;
+            }
+            version_row.subtitle = RunnerSettingsShared.version_label_for_value (
+                selected_runner (),
+                selected_runner_version
+            );
         }
 
         private void rebuild_custom_entries_ui () {
@@ -619,6 +654,7 @@ namespace Lumoria.Widgets.Dialogs {
             var dialog = new Adw.Dialog ();
             dialog.title = existing != null ? _("Edit Custom Entry") : _("Add Custom Entry");
             dialog.content_width = 460;
+            dialog.content_height = 620;
 
             var toolbar = new Adw.ToolbarView ();
             var header = new Adw.HeaderBar ();
@@ -626,11 +662,8 @@ namespace Lumoria.Widgets.Dialogs {
             header.show_end_title_buttons = true;
             toolbar.add_top_bar (header);
 
-            var group = new Adw.PreferencesGroup ();
-            group.margin_start = 16;
-            group.margin_end = 16;
-            group.margin_top = 16;
-            group.margin_bottom = 8;
+            var editor_body = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
+            var launch_group = SettingsShared.build_group (_("Launch"), 12, 12);
 
             var name_row = new Adw.EntryRow ();
             name_row.title = _("Name");
@@ -639,7 +672,7 @@ namespace Lumoria.Widgets.Dialogs {
             } else if (initial_exe != null) {
                 name_row.text = Path.get_basename (initial_exe);
             }
-            group.add (name_row);
+            launch_group.add (name_row);
 
             var exe_path = initial_exe ?? (existing != null ? existing.exe : "");
 
@@ -671,15 +704,17 @@ namespace Lumoria.Widgets.Dialogs {
                 });
             });
             exe_row.add_suffix (browse_btn);
-            group.add (exe_row);
+            launch_group.add (exe_row);
 
             var args_row = new Adw.EntryRow ();
             args_row.title = _("Arguments (space-separated)");
             args_row.text = existing != null && existing.args.size > 0
                 ? string.joinv (" ", existing.args.to_array ()) : "";
-            group.add (args_row);
+            launch_group.add (args_row);
+            editor_body.append (launch_group);
 
             var entry_prelaunch_path = existing != null ? existing.prelaunch_script : "";
+            var prelaunch_group = SettingsShared.build_group (_("Prelaunch"), 12, 12);
 
             var entry_prelaunch_row = new Adw.ActionRow ();
             entry_prelaunch_row.title = _("Prelaunch Script");
@@ -713,21 +748,19 @@ namespace Lumoria.Widgets.Dialogs {
                 entry_prelaunch_row.subtitle = _("None");
             });
             entry_prelaunch_row.add_suffix (ep_clear_btn);
-            group.add (entry_prelaunch_row);
+            prelaunch_group.add (entry_prelaunch_row);
             var entry_prelaunch_note = new Adw.ActionRow ();
             entry_prelaunch_note.title = _("Prelaunch scripts are skipped in gamescope sessions");
             entry_prelaunch_note.subtitle = _("They still run when launching from desktop mode.");
             entry_prelaunch_note.activatable = false;
-            group.add (entry_prelaunch_note);
+            prelaunch_group.add (entry_prelaunch_note);
+            editor_body.append (prelaunch_group);
 
             var component_specs = Models.ComponentSpec.load_all_from_resource ();
             var entry_component_mode_rows = new Gee.HashMap<string, OptionListRow> ();
             if (component_specs.size > 0) {
-                var component_header = new Adw.ActionRow ();
-                component_header.title = _("Runtime Components for This Entrypoint");
-                component_header.subtitle = _("Inherit uses the prefix-level component setting.");
-                component_header.activatable = false;
-                group.add (component_header);
+                var component_group = SettingsShared.build_group (_("Runtime Components"), 12, 12);
+                component_group.description = _("Inherit uses the prefix-level component setting.");
                 foreach (var spec in component_specs) {
                     bool? current_mode = null;
                     if (existing != null && existing.component_overrides.has_key (spec.id)) {
@@ -739,28 +772,31 @@ namespace Lumoria.Widgets.Dialogs {
                         _("prefix setting")
                     );
                     entry_component_mode_rows[spec.id] = mode_row;
-                    group.add (mode_row);
+                    component_group.add (mode_row);
                 }
+                editor_body.append (component_group);
             }
 
+            var overrides_group = SettingsShared.build_group (_("Runtime Overrides"), 12, 12, 8);
             var dll_row = new Adw.EntryRow ();
             dll_row.title = _("DLL Overrides (dll=mode;...)");
             dll_row.text = stringify_dll_overrides (
                 existing != null ? existing.runtime_dll_overrides : null
             );
-            group.add (dll_row);
+            overrides_group.add (dll_row);
 
             var entry_env_label = new Adw.ActionRow ();
             entry_env_label.title = _("Entrypoint Runtime Environment Overrides");
             entry_env_label.activatable = false;
-            group.add (entry_env_label);
+            overrides_group.add (entry_env_label);
             var entry_env_editor = new Lumoria.Widgets.EnvVarsEditor (
                 existing != null ? existing.runtime_env_overrides : null
             );
             entry_env_editor.margin_start = 8;
             entry_env_editor.margin_end = 8;
             entry_env_editor.margin_bottom = 8;
-            group.add (entry_env_editor);
+            overrides_group.add (entry_env_editor);
+            editor_body.append (overrides_group);
 
             var actions = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8);
             actions.margin_start = 16;
@@ -844,7 +880,11 @@ namespace Lumoria.Widgets.Dialogs {
             actions.append (save_btn);
 
             var content = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
-            content.append (group);
+            content.vexpand = true;
+            var scroll = new Gtk.ScrolledWindow ();
+            scroll.child = editor_body;
+            scroll.vexpand = true;
+            content.append (scroll);
             content.append (actions);
             toolbar.content = content;
             dialog.child = toolbar;
@@ -917,7 +957,7 @@ namespace Lumoria.Widgets.Dialogs {
                 return;
             }
 
-            var runner_version = RunnerSettingsShared.selected_version_value (version_combo, version_values);
+            var runner_version = selected_runner_version;
 
             registry.update_runner (prefix_index, runner_specs[sel].id, runner_version);
 

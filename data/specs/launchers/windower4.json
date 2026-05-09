@@ -4,7 +4,15 @@
   "prefix": "default",
   "default": true,
   "variables": {
-    "SE_DIR": "drive_c/Program Files (x86)/PlayOnline/SquareEnix",
+    "SE_DIR": {
+      "default": "drive_c/Program Files (x86)/PlayOnline/SquareEnix",
+      "rules": [
+        {
+          "value": "drive_c/Program Files/PlayOnline/SquareEnix",
+          "when": { "ARCH": "win32" }
+        }
+      ]
+    },
     "WINDOWER": "drive_c/Windower4"
   },
   "entrypoints": [

@@ -28,8 +28,10 @@
       "src": "${COMPONENT}/x32/ddraw.dll",
       "dst": "${PREFIX}/drive_c/windows/syswow64",
       "when": {
-        "ARCH": "win64",
-        "file_exists": "${PREFIX}/drive_c/windows/syswow64/ddraw_.dll"
+        "all": [
+          { "ARCH": "win64" },
+          { "file_exists": "${PREFIX}/drive_c/windows/syswow64/ddraw_.dll" }
+        ]
       }
     },
     {
@@ -49,8 +51,10 @@
       "src": "${COMPONENT}/x32/ddraw.dll",
       "dst": "${PREFIX}/drive_c/windows/system32",
       "when": {
-        "ARCH": "win32",
-        "file_exists": "${PREFIX}/drive_c/windows/system32/ddraw_.dll"
+        "all": [
+          { "ARCH": "win32" },
+          { "file_exists": "${PREFIX}/drive_c/windows/system32/ddraw_.dll" }
+        ]
       }
     }
   ]

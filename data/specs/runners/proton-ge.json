@@ -7,17 +7,82 @@
   "version_dir": "GE-Proton(.+)",
   "asset_regex": "GE-Proton.*\\.tar\\.(gz|zst)$",
   "checksum_regex": "GE-Proton.*\\.(sha512sum|sha512)$",
+  "support_files": [
+    {
+      "id": "vkd3d-win32-libvkd3d",
+      "src": [
+        "files/lib/vkd3d/i386-windows/libvkd3d-1.dll",
+        "files/lib/vkd3d/libvkd3d-1.dll",
+        "files/share/default_pfx/drive_c/windows/syswow64/libvkd3d-1.dll"
+      ],
+      "dst": "drive_c/windows/system32/libvkd3d-1.dll",
+      "when": { "ARCH": "win32" }
+    },
+    {
+      "id": "vkd3d-win32-shader",
+      "src": [
+        "files/lib/vkd3d/i386-windows/libvkd3d-shader-1.dll",
+        "files/lib/vkd3d/libvkd3d-shader-1.dll",
+        "files/share/default_pfx/drive_c/windows/syswow64/libvkd3d-shader-1.dll"
+      ],
+      "dst": "drive_c/windows/system32/libvkd3d-shader-1.dll",
+      "when": { "ARCH": "win32" }
+    },
+    {
+      "id": "vkd3d-win64-libvkd3d-x86",
+      "src": [
+        "files/lib/vkd3d/i386-windows/libvkd3d-1.dll",
+        "files/lib/vkd3d/libvkd3d-1.dll",
+        "files/share/default_pfx/drive_c/windows/syswow64/libvkd3d-1.dll"
+      ],
+      "dst": "drive_c/windows/syswow64/libvkd3d-1.dll",
+      "when": { "ARCH": "win64" }
+    },
+    {
+      "id": "vkd3d-win64-shader-x86",
+      "src": [
+        "files/lib/vkd3d/i386-windows/libvkd3d-shader-1.dll",
+        "files/lib/vkd3d/libvkd3d-shader-1.dll",
+        "files/share/default_pfx/drive_c/windows/syswow64/libvkd3d-shader-1.dll"
+      ],
+      "dst": "drive_c/windows/syswow64/libvkd3d-shader-1.dll",
+      "when": { "ARCH": "win64" }
+    },
+    {
+      "id": "vkd3d-win64-libvkd3d-x64",
+      "src": [
+        "files/lib/vkd3d/x86_64-windows/libvkd3d-1.dll",
+        "files/lib64/vkd3d/libvkd3d-1.dll",
+        "files/share/default_pfx/drive_c/windows/system32/libvkd3d-1.dll"
+      ],
+      "dst": "drive_c/windows/system32/libvkd3d-1.dll",
+      "when": { "ARCH": "win64" }
+    },
+    {
+      "id": "vkd3d-win64-shader-x64",
+      "src": [
+        "files/lib/vkd3d/x86_64-windows/libvkd3d-shader-1.dll",
+        "files/lib64/vkd3d/libvkd3d-shader-1.dll",
+        "files/share/default_pfx/drive_c/windows/system32/libvkd3d-shader-1.dll"
+      ],
+      "dst": "drive_c/windows/system32/libvkd3d-shader-1.dll",
+      "when": { "ARCH": "win64" }
+    }
+  ],
   "variants": [
     {
       "id": "wow64",
-      "label": "WoW64 (recommended)",
+      "label": "64-bit / WoW64 (recommended)",
       "default": true,
       "wine_bin": "files/bin-wow64/wine",
       "wineserver": "files/bin-wow64/wineserver",
+      "wine_bins": ["files/bin-wow64/wine", "files/bin/wine"],
+      "wineservers": ["files/bin-wow64/wineserver", "files/bin/wineserver"],
       "binary_kind": "wow64",
       "sandbox_supported": true,
       "paths": {
         "bin": "files/bin-wow64",
+        "bin_paths": ["files/bin-wow64", "files/bin"],
         "lib": ["files/lib"],
         "lib_32": ["files/lib/i386-linux-gnu"],
         "lib_64": ["files/lib/x86_64-linux-gnu"],
@@ -27,7 +92,7 @@
     },
     {
       "id": "bin",
-      "label": "Legacy 32-bit binary",
+      "label": "32-bit (legacy)",
       "wine_bin": "files/bin/wine",
       "wineserver": "files/bin/wineserver",
       "wine_arch": "win32",

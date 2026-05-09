@@ -70,7 +70,7 @@ namespace Lumoria.Runtime {
         resolve_launcher_exe (entry, launcher_specs, "pol", out exe, out args);
 
         var host_exe = resolve_host_path (exe, pfx_path).replace ("\\", "/");
-        var arch = Utils.normalize_wine_arch (entry.wine_arch);
+        var arch = resolve_effective_wine_arch (entry);
         if (arch == "win32") {
             host_exe = host_exe.replace ("/drive_c/Program Files (x86)/", "/drive_c/Program Files/");
         }

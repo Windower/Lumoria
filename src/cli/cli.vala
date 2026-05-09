@@ -90,7 +90,9 @@ namespace Lumoria.Cli {
                 runner_specs,
                 launcher_specs,
                 ep_set ? ep_arg : "",
-                exe_path
+                exe_path,
+                null,
+                Runtime.LaunchPolicy.OFFLINE_FAST_START
             );
         } catch (Error e) {
             stderr.printf ("%s\n", e.message);

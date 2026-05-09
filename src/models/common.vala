@@ -108,6 +108,89 @@ namespace Lumoria.Models {
         }
     }
 
+    public static void parse_variable_definitions (
+        Json.Object obj,
+        string key,
+        out Gee.HashMap<string, string> variables,
+        out Gee.ArrayList<EnvRule> variable_rules
+    ) {
+        var parsed_variables = new Gee.HashMap<string, string> ();
+        var parsed_rules = new Gee.ArrayList<EnvRule> ();
+        if (!obj.has_member (key)) {
+            variables = parsed_variables;
+            variable_rules = parsed_rules;
+            return;
+        }
+
+        var map = obj.get_object_member (key);
+        map.foreach_member ((_, name, node) => {
+            switch (node.get_node_type ()) {
+                case Json.NodeType.OBJECT:
+                    parse_variable_object (name, node.get_object (), parsed_variables, parsed_rules);
+                    break;
+                case Json.NodeType.ARRAY:
+                    parse_variable_array (name, node.get_array (), parsed_variables, parsed_rules);
+                    break;
+                default:
+                    parsed_variables[name] = node.get_string ();
+                    break;
+            }
+        });
+        variables = parsed_variables;
+        variable_rules = parsed_rules;
+    }
+
+    private static void parse_variable_object (
+        string name,
+        Json.Object obj,
+        Gee.HashMap<string, string> variables,
+        Gee.ArrayList<EnvRule> variable_rules
+    ) {
+        if (obj.has_member ("default")) {
+            variables[name] = obj.get_string_member ("default");
+        }
+        if (obj.has_member ("value")) {
+            append_variable_rule_or_default (name, obj, variables, variable_rules);
+        }
+        if (obj.has_member ("rules")) {
+            parse_variable_array (name, obj.get_array_member ("rules"), variables, variable_rules);
+        }
+    }
+
+    private static void parse_variable_array (
+        string name,
+        Json.Array arr,
+        Gee.HashMap<string, string> variables,
+        Gee.ArrayList<EnvRule> variable_rules
+    ) {
+        for (uint i = 0; i < arr.get_length (); i++) {
+            append_variable_rule_or_default (
+                name,
+                arr.get_object_element (i),
+                variables,
+                variable_rules
+            );
+        }
+    }
+
+    private static void append_variable_rule_or_default (
+        string name,
+        Json.Object obj,
+        Gee.HashMap<string, string> variables,
+        Gee.ArrayList<EnvRule> variable_rules
+    ) {
+        if (!obj.has_member ("value")) return;
+        if (!obj.has_member ("when")) {
+            variables[name] = obj.get_string_member ("value");
+            return;
+        }
+
+        var rule = new EnvRule ();
+        rule.vars[name] = obj.get_string_member ("value");
+        rule.when = WhenClause.from_json_member (obj);
+        variable_rules.add (rule);
+    }
+
     public class Entrypoint : BaseSpec {
         public string exe { get; set; default = ""; }
         public Gee.ArrayList<string> args { get; owned set; default = new Gee.ArrayList<string> (); }
@@ -251,7 +334,11 @@ namespace Lumoria.Models {
     }
 
     public static Gee.ArrayList<EnvRule> parse_env_rules (Json.Object obj) throws Error {
-        return parse_json_array<EnvRule> (obj, "env", (o) => EnvRule.from_json (o));
+        return parse_env_rules_member (obj, "env");
+    }
+
+    public static Gee.ArrayList<EnvRule> parse_env_rules_member (Json.Object obj, string member) throws Error {
+        return parse_json_array<EnvRule> (obj, member, (o) => EnvRule.from_json (o));
     }
 
     public static Gee.HashMap<string, RuntimeComponentOverride> json_component_override_map (

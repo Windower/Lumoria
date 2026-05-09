@@ -4,6 +4,7 @@ namespace Lumoria.Models {
         public string prefix { get; set; default = ""; }
         public bool is_default { get; set; default = false; }
         public Gee.HashMap<string, string> variables { get; owned set; default = new Gee.HashMap<string, string> (); }
+        public Gee.ArrayList<EnvRule> variable_rules { get; owned set; default = new Gee.ArrayList<EnvRule> (); }
         public Gee.ArrayList<Entrypoint> entrypoints { get; owned set; default = new Gee.ArrayList<Entrypoint> (); }
         public Gee.ArrayList<string> redists { get; owned set; default = new Gee.ArrayList<string> (); }
 
@@ -13,10 +14,18 @@ namespace Lumoria.Models {
             s.prefix = json_string (obj, "prefix");
             s.is_default = json_bool (obj, "default");
             Gee.HashMap<string, string> variables;
+            Gee.ArrayList<EnvRule> variable_rules;
             Gee.ArrayList<Entrypoint> entrypoints;
             Gee.ArrayList<string> redists;
-            s.parse_installable_supporting_fields (obj, out variables, out entrypoints, out redists);
+            s.parse_installable_supporting_fields (
+                obj,
+                out variables,
+                out variable_rules,
+                out entrypoints,
+                out redists
+            );
             s.variables = variables;
+            s.variable_rules = variable_rules;
             s.entrypoints = entrypoints;
             s.redists = redists;
             return s;

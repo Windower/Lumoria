@@ -9,6 +9,8 @@
     <file>specs/installer.json</file>
     <file>specs/runners/proton-ge.json</file>
     <file>specs/runners/proton-cachyos.json</file>
+    <file>specs/runners/wine-ge-custom.json</file>
+    <file>specs/runners/wine-kron4ek-proton.json</file>
     <file>specs/runners/wine-kron4ek-staging.json</file>
     <file>specs/launchers/windower4.json</file>
     <file>specs/redists/corefonts.json</file>

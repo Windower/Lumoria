@@ -16,6 +16,10 @@ namespace Lumoria.Widgets {
         private Adw.ActionRow wine_tools_row;
         private Adw.ActionRow path_row;
         private Adw.ActionRow browse_row;
+        private Gee.ArrayList<Gtk.Button> launch_buttons = new Gee.ArrayList<Gtk.Button> ();
+        private bool has_runner = false;
+        private bool launch_active = false;
+        private string launch_status = "";
 
         public PrefixRowWidget (
             Models.PrefixEntry entry,
@@ -62,9 +66,11 @@ namespace Lumoria.Widgets {
             play_btn.add_css_class ("suggested-action");
             play_btn.valign = Gtk.Align.CENTER;
             play_btn.focusable = true;
-            play_btn.sensitive = entry.runner_id != "";
+            has_runner = entry.runner_id != "";
+            play_btn.sensitive = has_runner;
             play_btn.clicked.connect (() => play_requested (prefix_index));
             add_suffix (play_btn);
+            launch_buttons.add (play_btn);
 
             path_row = new Adw.ActionRow ();
             path_row.title = _("Path");
@@ -84,8 +90,6 @@ namespace Lumoria.Widgets {
             default_row.add_suffix (default_btn);
             default_row.activatable_widget = default_btn;
             add_row (default_row);
-
-            var has_runner = entry.runner_id != "";
 
             var active_ep_id = Runtime.resolve_effective_entrypoint_id (entry, launcher_specs);
             Runtime.LaunchTargetSection? current_section = null;
@@ -173,8 +177,15 @@ namespace Lumoria.Widgets {
                 }
             });
             row.add_suffix (play_button);
+            launch_buttons.add (play_button);
 
             add_row (row);
+        }
+
+        public void set_launch_state (bool active, string status = "") {
+            launch_active = active;
+            launch_status = status;
+            update_launch_controls ();
         }
 
         public void refresh (
@@ -189,10 +200,21 @@ namespace Lumoria.Widgets {
             default_row.subtitle = default_action_subtitle (is_default);
             default_btn.label = is_default ? _("Quick Launch") : _("Set as Quick Launch");
             default_btn.sensitive = !is_default;
-            var has_runner = entry.runner_id != "";
-            play_btn.sensitive = has_runner;
+            has_runner = entry.runner_id != "";
             wine_tools_row.sensitive = has_runner && !is_gamescope;
             browse_row.sensitive = !is_gamescope;
+            update_launch_controls ();
+        }
+
+        private void update_launch_controls () {
+            foreach (var button in launch_buttons) {
+                button.sensitive = has_runner && !launch_active;
+            }
+            if (launch_active) {
+                play_btn.label = launch_status != "" ? _("Updating...") : _("Launching...");
+            } else {
+                play_btn.label = _("Play");
+            }
         }
 
         public bool activate_primary_action () {

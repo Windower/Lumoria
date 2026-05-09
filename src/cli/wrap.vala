@@ -7,11 +7,14 @@ namespace Lumoria.Cli {
 
     public int cmd_wrap (string[] args) {
         string log_path = "";
+        int env_fd = -1;
         int cmd_start = -1;
 
         for (int i = 2; i < args.length; i++) {
             if (args[i] == "--log" && i + 1 < args.length) {
                 log_path = args[++i];
+            } else if (args[i] == "--env-fd" && i + 1 < args.length) {
+                env_fd = int.parse (args[++i]);
             } else if (args[i] == "--") {
                 cmd_start = i + 1;
                 break;
@@ -19,7 +22,7 @@ namespace Lumoria.Cli {
         }
 
         if (cmd_start < 0 || cmd_start >= args.length) {
-            stderr.printf ("Usage: lumoria wrap --log <path> -- <command...>\n");
+            stderr.printf ("Usage: lumoria wrap --log <path> [--env-fd <fd>] -- <command...>\n");
             return 1;
         }
 
@@ -54,10 +57,13 @@ namespace Lumoria.Cli {
         }
 
         if (child_pid == 0) {
+            apply_child_env (env_fd);
             Posix.execvp (cmd[0], cmd);
-            stdout.printf ("[wrap] exec failed: %s\n", Posix.strerror (Posix.errno));
+            stdout.printf ("[lumoria-internal] exec failed: %s\n", Posix.strerror (Posix.errno));
             Posix._exit (127);
         }
+
+        if (env_fd >= 0) Posix.close (env_fd);
 
         int initial_code = -1;
         bool initial_reaped = false;
@@ -79,5 +85,30 @@ namespace Lumoria.Cli {
         }
 
         return initial_code >= 0 ? initial_code : 1;
+    }
+
+    private void apply_child_env (int env_fd) {
+        if (env_fd < 0) return;
+
+        var builder = new StringBuilder ();
+        var buf = new uint8[4097];
+        ssize_t bytes;
+        while ((bytes = Posix.read (env_fd, buf, 4096)) > 0) {
+            buf[bytes] = 0;
+            builder.append ((string) buf);
+        }
+        Posix.close (env_fd);
+        if (bytes < 0) {
+            stdout.printf ("[lumoria-internal] env read failed: %s\n", Posix.strerror (Posix.errno));
+        }
+
+        foreach (var line in builder.str.split ("\n")) {
+            if (line == "") continue;
+            var eq = line.index_of ("=");
+            if (eq <= 0) continue;
+            var key = line.substring (0, eq);
+            var value = line.substring (eq + 1);
+            Environment.set_variable (key, value, true);
+        }
     }
 }

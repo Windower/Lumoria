@@ -52,6 +52,7 @@ lumoria_sources = files(
   'widgets/dialogs/create-prefix-dialog.vala',
   'widgets/dialogs/manage-prefix-dialog.vala',
   'widgets/dialogs/runner-settings-shared.vala',
+  'widgets/dialogs/runner-version-picker-dialog.vala',
   'widgets/dialogs/wine-tools-dialog.vala',
   'widgets/dialogs/preferences-dialog.vala',
   'widgets/dialogs/install-dialog.vala',

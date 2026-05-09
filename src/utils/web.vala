@@ -49,6 +49,13 @@ namespace Lumoria.Utils {
         }
     }
 
+    public class GitHubReleasePage : Object {
+        public Gee.ArrayList<GitHubRelease> releases { get; owned set; default = new Gee.ArrayList<GitHubRelease> (); }
+        public int page { get; set; default = 1; }
+        public int per_page { get; set; default = 30; }
+        public bool has_more { get; set; default = false; }
+    }
+
     public GitHubAsset? find_github_asset_by_regex (GitHubRelease release, string regex) throws RegexError {
         var pattern = regex.strip ();
         if (pattern == "") return null;
@@ -61,33 +68,80 @@ namespace Lumoria.Utils {
         return null;
     }
 
+    private Gee.ArrayList<GitHubRelease> parse_github_releases_payload (
+        string payload,
+        ssize_t data_len,
+        string repo
+    ) throws Error {
+        var releases = new Gee.ArrayList<GitHubRelease> ();
+        var parser = new Json.Parser ();
+        parser.load_from_data (payload, data_len);
+        var root = parser.get_root ();
+        if (root.get_node_type () != Json.NodeType.ARRAY) {
+            throw new IOError.FAILED ("GitHub API payload for %s was not an array", repo);
+        }
+        var arr = root.get_array ();
+        for (uint i = 0; i < arr.get_length (); i++) {
+            releases.add (GitHubRelease.from_json (arr.get_object_element (i)));
+        }
+        return releases;
+    }
+
+    private bool try_read_releases_cache (
+        string cache_path,
+        int64 cache_ttl_seconds,
+        string repo,
+        out Gee.ArrayList<GitHubRelease> releases
+    ) {
+        releases = new Gee.ArrayList<GitHubRelease> ();
+        if (cache_path == "" || !FileUtils.test (cache_path, FileTest.EXISTS)) return false;
+
+        var file_stat = Stat (cache_path);
+        var age = (int64) time_t () - (int64) file_stat.st_mtime;
+        if (age >= cache_ttl_seconds) return false;
+
+        try {
+            string payload;
+            size_t data_len;
+            FileUtils.get_contents (cache_path, out payload, out data_len);
+            releases = parse_github_releases_payload (payload, (ssize_t) data_len, repo);
+            return true;
+        } catch (Error e) {
+            warning ("Failed to parse GitHub cache at %s: %s; refetching", cache_path, e.message);
+            return false;
+        }
+    }
+
+    private string read_response_payload (InputStream input, out ssize_t data_len) throws Error {
+        var builder = new ByteArray ();
+        var buf = new uint8[65536];
+        ssize_t n;
+        while ((n = input.read (buf)) > 0) {
+            builder.append (buf[0:n]);
+        }
+        builder.append ({0});
+        data_len = (ssize_t) (builder.len - 1);
+        return (string) builder.data;
+    }
+
+    private void write_releases_cache (string cache_path, string payload, ssize_t data_len) {
+        if (cache_path == "") return;
+        try {
+            ensure_dir (Path.get_dirname (cache_path));
+            FileUtils.set_contents (cache_path, payload, data_len);
+        } catch (Error e) {
+            warning ("Failed to cache releases: %s", e.message);
+        }
+    }
+
     public Gee.ArrayList<GitHubRelease> fetch_github_releases_sync (
         string repo,
         string cache_path,
         int64 cache_ttl_seconds
     ) throws Error {
-        var releases = new Gee.ArrayList<GitHubRelease> ();
-
-        if (cache_path != "" && FileUtils.test (cache_path, FileTest.EXISTS)) {
-            var file_stat = Stat (cache_path);
-            var age = (int64) time_t () - (int64) file_stat.st_mtime;
-            if (age < cache_ttl_seconds) {
-                try {
-                    var parser = new Json.Parser ();
-                    parser.load_from_file (cache_path);
-                    var root = parser.get_root ();
-                    if (root.get_node_type () == Json.NodeType.ARRAY) {
-                        var arr = root.get_array ();
-                        for (uint i = 0; i < arr.get_length (); i++) {
-                            releases.add (GitHubRelease.from_json (arr.get_object_element (i)));
-                        }
-                        return releases;
-                    }
-                    warning ("Invalid GitHub cache payload at %s (expected JSON array); refetching", cache_path);
-                } catch (Error e) {
-                    warning ("Failed to parse GitHub cache at %s: %s; refetching", cache_path, e.message);
-                }
-            }
+        Gee.ArrayList<GitHubRelease> releases;
+        if (try_read_releases_cache (cache_path, cache_ttl_seconds, repo, out releases)) {
+            return releases;
         }
 
         var url = "https://api.github.com/repos/%s/releases".printf (repo);
@@ -99,36 +153,54 @@ namespace Lumoria.Utils {
             throw new IOError.FAILED ("GitHub API returned %u for %s", msg.status_code, url);
         }
 
-        var builder = new ByteArray ();
-        var buf = new uint8[65536];
-        ssize_t n;
-        while ((n = input.read (buf)) > 0) {
-            builder.append (buf[0:n]);
-        }
-        builder.append ({0});
-        var data_len = (ssize_t) (builder.len - 1);
-        var payload = (string) builder.data;
-        var parser = new Json.Parser ();
-        parser.load_from_data (payload, data_len);
-        var root = parser.get_root ();
-        if (root.get_node_type () != Json.NodeType.ARRAY) {
-            throw new IOError.FAILED ("GitHub API payload for %s was not an array", repo);
-        }
-        var arr = root.get_array ();
-        for (uint i = 0; i < arr.get_length (); i++) {
-            releases.add (GitHubRelease.from_json (arr.get_object_element (i)));
-        }
-
-        if (cache_path != "") {
-            try {
-                ensure_dir (Path.get_dirname (cache_path));
-                FileUtils.set_contents (cache_path, payload, data_len);
-            } catch (Error e) {
-                warning ("Failed to cache releases: %s", e.message);
-            }
-        }
+        ssize_t data_len;
+        var payload = read_response_payload (input, out data_len);
+        releases = parse_github_releases_payload (payload, data_len, repo);
+        write_releases_cache (cache_path, payload, data_len);
 
         return releases;
+    }
+
+    public GitHubReleasePage fetch_github_releases_page_sync (
+        string repo,
+        string cache_dir,
+        int page,
+        int per_page,
+        int64 cache_ttl_seconds
+    ) throws Error {
+        var result = new GitHubReleasePage ();
+        result.page = page > 0 ? page : 1;
+        result.per_page = per_page > 0 ? per_page : 30;
+
+        var cache_path = cache_dir != ""
+            ? Path.build_filename (cache_dir, "releases-page-%d.json".printf (result.page))
+            : "";
+        Gee.ArrayList<GitHubRelease> releases;
+        if (try_read_releases_cache (cache_path, cache_ttl_seconds, repo, out releases)) {
+            result.releases = releases;
+            result.has_more = releases.size >= result.per_page;
+            return result;
+        }
+
+        var url = "https://api.github.com/repos/%s/releases?per_page=%d&page=%d".printf (
+            repo,
+            result.per_page,
+            result.page
+        );
+        var session = get_api_session ();
+        var msg = new Soup.Message ("GET", url);
+
+        var input = session.send (msg, null);
+        if (msg.status_code != 200) {
+            throw new IOError.FAILED ("GitHub API returned %u for %s", msg.status_code, url);
+        }
+
+        ssize_t data_len;
+        var payload = read_response_payload (input, out data_len);
+        result.releases = parse_github_releases_payload (payload, data_len, repo);
+        result.has_more = result.releases.size >= result.per_page;
+        write_releases_cache (cache_path, payload, data_len);
+        return result;
     }
 
     public delegate void ProgressCallback (int64 downloaded, int64 total);

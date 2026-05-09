@@ -20,6 +20,10 @@ namespace Lumoria.Widgets {
         private Gtk.Widget? gamepad_focus_widget;
         private bool allow_window_close = false;
         private string expand_prefix_id_on_refresh = "";
+        private int active_launch_index = -1;
+        private string active_launch_status = "";
+        private Adw.Dialog? runner_update_dialog = null;
+        private Gtk.Label? runner_update_label = null;
 
         public Window (Application app) {
             Object (
@@ -190,6 +194,9 @@ namespace Lumoria.Widgets {
                     this.collapse_other_prefix_rows (row_index);
                 });
                 prefix_list.append (row);
+                if (active_launch_index == i) {
+                    row.set_launch_state (true, active_launch_status);
+                }
                 if (!restored_expanded && expanded_prefix_id != null && entry.id == expanded_prefix_id) {
                     row.expanded = true;
                     restored_expanded = true;
@@ -224,7 +231,7 @@ namespace Lumoria.Widgets {
 
         private void update_global_play_sensitivity () {
             var def = registry.default_prefix ();
-            global_play_btn.sensitive = def != null && def.runner_id != "";
+            global_play_btn.sensitive = active_launch_index < 0 && def != null && def.runner_id != "";
         }
 
         public void show_toast (string message) {
@@ -285,15 +292,22 @@ namespace Lumoria.Widgets {
         }
 
         private void on_play_entrypoint (int index, string entrypoint_id) {
+            if (active_launch_index >= 0) {
+                show_toast (_("A launch is already running."));
+                return;
+            }
             var entry = require_runnable (index);
             if (entry == null) return;
 
+            begin_launch_state (index);
             launch_service.launch_prefix (
                 entry,
                 runner_specs,
                 launcher_specs,
                 entrypoint_id,
-                (msg) => show_toast (msg)
+                (msg) => show_toast (msg),
+                (status) => update_launch_status (status),
+                () => end_launch_state ()
             );
         }
 
@@ -369,30 +383,127 @@ namespace Lumoria.Widgets {
         }
 
         private void launch_prefix_exe (int index, string exe_path) {
+            if (active_launch_index >= 0) {
+                show_toast (_("A launch is already running."));
+                return;
+            }
             var entry = require_runnable (index);
             if (entry == null) return;
 
+            begin_launch_state (index);
             launch_service.launch_exe (
                 entry,
                 runner_specs,
                 launcher_specs,
                 exe_path,
-                (msg) => show_toast (msg)
+                (msg) => show_toast (msg),
+                (status) => update_launch_status (status),
+                () => end_launch_state ()
             );
         }
 
         private void launch_wine_tool (int index, string[] wine_args, string label) {
             if (!ensure_wine_tools_allowed ()) return;
+            if (active_launch_index >= 0) {
+                show_toast (_("A launch is already running."));
+                return;
+            }
             var entry = require_runnable (index);
             if (entry == null) return;
 
+            begin_launch_state (index);
             launch_service.launch_wine_tool (
                 entry,
                 runner_specs,
                 wine_args,
                 label,
-                (msg) => show_toast (msg)
+                (msg) => show_toast (msg),
+                (status) => update_launch_status (status),
+                () => end_launch_state ()
             );
+        }
+
+        private void begin_launch_state (int index) {
+            active_launch_index = index;
+            active_launch_status = "";
+            global_play_btn.label = _("Launching...");
+            update_global_play_sensitivity ();
+            set_row_launch_state (index, true, "");
+        }
+
+        private void update_launch_status (string status) {
+            active_launch_status = status;
+            global_play_btn.label = _("Updating...");
+            set_row_launch_state (active_launch_index, true, status);
+            present_runner_update_dialog (status);
+        }
+
+        private void end_launch_state () {
+            var index = active_launch_index;
+            active_launch_index = -1;
+            active_launch_status = "";
+            global_play_btn.label = _("Play");
+            set_row_launch_state (index, false, "");
+            update_global_play_sensitivity ();
+            close_runner_update_dialog ();
+        }
+
+        private void set_row_launch_state (int index, bool active, string status) {
+            var row = prefix_list.get_row_at_index (index) as PrefixRowWidget;
+            if (row != null) row.set_launch_state (active, status);
+        }
+
+        private void present_runner_update_dialog (string status) {
+            if (runner_update_dialog != null) {
+                if (runner_update_label != null) runner_update_label.label = status;
+                return;
+            }
+
+            var dialog = new Adw.Dialog ();
+            dialog.title = _("Updating Prefix");
+            dialog.content_width = 360;
+            dialog.content_height = 170;
+            dialog.can_close = false;
+
+            var box = new Gtk.Box (Gtk.Orientation.VERTICAL, 16);
+            box.halign = Gtk.Align.CENTER;
+            box.valign = Gtk.Align.CENTER;
+            box.margin_start = 24;
+            box.margin_end = 24;
+
+            var spinner = new Gtk.Spinner ();
+            spinner.spinning = true;
+            spinner.width_request = 32;
+            spinner.height_request = 32;
+            box.append (spinner);
+
+            runner_update_label = new Gtk.Label (
+                status != "" ? status : _("Updating Wine prefix for the selected runner...")
+            );
+            runner_update_label.wrap = true;
+            runner_update_label.justify = Gtk.Justification.CENTER;
+            runner_update_label.add_css_class ("heading");
+            box.append (runner_update_label);
+
+            dialog.child = box;
+            runner_update_dialog = dialog;
+            track_dialog (dialog);
+            dialog.closed.connect (() => {
+                if (runner_update_dialog == dialog) {
+                    runner_update_dialog = null;
+                    runner_update_label = null;
+                }
+            });
+            dialog.present (this);
+        }
+
+        private void close_runner_update_dialog () {
+            if (runner_update_dialog == null) return;
+            var dialog = runner_update_dialog;
+            runner_update_dialog = null;
+            runner_update_label = null;
+            dialog.can_close = true;
+            dialog.close ();
         }
 
         private void launch_bash_terminal (int index) {

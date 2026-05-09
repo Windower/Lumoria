@@ -1,4 +1,7 @@
 namespace Lumoria.Runtime {
+    private const int WRAP_ENV_FD = 3;
+    private const int WRAP_FD_SCAN_LIMIT = 1024;
+
     public class RunResult : Object {
         public int pid { get; set; default = 0; }
         public string executable { get; set; default = ""; }
@@ -17,7 +20,9 @@ namespace Lumoria.Runtime {
         Gee.ArrayList<Models.LauncherSpec> launcher_specs,
         string entrypoint_id = "",
         string custom_exe = "",
-        string[]? custom_wine_args = null
+        string[]? custom_wine_args = null,
+        LaunchPolicy launch_policy = LaunchPolicy.INTERACTIVE,
+        RuntimeStatusCallback? status_cb = null
     ) throws Error {
         require_prefix_path (entry);
 
@@ -44,7 +49,15 @@ namespace Lumoria.Runtime {
         var active_entrypoint = custom_exe == ""
             ? resolve_launch_entrypoint (entry, launcher_specs, active_entrypoint_id)
             : null;
-        var ctx = prepare_runtime_context (entry, runner_specs, false, logger, active_entrypoint);
+        var ctx = prepare_runtime_context (
+            entry,
+            runner_specs,
+            false,
+            logger,
+            active_entrypoint,
+            launch_policy,
+            status_cb
+        );
         apply_launch_env (entry, launcher_specs, custom_exe != "" ? "" : active_entrypoint_id, ctx.env);
         apply_entrypoint_runtime_overrides (active_entrypoint, ctx.env, logger);
 
@@ -92,13 +105,23 @@ namespace Lumoria.Runtime {
         Models.PrefixEntry entry,
         Gee.ArrayList<Models.RunnerSpec> runner_specs,
         Gee.ArrayList<string> wine_args,
-        string command_label
+        string command_label,
+        LaunchPolicy launch_policy = LaunchPolicy.INTERACTIVE,
+        RuntimeStatusCallback? status_cb = null
     ) throws Error {
         require_prefix_path (entry);
 
         var session_id = generate_session_id ();
         var logger = RuntimeLog.for_run (entry.path, session_id);
-        var ctx = prepare_runtime_context (entry, runner_specs, true, logger, null);
+        var ctx = prepare_runtime_context (
+            entry,
+            runner_specs,
+            true,
+            logger,
+            null,
+            launch_policy,
+            status_cb
+        );
         apply_launch_env (entry, null, "", ctx.env);
         var argv = new Gee.ArrayList<string> ();
         argv.add (ctx.paths.wine);
@@ -173,26 +196,33 @@ namespace Lumoria.Runtime {
         Gee.ArrayList<Models.RunnerSpec> runner_specs,
         bool disable_mscoree,
         RuntimeLog logger,
-        Models.Entrypoint? active_entrypoint
+        Models.Entrypoint? active_entrypoint,
+        LaunchPolicy launch_policy = LaunchPolicy.INTERACTIVE,
+        RuntimeStatusCallback? status_cb = null
     ) throws Error {
         var runner_spec = resolve_runner_spec_for_entry (entry, runner_specs);
         var runtime = prepare_wine_runtime (
             runner_spec, entry.variant_id, entry.runner_version,
-            entry.path, "",
+            entry.path, entry.wine_arch,
             entry.sync_mode, entry.wine_debug, entry.wine_wayland,
-            null, null, logger
+            null, null, logger,
+            launch_policy,
+            entry.runner_state
         );
+        ensure_prefix_runner_current (entry, runtime, logger, true, launch_policy, status_cb);
 
         if (disable_mscoree) {
             runtime.env.add_dll_override ("mscoree", DLL_DISABLED);
         }
+        apply_runner_support_files (runtime, entry, logger);
         try {
             var comp_result = apply_enabled_components (
                 runtime.paths,
                 runtime.prefix_path,
                 entry,
                 active_entrypoint,
-                logger
+                logger,
+                launch_policy
             );
             foreach (var ov in comp_result.dll_overrides.entries) {
                 runtime.env.add_dll_override (ov.key, ov.value);
@@ -308,6 +338,11 @@ namespace Lumoria.Runtime {
         RuntimeLog logger
     ) throws Error {
         var log_path = logger.log_path;
+        var env_pipe = new int[2];
+        if (Posix.pipe (env_pipe) != 0) {
+            throw new IOError.FAILED ("Failed to create wrapper environment pipe: %s", Posix.strerror (Posix.errno));
+        }
+
         logger.close ();
 
         var self_exe = Utils.current_executable_path () ?? "lumoria";
@@ -316,18 +351,36 @@ namespace Lumoria.Runtime {
         wrapped.add ("wrap");
         wrapped.add ("--log");
         wrapped.add (log_path);
+        wrapped.add ("--env-fd");
+        wrapped.add (WRAP_ENV_FD.to_string ());
         wrapped.add ("--");
         wrapped.add_all (argv);
 
-        int child_pid;
-        Process.spawn_async (
-            work_dir,
-            Utils.arraylist_to_strv (wrapped),
-            env.to_spawn_strv (),
-            CHILD_SPAWN_FLAGS,
-            null,
-            out child_pid
-        );
+        var child_pid = Posix.fork ();
+        if (child_pid < 0) {
+            Posix.close (env_pipe[0]);
+            Posix.close (env_pipe[1]);
+            throw new IOError.FAILED ("Failed to fork wrapper: %s", Posix.strerror (Posix.errno));
+        }
+
+        if (child_pid == 0) {
+            Posix.close (env_pipe[1]);
+            if (work_dir != "" && Posix.chdir (work_dir) != 0) {
+                Posix._exit (127);
+            }
+            if (env_pipe[0] != WRAP_ENV_FD) {
+                Posix.dup2 (env_pipe[0], WRAP_ENV_FD);
+            }
+            close_unrelated_fds (WRAP_ENV_FD);
+            Posix.execvp (wrapped[0], Utils.arraylist_to_strv (wrapped));
+            Posix._exit (127);
+        }
+        Posix.close (env_pipe[0]);
+        try {
+            write_all_fd (env_pipe[1], build_wrap_env_payload (env));
+        } finally {
+            Posix.close (env_pipe[1]);
+        }
 
         var pid_copy = child_pid;
         new Thread<bool> ("wrap-reaper", () => {
@@ -342,6 +395,35 @@ namespace Lumoria.Runtime {
         run_result.executable = executable_label;
         run_result.log_path = log_path;
         return run_result;
+    }
+
+    private void close_unrelated_fds (int keep_fd) {
+        for (int fd = 3; fd < WRAP_FD_SCAN_LIMIT; fd++) {
+            if (fd != keep_fd) Posix.close (fd);
+        }
+    }
+
+    private string build_wrap_env_payload (WineEnv env) {
+        var lines = new Gee.ArrayList<string> ();
+        foreach (var entry in env.snapshot_vars ().entries) {
+            lines.add ("%s=%s".printf (entry.key, entry.value));
+        }
+        return string.joinv ("\n", Utils.arraylist_to_strv (lines));
+    }
+
+    private void write_all_fd (int fd, string payload) throws Error {
+        uint8[] bytes = payload.data;
+        size_t offset = 0;
+        while (offset < bytes.length) {
+            var written = Posix.write (fd, (uint8[]) bytes[offset:bytes.length], bytes.length - offset);
+            if (written < 0) {
+                throw new IOError.FAILED ("Failed to write wrapper environment pipe: %s", Posix.strerror (Posix.errno));
+            }
+            if (written == 0) {
+                throw new IOError.FAILED ("Failed to write wrapper environment pipe");
+            }
+            offset += written;
+        }
     }
 
     private RunResult spawn_tracked_process (

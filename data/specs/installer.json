@@ -3,7 +3,15 @@
   "name": "Final Fantasy XI",
   "version": "1.0",
   "variables": {
-    "SE_DIR": "drive_c/Program Files (x86)/PlayOnline/SquareEnix",
+    "SE_DIR": {
+      "default": "drive_c/Program Files (x86)/PlayOnline/SquareEnix",
+      "rules": [
+        {
+          "value": "drive_c/Program Files/PlayOnline/SquareEnix",
+          "when": { "ARCH": "win32" }
+        }
+      ]
+    },
     "WINE_USERPROFILE_HOST": "@winepath:%USERPROFILE%",
     "REGION": "@prefix:region"
   },
@@ -98,8 +106,8 @@
       "command": "msiexec",
       "args": ["-q", "-i", "${CACHE}/FFXIFullSetup_${REGION:upper}/PlayOnline/PlayOnlineViewer.msi"],
       "working_dir": "${CACHE}",
-      "when": { "not": { "file_exists": "${PREFIX}/drive_c/Program Files (x86)/PlayOnline/SquareEnix/PlayOnlineViewer/pol.exe" } },
-      "verify_paths": ["${PREFIX}/drive_c/Program Files (x86)/PlayOnline/SquareEnix/PlayOnlineViewer"]
+      "when": { "not": { "file_exists": "${PREFIX}/${SE_DIR}/PlayOnlineViewer/pol.exe" } },
+      "verify_paths": ["${PREFIX}/${SE_DIR}/PlayOnlineViewer"]
     },
     {
       "type": "wineexec",
@@ -107,8 +115,8 @@
       "command": "msiexec",
       "args": ["-q", "-i", "${CACHE}/FFXIFullSetup_${REGION:upper}/FINAL_FANTASY_XI/FINAL_FANTASY_XI.msi"],
       "working_dir": "${CACHE}",
-      "when": { "not": { "file_exists": "${PREFIX}/drive_c/Program Files (x86)/PlayOnline/SquareEnix/FINAL FANTASY XI" } },
-      "verify_paths": ["${PREFIX}/drive_c/Program Files (x86)/PlayOnline/SquareEnix/FINAL FANTASY XI"]
+      "when": { "not": { "file_exists": "${PREFIX}/${SE_DIR}/FINAL FANTASY XI" } },
+      "verify_paths": ["${PREFIX}/${SE_DIR}/FINAL FANTASY XI"]
     },
     {
       "type": "write",

@@ -14,7 +14,8 @@ namespace Lumoria.Runtime {
         string variant_id,
         string version,
         DownloadProgress? progress,
-        RuntimeLog logger
+        RuntimeLog logger,
+        bool allow_download = true
     ) throws Error {
         var v = spec.effective_variant (variant_id);
         var cache_root = Path.build_filename (Utils.cache_dir (), "runners", spec.id);
@@ -25,10 +26,15 @@ namespace Lumoria.Runtime {
         var installed = find_installed_runner (spec, extract_root, version, logger);
         if (installed != null) return installed;
 
-        var releases_path = Path.build_filename (cache_root, "releases.json");
-        var releases = Utils.fetch_github_releases_sync (spec.github_repo, releases_path, 6 * 3600);
+        if (!allow_download) {
+            throw new IOError.FAILED (
+                "Runner %s %s is not installed. Open Lumoria to download it before launching from CLI.",
+                spec.id,
+                version
+            );
+        }
 
-        Utils.GitHubRelease? release = select_release (spec, releases, version, logger);
+        Utils.GitHubRelease? release = select_release (spec, v, version, cache_root, logger);
         if (release == null) {
             throw new IOError.FAILED ("No release found for version: %s", version);
         }
@@ -114,25 +120,57 @@ namespace Lumoria.Runtime {
 
     private Utils.GitHubRelease? select_release (
         Models.RunnerSpec spec,
-        Gee.ArrayList<Utils.GitHubRelease> releases,
+        Models.RunnerVariant variant,
         string version,
+        string cache_root,
         RuntimeLog logger
-    ) {
-        if (releases.size == 0) return null;
+    ) throws Error {
+        var page = 1;
+        var scanned = 0;
         if (version == "" || version == "latest") {
+            var releases = Utils.fetch_github_releases_page_sync (
+                spec.github_repo, cache_root, page, 30, 6 * 3600
+            ).releases;
             foreach (var r in releases) {
-                if (!spec.skips_version (r.tag_name)) return r;
+                if (!release_matches_variant (spec, variant, r, logger)) continue;
+                return r;
             }
             return null;
         }
-        foreach (var r in releases) {
-            if (spec.skips_version (r.tag_name)) continue;
-            if (r.tag_name == version) return r;
+
+        while (true) {
+            var release_page = Utils.fetch_github_releases_page_sync (
+                spec.github_repo, cache_root, page, 30, 6 * 3600
+            );
+            foreach (var r in release_page.releases) {
+                scanned++;
+                if (r.tag_name != version) continue;
+                if (!release_matches_variant (spec, variant, r, logger)) {
+                    logger.typed (LogType.WARN, "Release '%s' had no asset for variant '%s'".printf (
+                        version,
+                        variant.id
+                    ));
+                    return null;
+                }
+                return r;
+            }
+            if (!release_page.has_more) break;
+            page++;
         }
         logger.typed (LogType.WARN, "No release matching tag '%s'; %d releases available".printf (
-            version, releases.size
+            version, scanned
         ));
         return null;
+    }
+
+    private bool release_matches_variant (
+        Models.RunnerSpec spec,
+        Models.RunnerVariant variant,
+        Utils.GitHubRelease release,
+        RuntimeLog logger
+    ) {
+        if (spec.skips_version (release.tag_name)) return false;
+        return find_asset (release, variant.asset_regex, logger) != null;
     }
 
     private Utils.GitHubAsset? find_asset (Utils.GitHubRelease release, string regex, RuntimeLog logger) {

@@ -40,12 +40,13 @@ namespace Lumoria.Runtime {
         string pfx_path,
         Models.PrefixEntry? entry,
         Models.Entrypoint? entrypoint,
-        RuntimeLog logger
+        RuntimeLog logger,
+        LaunchPolicy launch_policy = LaunchPolicy.INTERACTIVE
     ) throws Error {
         var result = new ComponentResult ();
         var specs = Models.ComponentSpec.load_all_from_resource ();
         var defaults = Utils.Preferences.instance ();
-        var arch = entry != null ? Utils.normalize_wine_arch (entry.wine_arch) : "";
+        var arch = entry != null ? resolve_effective_wine_arch (entry) : "";
         if (arch == "") arch = "win64";
         bool dirty = false;
 
@@ -57,11 +58,17 @@ namespace Lumoria.Runtime {
                 defaults,
                 entrypoint != null ? entrypoint.component_overrides : null
             );
-            var desired_version = resolve_component_version (spec, entry, defaults);
             Models.AppliedComponentRecord? applied = null;
             if (entry != null && entry.applied_components.has_key (spec.id)) {
                 applied = entry.applied_components[spec.id];
             }
+            var desired_version = resolve_component_version_for_policy (
+                spec,
+                entry,
+                defaults,
+                applied,
+                launch_policy
+            );
 
             if (runtime_active) {
                 foreach (var ov in spec.overrides.entries) {
@@ -72,19 +79,28 @@ namespace Lumoria.Runtime {
             if (prefix_active) {
 
                 if (applied != null && applied.version == desired_version) {
-                    logger.typed (LogType.COMPONENT, "%s: %s already applied".printf (spec.id, desired_version));
-                    continue;
+                    if (component_record_matches_arch (spec, applied, arch)) {
+                        logger.typed (LogType.COMPONENT, "%s: %s already applied".printf (spec.id, desired_version));
+                        continue;
+                    }
+                    logger.typed (LogType.COMPONENT, "%s: reapplying %s for %s prefix".printf (
+                        spec.id,
+                        desired_version,
+                        arch
+                    ));
                 }
 
                 if (applied != null) {
-                    logger.typed (LogType.COMPONENT, "%s: replacing %s with %s".printf (
-                        spec.id, applied.version, desired_version
-                    ));
-                    sweep_component_files (applied, wine_paths, arch, logger);
+                    if (applied.version != desired_version) {
+                        logger.typed (LogType.COMPONENT, "%s: replacing %s with %s".printf (
+                            spec.id, applied.version, desired_version
+                        ));
+                    }
+                    sweep_component_files (applied, wine_paths, arch, logger, false);
                     if (entry != null) entry.applied_components.unset (spec.id);
                 }
 
-                var record = run_component_install (spec, desired_version, pfx_path, entry, logger);
+                var record = run_component_install (spec, desired_version, pfx_path, entry, logger, launch_policy);
                 if (record != null && entry != null) {
                     entry.applied_components[spec.id] = record;
                     dirty = true;
@@ -94,7 +110,7 @@ namespace Lumoria.Runtime {
 
             if (applied != null) {
                 logger.typed (LogType.COMPONENT, "%s: disabled, removing %s".printf (spec.id, applied.version));
-                sweep_component_files (applied, wine_paths, arch, logger);
+                sweep_component_files (applied, wine_paths, arch, logger, true);
                 if (entry != null) {
                     entry.applied_components.unset (spec.id);
                     dirty = true;
@@ -109,6 +125,22 @@ namespace Lumoria.Runtime {
         }
 
         return result;
+    }
+
+    private bool component_record_matches_arch (
+        Models.ComponentSpec spec,
+        Models.AppliedComponentRecord record,
+        string arch
+    ) {
+        if (spec.steps.size > 0 && record.installed_files.size == 0) return false;
+        foreach (var path in record.installed_files) {
+            if (!FileUtils.test (path, FileTest.EXISTS)) return false;
+            var normalized = path.replace ("\\", "/");
+            if (arch == "win32" && normalized.contains ("/drive_c/windows/syswow64/")) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public Gee.HashMap<string, string> resolve_component_env_defaults (
@@ -183,12 +215,37 @@ namespace Lumoria.Runtime {
         return defaults.get_tool_version (Utils.ToolKind.COMPONENT, spec.id);
     }
 
+    private string resolve_component_version_for_policy (
+        Models.ComponentSpec spec,
+        Models.PrefixEntry? entry,
+        Utils.Preferences defaults,
+        Models.AppliedComponentRecord? applied,
+        LaunchPolicy launch_policy
+    ) throws Error {
+        if (launch_policy != LaunchPolicy.OFFLINE_FAST_START) {
+            return resolve_component_version (spec, entry, defaults);
+        }
+
+        if (applied != null && applied.version != "") return applied.version;
+
+        var requested = resolve_component_version (spec, entry, defaults);
+        var normalized = requested.strip ().down ();
+        if (normalized == "" || normalized == "default" || normalized == "latest") {
+            throw new IOError.FAILED (
+                "Component %s has no applied version for offline launch. Open Lumoria to prepare this prefix.",
+                spec.id
+            );
+        }
+        return requested;
+    }
+
     private Models.AppliedComponentRecord? run_component_install (
         Models.ComponentSpec spec,
         string version,
         string pfx_path,
         Models.PrefixEntry? entry,
-        RuntimeLog logger
+        RuntimeLog logger,
+        LaunchPolicy launch_policy = LaunchPolicy.INTERACTIVE
     ) throws Error {
         var adapter = new Models.ComponentToolAdapter (spec);
         var version_obj = (version == "latest")
@@ -196,6 +253,13 @@ namespace Lumoria.Runtime {
             : new Models.ToolVersion (version);
 
         if (!adapter.is_installed (version_obj)) {
+            if (launch_policy == LaunchPolicy.OFFLINE_FAST_START) {
+                throw new IOError.FAILED (
+                    "Component %s %s is not installed. Open Lumoria to download it before launching from CLI.",
+                    spec.id,
+                    version
+                );
+            }
             logger.typed (LogType.COMPONENT, "%s: cache miss, fetching %s".printf (spec.id, version));
             adapter.install_version (version_obj, null);
         }
@@ -213,7 +277,7 @@ namespace Lumoria.Runtime {
         vars["COMPONENT"] = installed_path;
         vars["PREFIX"] = pfx_path;
         if (entry != null) {
-            vars["ARCH"] = Utils.normalize_wine_arch (entry.wine_arch) != "" ? Utils.normalize_wine_arch (entry.wine_arch) : "win64";
+            vars["ARCH"] = resolve_effective_wine_arch (entry);
             vars["REGION"] = entry.region;
         }
 
@@ -263,7 +327,8 @@ namespace Lumoria.Runtime {
         Models.AppliedComponentRecord record,
         WinePaths wine_paths,
         string arch,
-        RuntimeLog logger
+        RuntimeLog logger,
+        bool restore_runner_builtins
     ) {
         foreach (var path in record.installed_files) {
             if (!FileUtils.test (path, FileTest.EXISTS)) continue;
@@ -272,6 +337,8 @@ namespace Lumoria.Runtime {
                 continue;
             }
             logger.typed (LogType.COMPONENT, "  removed %s".printf (path));
+
+            if (!restore_runner_builtins) continue;
 
             var src = runner_builtin_for_dst (wine_paths, path, arch);
             if (src == "") continue;

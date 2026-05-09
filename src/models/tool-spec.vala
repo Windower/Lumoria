@@ -21,6 +21,13 @@ namespace Lumoria.Models {
         }
     }
 
+    public class ToolVersionPage : Object {
+        public Gee.ArrayList<ToolVersion> versions { get; owned set; default = new Gee.ArrayList<ToolVersion> (); }
+        public int page { get; set; default = 1; }
+        public int per_page { get; set; default = 30; }
+        public bool has_more { get; set; default = false; }
+    }
+
     public interface ToolSpec : Object {
         public abstract Utils.ToolKind tool_kind { get; }
         public abstract string tool_id { get; }
@@ -30,6 +37,7 @@ namespace Lumoria.Models {
         public abstract string install_base_dir { owned get; }
 
         public abstract Gee.ArrayList<ToolVersion> list_versions () throws Error;
+        public abstract ToolVersionPage list_version_page (int page, int per_page) throws Error;
         public abstract void install_version (ToolVersion ver, VersionProgress? progress) throws Error;
         public abstract void remove_version (ToolVersion ver) throws Error;
         public abstract bool is_installed (ToolVersion ver);

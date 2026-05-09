@@ -53,6 +53,34 @@ namespace Lumoria.Models {
         }
     }
 
+    public class PrefixRunnerState : Object {
+        public string runner_id { get; set; default = ""; }
+        public string variant_id { get; set; default = ""; }
+        public string resolved_version { get; set; default = ""; }
+
+        public bool matches (string runner_id, string variant_id, string resolved_version) {
+            return this.runner_id == runner_id
+                && this.variant_id == variant_id
+                && this.resolved_version == resolved_version;
+        }
+
+        public Json.Object to_json () {
+            var obj = new Json.Object ();
+            if (runner_id != "") obj.set_string_member ("runner_id", runner_id);
+            if (variant_id != "") obj.set_string_member ("variant_id", variant_id);
+            if (resolved_version != "") obj.set_string_member ("resolved_version", resolved_version);
+            return obj;
+        }
+
+        public static PrefixRunnerState from_json (Json.Object obj) {
+            var s = new PrefixRunnerState ();
+            s.runner_id = json_string (obj, "runner_id");
+            s.variant_id = json_string (obj, "variant_id");
+            s.resolved_version = json_string (obj, "resolved_version");
+            return s;
+        }
+    }
+
     public class PrefixPostInstallSpec : Object {
         public string original_path { get; set; default = ""; }
         public string original_uri { get; set; default = ""; }
@@ -120,6 +148,10 @@ namespace Lumoria.Models {
         public Gee.HashMap<string, AppliedComponentRecord> applied_components {
             get; owned set; default = new Gee.HashMap<string, AppliedComponentRecord> ();
         }
+        public Gee.ArrayList<string> runner_support_files {
+            get; owned set; default = new Gee.ArrayList<string> ();
+        }
+        public PrefixRunnerState? runner_state { get; set; default = null; }
         public PrefixPostInstallSpec? post_install_spec { get; set; default = null; }
         public string resolved_path () {
             if (uri != "") {
@@ -254,6 +286,14 @@ namespace Lumoria.Models {
                 }
                 obj.set_object_member ("applied_components", ac);
             }
+            if (runner_support_files.size > 0) {
+                var arr = new Json.Array ();
+                foreach (var path in runner_support_files) arr.add_string_element (path);
+                obj.set_array_member ("runner_support_files", arr);
+            }
+            if (runner_state != null) {
+                obj.set_object_member ("runner_state", runner_state.to_json ());
+            }
             if (post_install_spec != null) {
                 obj.set_object_member ("post_install_spec", post_install_spec.to_json ());
             }
@@ -303,6 +343,10 @@ namespace Lumoria.Models {
                 ac.foreach_member ((_, key, node) => {
                     e.applied_components[key] = AppliedComponentRecord.from_json (node.get_object ());
                 });
+            }
+            e.runner_support_files = json_string_array (obj, "runner_support_files");
+            if (obj.has_member ("runner_state")) {
+                e.runner_state = PrefixRunnerState.from_json (obj.get_object_member ("runner_state"));
             }
             return e;
         }

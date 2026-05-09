@@ -12,6 +12,13 @@ namespace Lumoria.Runtime {
     public const string WINE_DEBUG_LABEL_GENERAL = "General";
     public const string WINE_DEBUG_LABEL_FULL = "Full";
 
+    public enum LaunchPolicy {
+        INTERACTIVE,
+        OFFLINE_FAST_START
+    }
+
+    public delegate void RuntimeStatusCallback (string message);
+
     public uint wine_debug_index_for_value (string value) {
         var mode = value.down ().strip ();
         if (mode == WINE_DEBUG_GENERAL) return 1;
@@ -156,12 +163,12 @@ namespace Lumoria.Runtime {
 
         var v = spec.effective_variant (variant_id);
 
-        var wine_bin = resolve_spec_path_public (root, v.wine_bin);
+        var wine_bin = resolve_first_existing_spec_path (root, v.wine_bins, v.wine_bin);
         if (wine_bin == "" || !FileUtils.test (wine_bin, FileTest.EXISTS)) {
             throw new IOError.FAILED ("runner '%s': wine binary not found: %s", spec.id, wine_bin);
         }
 
-        var wineserver = resolve_spec_path_public (root, v.wineserver);
+        var wineserver = resolve_first_existing_spec_path (root, v.wineservers, v.wineserver);
         if (wineserver == "" || !FileUtils.test (wineserver, FileTest.EXISTS)) {
             throw new IOError.FAILED ("runner '%s': wineserver not found: %s", spec.id, wineserver);
         }
@@ -200,10 +207,12 @@ namespace Lumoria.Runtime {
         var has_x11 = display != null && display.strip () != "";
         var has_wayland = wayland_display != null && wayland_display.strip () != "";
 
+        var can_use_wayland = wayland_enabled && has_wayland && runner_has_wayland_driver (paths, effective_arch);
+
         if (headless) {
             env.add_dll_override ("winex11.drv", DLL_DISABLED);
             env.add_dll_override ("winewayland.drv", DLL_DISABLED);
-        } else if (wayland_enabled && has_wayland) {
+        } else if (can_use_wayland) {
             env.add_dll_override ("winex11.drv", DLL_DISABLED);
         } else if (has_x11) {
             env.add_dll_override ("winewayland.drv", DLL_DISABLED);
@@ -220,7 +229,7 @@ namespace Lumoria.Runtime {
             var p = v.paths;
             var root = paths.root;
 
-            var bin_dir = resolve_spec_path_public (root, p.bin);
+            var bin_dir = resolve_first_existing_spec_path (root, p.bin_paths, p.bin);
 
             var ld_parts = new Gee.ArrayList<string> ();
             foreach (var l in p.lib) ld_parts.add (resolve_spec_path_public (root, l));
@@ -231,15 +240,30 @@ namespace Lumoria.Runtime {
             var ld = join_existing_paths (ld_parts);
             var wine_dll = join_existing_paths (paths.wine_dll_dirs);
 
-            env.prepend_path ("PATH", bin_dir);
+            if (bin_dir != "" && FileUtils.test (bin_dir, FileTest.IS_DIR)) {
+                env.prepend_path ("PATH", bin_dir);
+            }
             env.prepend_path ("LD_LIBRARY_PATH", ld);
             env.prepend_path ("WINEDLLPATH", wine_dll);
-            env.set_var ("WINEPATH", wine_dll);
         }
 
         apply_sync_mode (env, sync_mode);
 
         return env;
+    }
+
+    private bool runner_has_wayland_driver (WinePaths paths, string wine_arch) {
+        foreach (var dir in paths.wine_dll_dirs) {
+            var pe_arch = wine_arch == "win32" ? "i386-windows" : "x86_64-windows";
+            if (FileUtils.test (Path.build_filename (dir, pe_arch, "winewayland.drv"), FileTest.EXISTS)) {
+                return true;
+            }
+            var unix_arch = wine_arch == "win32" ? "i386-unix" : "x86_64-unix";
+            if (FileUtils.test (Path.build_filename (dir, unix_arch, "winewayland.drv.so"), FileTest.EXISTS)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public void apply_env_overrides (WineEnv env, Gee.HashMap<string, string> overrides) {
@@ -303,11 +327,24 @@ namespace Lumoria.Runtime {
         bool? wine_wayland,
         Gee.HashMap<string, string>? entry_runtime_env_vars,
         DownloadProgress? download_progress_cb,
-        RuntimeLog logger
+        RuntimeLog logger,
+        LaunchPolicy launch_policy = LaunchPolicy.INTERACTIVE,
+        Models.PrefixRunnerState? runner_state = null
     ) throws Error {
-        var resolved_version = Utils.Preferences.resolve_version (runner_spec.id, runner_version);
+        var resolved_version = resolve_runner_version_for_policy (
+            runner_spec,
+            variant_id,
+            runner_version,
+            launch_policy,
+            runner_state
+        );
         var extract = download_and_extract_runner (
-            runner_spec, variant_id, resolved_version, download_progress_cb, logger
+            runner_spec,
+            variant_id,
+            resolved_version,
+            download_progress_cb,
+            logger,
+            launch_policy == LaunchPolicy.INTERACTIVE
         );
         var paths = resolve_wine_paths (extract.extracted_to, runner_spec, variant_id);
         var variant = runner_spec.effective_variant (variant_id);
@@ -326,9 +363,198 @@ namespace Lumoria.Runtime {
             apply_env_overrides (env, entry_runtime_env_vars);
         }
         return new WineRuntime (
-            runner_spec, variant, resolved_version, extract,
+            runner_spec, variant, extract.version, extract,
             paths, pfx_path, arch, env
         );
+    }
+
+    private string resolve_runner_version_for_policy (
+        Models.RunnerSpec runner_spec,
+        string variant_id,
+        string runner_version,
+        LaunchPolicy launch_policy,
+        Models.PrefixRunnerState? runner_state
+    ) throws Error {
+        if (launch_policy == LaunchPolicy.INTERACTIVE) {
+            return Utils.Preferences.resolve_version (runner_spec.id, runner_version);
+        }
+
+        var requested = runner_version.strip ();
+        if (requested != "" && requested != "default" && requested != "latest") {
+            return requested;
+        }
+
+        var effective_variant = runner_spec.effective_variant (variant_id);
+        if (runner_state != null
+            && runner_state.runner_id == runner_spec.id
+            && (runner_state.variant_id == effective_variant.id || runner_state.variant_id == "")
+            && runner_state.resolved_version != "") {
+            return runner_state.resolved_version;
+        }
+
+        throw new IOError.FAILED (
+            "No installed runner version is stamped for %s. Open Lumoria once to prepare this prefix before launching from CLI.",
+            runner_spec.id
+        );
+    }
+
+    public void ensure_prefix_runner_current (
+        Models.PrefixEntry entry,
+        WineRuntime runtime,
+        RuntimeLog logger,
+        bool run_update = true,
+        LaunchPolicy launch_policy = LaunchPolicy.INTERACTIVE,
+        RuntimeStatusCallback? status_cb = null
+    ) throws Error {
+        var runner_id = runtime.runner_spec.id;
+        var variant_id = runtime.variant.id;
+        var resolved_version = runtime.runner_version;
+        var state = entry.runner_state;
+        var changed = state == null
+            || !state.matches (runner_id, variant_id, resolved_version);
+
+        if (!changed) return;
+
+        if (launch_policy == LaunchPolicy.OFFLINE_FAST_START) {
+            throw new IOError.FAILED (
+                "Prefix runner changed to %s %s. Open Lumoria to update the prefix before launching from CLI.",
+                runner_id,
+                resolved_version
+            );
+        }
+
+        if (run_update) {
+            if (status_cb != null) {
+                status_cb (_("Updating prefix for %s %s...").printf (
+                    runtime.runner_spec.display_label (),
+                    resolved_version
+                ));
+            }
+            logger.banner ("Updating prefix for runner change");
+            logger.emit_line ("Runner: %s\n".printf (runner_id));
+            logger.emit_line ("Variant: %s\n".printf (variant_id));
+            logger.emit_line ("Resolved version: %s\n\n".printf (resolved_version));
+            create_wine_prefix (runtime.paths, runtime.env, logger);
+        }
+
+        var next = new Models.PrefixRunnerState ();
+        next.runner_id = runner_id;
+        next.variant_id = variant_id;
+        next.resolved_version = resolved_version;
+        entry.runner_state = next;
+        persist_prefix_runner_state (entry, next, logger);
+    }
+
+    public void apply_runner_support_files (
+        WineRuntime runtime,
+        Models.PrefixEntry entry,
+        RuntimeLog logger
+    ) throws Error {
+        if (runtime.runner_spec.support_files.size == 0) return;
+
+        var vars = new Gee.HashMap<string, string> ();
+        vars["RUNNER"] = runtime.paths.root;
+        vars["PREFIX"] = runtime.prefix_path;
+        vars["ARCH"] = runtime.wine_arch == "win32" ? "win32" : "win64";
+
+        bool dirty = false;
+        foreach (var support in runtime.runner_spec.support_files) {
+            if (support.when != null && !support.when.evaluate (vars)) continue;
+            if (support.dst.strip () == "") continue;
+
+            var src = resolve_runner_support_source (runtime.paths.root, support.src, vars);
+            if (src == "") {
+                logger.typed (LogType.DEBUG, "runner support %s: source missing".printf (support.id));
+                continue;
+            }
+
+            var dst = resolve_runner_support_destination (runtime.prefix_path, support.dst, vars);
+            if (FileUtils.test (dst, FileTest.EXISTS)) {
+                logger.typed (LogType.DEBUG, "runner support %s: already present".printf (support.id));
+                continue;
+            }
+
+            Utils.copy_path (src, dst);
+            logger.typed (LogType.COPY, "runner support %s: %s -> %s".printf (
+                support.id,
+                src,
+                dst
+            ));
+
+            if (!entry.runner_support_files.contains (dst)) {
+                entry.runner_support_files.add (dst);
+                dirty = true;
+            }
+        }
+
+        if (dirty) {
+            persist_runner_support_files (entry, logger);
+        }
+    }
+
+    private string resolve_runner_support_source (
+        string runner_root,
+        Gee.ArrayList<string> candidates,
+        Gee.HashMap<string, string> vars
+    ) {
+        foreach (var candidate in candidates) {
+            var expanded = Utils.expand_vars (candidate, vars);
+            var resolved = Path.is_absolute (expanded)
+                ? expanded
+                : Path.build_filename (runner_root, expanded);
+            if (FileUtils.test (resolved, FileTest.EXISTS)) return resolved;
+        }
+        return "";
+    }
+
+    private string resolve_runner_support_destination (
+        string prefix_path,
+        string dst,
+        Gee.HashMap<string, string> vars
+    ) {
+        var expanded = Utils.expand_vars (dst, vars);
+        return Path.is_absolute (expanded)
+            ? expanded
+            : Path.build_filename (prefix_path, expanded);
+    }
+
+    private void persist_runner_support_files (
+        Models.PrefixEntry entry,
+        RuntimeLog logger
+    ) {
+        var reg_path = Utils.prefix_registry_path ();
+        var reg = Models.PrefixRegistry.load (reg_path);
+        Models.PrefixEntry? target = null;
+        if (entry.id != "") target = reg.by_id (entry.id);
+        if (target == null) target = reg.by_path (entry.resolved_path ());
+        if (target == null) return;
+
+        var copied = new Gee.ArrayList<string> ();
+        foreach (var path in entry.runner_support_files) copied.add (path);
+        target.runner_support_files = copied;
+        reg.update_entry (target);
+        if (!reg.save (reg_path)) {
+            logger.typed (LogType.WARN, "Failed to save runner support files for prefix");
+        }
+    }
+
+    private void persist_prefix_runner_state (
+        Models.PrefixEntry entry,
+        Models.PrefixRunnerState state,
+        RuntimeLog logger
+    ) {
+        var reg_path = Utils.prefix_registry_path ();
+        var reg = Models.PrefixRegistry.load (reg_path);
+        Models.PrefixEntry? target = null;
+        if (entry.id != "") target = reg.by_id (entry.id);
+        if (target == null) target = reg.by_path (entry.resolved_path ());
+        if (target == null) return;
+
+        target.runner_state = state;
+        reg.update_entry (target);
+        if (!reg.save (reg_path)) {
+            logger.typed (LogType.WARN, "Failed to save runner state for prefix");
+        }
     }
 
     private string resolve_spec_path_public (string root, string mapped) {
@@ -336,6 +562,21 @@ namespace Lumoria.Runtime {
         if (m == "") return "";
         if (Path.is_absolute (m)) return m;
         return Path.build_filename (root, m);
+    }
+
+    private string resolve_first_existing_spec_path (
+        string root,
+        Gee.ArrayList<string> candidates,
+        string fallback
+    ) {
+        string first = "";
+        foreach (var candidate in candidates) {
+            var resolved = resolve_spec_path_public (root, candidate);
+            if (first == "") first = resolved;
+            if (resolved != "" && FileUtils.test (resolved, FileTest.EXISTS)) return resolved;
+        }
+        if (first != "") return first;
+        return resolve_spec_path_public (root, fallback);
     }
 
     private string join_existing_paths (Gee.ArrayList<string> paths) {

@@ -183,10 +183,11 @@ namespace Lumoria.Models {
         protected void parse_installable_supporting_fields (
             Json.Object obj,
             out Gee.HashMap<string, string> variables,
+            out Gee.ArrayList<EnvRule> variable_rules,
             out Gee.ArrayList<Entrypoint> entrypoints,
             out Gee.ArrayList<string> redists
         ) throws Error {
-            variables = json_string_map (obj, "variables");
+            parse_variable_definitions (obj, "variables", out variables, out variable_rules);
             entrypoints = parse_entrypoints (obj);
             redists = json_string_array (obj, "redists");
         }

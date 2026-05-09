@@ -47,6 +47,23 @@ namespace Lumoria.Runtime {
         return "";
     }
 
+    public string resolve_effective_wine_arch (Models.PrefixEntry entry) {
+        var explicit_arch = Utils.normalize_wine_arch (entry.wine_arch);
+        if (explicit_arch != "") return explicit_arch;
+
+        try {
+            var runner_specs = Models.RunnerSpec.filter_for_host (Models.RunnerSpec.load_all_from_resource ());
+            var spec = Models.RunnerSpec.find_by_id (runner_specs, entry.runner_id);
+            if (spec != null) {
+                var arch = Utils.normalize_wine_arch (spec.effective_variant (entry.variant_id).wine_arch);
+                if (arch != "") return arch;
+            }
+        } catch (Error e) {
+        }
+
+        return "win64";
+    }
+
     public void resolve_launcher_exe (
         Models.PrefixEntry entry,
         Gee.ArrayList<Models.LauncherSpec> launcher_specs,
@@ -389,14 +406,30 @@ namespace Lumoria.Runtime {
         vars["SYSTEM32"] = Path.build_filename (pfx_path, "drive_c", "windows", "system32");
         vars["SYSWOW64"] = Path.build_filename (pfx_path, "drive_c", "windows", "syswow64");
         vars["FONTS"] = Path.build_filename (pfx_path, "drive_c", "windows", "Fonts");
-        vars["ARCH"] = Utils.normalize_wine_arch (entry.wine_arch) != "" ? Utils.normalize_wine_arch (entry.wine_arch) : "win64";
+        vars["ARCH"] = resolve_effective_wine_arch (entry);
         vars["REGION"] = entry.region;
         merge_vars (vars, installer_spec.variables);
-        if (launcher != null) merge_vars (vars, launcher.variables);
+        apply_launch_variable_rules (vars, installer_spec.variable_rules);
+        if (launcher != null) {
+            merge_vars (vars, launcher.variables);
+            apply_launch_variable_rules (vars, launcher.variable_rules);
+        }
         if (post_install != null) merge_vars (vars, post_install.variables);
         resolve_prefix_launch_vars (vars, entry);
         Utils.resolve_var_references (vars);
         return vars;
+    }
+
+    private void apply_launch_variable_rules (
+        Gee.HashMap<string, string> vars,
+        Gee.ArrayList<Models.EnvRule> rules
+    ) {
+        foreach (var rule in rules) {
+            if (rule.when != null && !rule.when.evaluate (vars)) continue;
+            foreach (var entry in rule.vars.entries) {
+                vars[entry.key] = Utils.expand_vars (entry.value, vars);
+            }
+        }
     }
 
     private void resolve_prefix_launch_vars (Gee.HashMap<string, string> vars, Models.PrefixEntry entry) {

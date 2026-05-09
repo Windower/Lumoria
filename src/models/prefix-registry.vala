@@ -85,10 +85,35 @@ namespace Lumoria.Models {
                 var root = parser.get_root ().get_object ();
                 reg.prefixes = parse_json_array<PrefixEntry> (root, "prefixes", (o) => PrefixEntry.from_json (o));
                 reg.default_prefix_id = json_string (root, "default_prefix_id");
+                if (reg.backfill_runner_state ()) {
+                    reg.save (path);
+                }
             } catch (Error e) {
                 warning ("Failed to load prefix registry: %s", e.message);
             }
             return reg;
+        }
+
+        private bool backfill_runner_state () {
+            var changed = false;
+            foreach (var prefix in prefixes) {
+                if (prefix.runner_state != null) continue;
+
+                var state = new PrefixRunnerState ();
+                state.runner_id = prefix.runner_id;
+                state.variant_id = prefix.variant_id;
+                if (!is_deferred_runner_version (prefix.runner_version)) {
+                    state.resolved_version = prefix.runner_version;
+                }
+                prefix.runner_state = state;
+                changed = true;
+            }
+            return changed;
+        }
+
+        private static bool is_deferred_runner_version (string version) {
+            var v = version.strip ().down ();
+            return v == "" || v == "latest" || v == "default";
         }
 
         public bool save (string path) {

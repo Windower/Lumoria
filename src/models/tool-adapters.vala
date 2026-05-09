@@ -1,6 +1,8 @@
 namespace Lumoria.Models {
 
     public abstract class BaseToolAdapter : Object, ToolSpec {
+        protected const int DEFAULT_RELEASE_PAGE_SIZE = 30;
+
         public abstract Utils.ToolKind tool_kind { get; }
         public abstract string tool_id { get; }
         public abstract string tool_name { owned get; }
@@ -18,18 +20,45 @@ namespace Lumoria.Models {
             return Path.build_filename (Utils.cache_dir (), cache_kind, tool_id, "releases.json");
         }
 
+        protected string releases_cache_dir () {
+            return Path.build_filename (Utils.cache_dir (), cache_kind, tool_id);
+        }
+
         protected Gee.ArrayList<Utils.GitHubRelease> fetch_releases (int64 ttl = 6 * 3600) throws Error {
             if (github_repo == "") return new Gee.ArrayList<Utils.GitHubRelease> ();
             return Utils.fetch_github_releases_sync (github_repo, releases_cache_path (), ttl);
         }
 
+        protected Utils.GitHubReleasePage fetch_release_page (
+            int page,
+            int per_page = DEFAULT_RELEASE_PAGE_SIZE,
+            int64 ttl = 6 * 3600
+        ) throws Error {
+            if (github_repo == "") return new Utils.GitHubReleasePage ();
+            return Utils.fetch_github_releases_page_sync (
+                github_repo,
+                releases_cache_dir (),
+                page,
+                per_page,
+                ttl
+            );
+        }
+
         protected Utils.GitHubRelease? find_release_for (ToolVersion ver) throws Error {
-            var releases = fetch_releases ();
-            if (releases.size == 0) return null;
-            if (ver.tag == "latest" || ver.is_latest) return latest_release (releases);
-            foreach (var r in releases) {
-                if (skips_version (r.tag_name)) continue;
-                if (r.tag_name == ver.tag) return r;
+            if (ver.tag == "latest" || ver.is_latest) {
+                var first = fetch_release_page (1);
+                return latest_release (first.releases);
+            }
+
+            var page = 1;
+            while (true) {
+                var release_page = fetch_release_page (page);
+                foreach (var r in release_page.releases) {
+                    if (!release_is_available (r)) continue;
+                    if (r.tag_name == ver.tag) return r;
+                }
+                if (!release_page.has_more) break;
+                page++;
             }
             return null;
         }
@@ -39,16 +68,27 @@ namespace Lumoria.Models {
             if (FileUtils.test (path, FileTest.EXISTS)) {
                 FileUtils.remove (path);
             }
+            try {
+                var dir = Dir.open (releases_cache_dir ());
+                string? name;
+                while ((name = dir.read_name ()) != null) {
+                    if (name.has_prefix ("releases-page-") && name.has_suffix (".json")) {
+                        FileUtils.remove (Path.build_filename (releases_cache_dir (), name));
+                    }
+                }
+            } catch (FileError e) {
+                // No page cache exists yet.
+            }
         }
 
         public string resolve_latest_tag () throws Error {
-            var releases = fetch_releases ();
+            var releases = fetch_release_page (1).releases;
             var release = latest_release (releases);
             return release != null ? release.tag_name : "";
         }
 
         public Gee.ArrayList<ToolVersion> list_versions () throws Error {
-            var releases = fetch_releases ();
+            var releases = fetch_release_page (1).releases;
             var versions = new Gee.ArrayList<ToolVersion> ();
 
             var latest = latest_release (releases);
@@ -56,17 +96,42 @@ namespace Lumoria.Models {
             versions.add (new ToolVersion.latest (latest_tag));
 
             foreach (var rel in releases) {
-                if (skips_version (rel.tag_name)) continue;
+                if (!release_is_available (rel)) continue;
                 versions.add (new ToolVersion (rel.tag_name, rel.published_at));
             }
             return versions;
         }
 
+        public ToolVersionPage list_version_page (int page, int per_page) throws Error {
+            var release_page = fetch_release_page (page, per_page);
+            var result = new ToolVersionPage ();
+            result.page = release_page.page;
+            result.per_page = release_page.per_page;
+            result.has_more = release_page.has_more;
+
+            if (result.page == 1) {
+                var latest = latest_release (release_page.releases);
+                var latest_tag = latest != null ? latest.tag_name : "";
+                result.versions.add (new ToolVersion.latest (latest_tag));
+            }
+
+            foreach (var rel in release_page.releases) {
+                if (!release_is_available (rel)) continue;
+                result.versions.add (new ToolVersion (rel.tag_name, rel.published_at));
+            }
+            return result;
+        }
+
         private Utils.GitHubRelease? latest_release (Gee.ArrayList<Utils.GitHubRelease> releases) {
             foreach (var release in releases) {
-                if (!skips_version (release.tag_name)) return release;
+                if (release_is_available (release)) return release;
             }
             return null;
+        }
+
+        protected bool release_is_available (Utils.GitHubRelease release) {
+            if (skips_version (release.tag_name)) return false;
+            return match_asset (release) != null;
         }
 
         public virtual void install_version (ToolVersion ver, VersionProgress? progress) throws Error {

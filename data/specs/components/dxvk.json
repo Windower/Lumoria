@@ -9,20 +9,32 @@
   },
   "overrides": {
     "d3d8": "n,b",
-    "d3d9": "n,b"
+    "d3d9": "n,b",
+    "d3d10core": "n,b",
+    "d3d11": "n,b",
+    "dxgi": "n,b"
   },
   "steps": [
     {
       "type": "copy",
-      "description": "Install DXVK x32 DLLs",
+      "description": "Install DXVK x32 DLLs (win64)",
       "src": "${COMPONENT}/x32/",
-      "dst": "${PREFIX}/drive_c/windows/syswow64"
+      "dst": "${PREFIX}/drive_c/windows/syswow64",
+      "when": { "ARCH": "win64" }
     },
     {
       "type": "copy",
-      "description": "Install DXVK x64 DLLs",
+      "description": "Install DXVK x64 DLLs (win64)",
       "src": "${COMPONENT}/x64/",
-      "dst": "${PREFIX}/drive_c/windows/system32"
+      "dst": "${PREFIX}/drive_c/windows/system32",
+      "when": { "ARCH": "win64" }
+    },
+    {
+      "type": "copy",
+      "description": "Install DXVK x32 DLLs (win32)",
+      "src": "${COMPONENT}/x32/",
+      "dst": "${PREFIX}/drive_c/windows/system32",
+      "when": { "ARCH": "win32" }
     }
   ]
 }
