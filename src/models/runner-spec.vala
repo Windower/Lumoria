@@ -40,14 +40,24 @@ namespace Lumoria.Models {
         public Gee.ArrayList<string> src {
             get; owned set; default = new Gee.ArrayList<string> ();
         }
+        public Gee.ArrayList<string> src_dirs {
+            get; owned set; default = new Gee.ArrayList<string> ();
+        }
+        public Gee.ArrayList<string> files {
+            get; owned set; default = new Gee.ArrayList<string> ();
+        }
         public string dst { get; set; default = ""; }
+        public string dst_dir { get; set; default = ""; }
         public WhenClause? when { get; set; default = null; }
 
         public static RunnerSupportFile from_json (Json.Object obj) throws Error {
             var f = new RunnerSupportFile ();
             f.id = json_string (obj, "id");
             f.src = json_string_array (obj, "src");
+            f.src_dirs = json_string_array (obj, "src_dirs");
+            f.files = json_string_array (obj, "files");
             f.dst = json_string (obj, "dst");
+            f.dst_dir = json_string (obj, "dst_dir");
             f.when = WhenClause.from_json_member (obj);
             return f;
         }

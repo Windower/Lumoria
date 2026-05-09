@@ -18,6 +18,7 @@ namespace Lumoria.Runtime {
     }
 
     public delegate void RuntimeStatusCallback (string message);
+    private delegate void PrefixEntryMutation (Models.PrefixEntry target);
 
     public uint wine_debug_index_for_value (string value) {
         var mode = value.down ().strip ();
@@ -460,29 +461,32 @@ namespace Lumoria.Runtime {
         bool dirty = false;
         foreach (var support in runtime.runner_spec.support_files) {
             if (support.when != null && !support.when.evaluate (vars)) continue;
+
+            if (support.files.size > 0) {
+                if (support.dst_dir.strip () == "") continue;
+                foreach (var file in support.files) {
+                    var src = resolve_runner_support_source_from_dirs (
+                        runtime.paths.root,
+                        support.src_dirs,
+                        file,
+                        vars
+                    );
+                    var dst = resolve_runner_support_destination (
+                        runtime.prefix_path,
+                        Path.build_filename (support.dst_dir, file),
+                        vars
+                    );
+                    if (copy_runner_support_file (entry, support.id, src, dst, logger)) {
+                        dirty = true;
+                    }
+                }
+                continue;
+            }
+
             if (support.dst.strip () == "") continue;
-
             var src = resolve_runner_support_source (runtime.paths.root, support.src, vars);
-            if (src == "") {
-                logger.typed (LogType.DEBUG, "runner support %s: source missing".printf (support.id));
-                continue;
-            }
-
             var dst = resolve_runner_support_destination (runtime.prefix_path, support.dst, vars);
-            if (FileUtils.test (dst, FileTest.EXISTS)) {
-                logger.typed (LogType.DEBUG, "runner support %s: already present".printf (support.id));
-                continue;
-            }
-
-            Utils.copy_path (src, dst);
-            logger.typed (LogType.COPY, "runner support %s: %s -> %s".printf (
-                support.id,
-                src,
-                dst
-            ));
-
-            if (!entry.runner_support_files.contains (dst)) {
-                entry.runner_support_files.add (dst);
+            if (copy_runner_support_file (entry, support.id, src, dst, logger)) {
                 dirty = true;
             }
         }
@@ -490,6 +494,31 @@ namespace Lumoria.Runtime {
         if (dirty) {
             persist_runner_support_files (entry, logger);
         }
+    }
+
+    private bool copy_runner_support_file (
+        Models.PrefixEntry entry,
+        string id,
+        string src,
+        string dst,
+        RuntimeLog logger
+    ) throws Error {
+        if (src == "") {
+            logger.typed (LogType.DEBUG, "runner support %s: source missing".printf (id));
+            return false;
+        }
+
+        if (FileUtils.test (dst, FileTest.EXISTS)) {
+            logger.typed (LogType.DEBUG, "runner support %s: already present".printf (id));
+            return false;
+        }
+
+        Utils.copy_path (src, dst);
+        logger.typed (LogType.COPY, "runner support %s: %s -> %s".printf (id, src, dst));
+
+        if (entry.runner_support_files.contains (dst)) return false;
+        entry.runner_support_files.add (dst);
+        return true;
     }
 
     private string resolve_runner_support_source (
@@ -502,6 +531,23 @@ namespace Lumoria.Runtime {
             var resolved = Path.is_absolute (expanded)
                 ? expanded
                 : Path.build_filename (runner_root, expanded);
+            if (FileUtils.test (resolved, FileTest.EXISTS)) return resolved;
+        }
+        return "";
+    }
+
+    private string resolve_runner_support_source_from_dirs (
+        string runner_root,
+        Gee.ArrayList<string> dirs,
+        string file,
+        Gee.HashMap<string, string> vars
+    ) {
+        foreach (var dir in dirs) {
+            var expanded_dir = Utils.expand_vars (dir, vars);
+            var candidate = Path.build_filename (expanded_dir, file);
+            var resolved = Path.is_absolute (candidate)
+                ? candidate
+                : Path.build_filename (runner_root, candidate);
             if (FileUtils.test (resolved, FileTest.EXISTS)) return resolved;
         }
         return "";
@@ -522,26 +568,38 @@ namespace Lumoria.Runtime {
         Models.PrefixEntry entry,
         RuntimeLog logger
     ) {
-        var reg_path = Utils.prefix_registry_path ();
-        var reg = Models.PrefixRegistry.load (reg_path);
-        Models.PrefixEntry? target = null;
-        if (entry.id != "") target = reg.by_id (entry.id);
-        if (target == null) target = reg.by_path (entry.resolved_path ());
-        if (target == null) return;
-
-        var copied = new Gee.ArrayList<string> ();
-        foreach (var path in entry.runner_support_files) copied.add (path);
-        target.runner_support_files = copied;
-        reg.update_entry (target);
-        if (!reg.save (reg_path)) {
-            logger.typed (LogType.WARN, "Failed to save runner support files for prefix");
-        }
+        persist_prefix_entry_update (
+            entry,
+            logger,
+            "Failed to save runner support files for prefix",
+            (target) => {
+                var copied = new Gee.ArrayList<string> ();
+                foreach (var path in entry.runner_support_files) copied.add (path);
+                target.runner_support_files = copied;
+            }
+        );
     }
 
     private void persist_prefix_runner_state (
         Models.PrefixEntry entry,
         Models.PrefixRunnerState state,
         RuntimeLog logger
+    ) {
+        persist_prefix_entry_update (
+            entry,
+            logger,
+            "Failed to save runner state for prefix",
+            (target) => {
+                target.runner_state = state;
+            }
+        );
+    }
+
+    private void persist_prefix_entry_update (
+        Models.PrefixEntry entry,
+        RuntimeLog logger,
+        string failure_message,
+        PrefixEntryMutation mutate
     ) {
         var reg_path = Utils.prefix_registry_path ();
         var reg = Models.PrefixRegistry.load (reg_path);
@@ -550,10 +608,10 @@ namespace Lumoria.Runtime {
         if (target == null) target = reg.by_path (entry.resolved_path ());
         if (target == null) return;
 
-        target.runner_state = state;
+        mutate (target);
         reg.update_entry (target);
         if (!reg.save (reg_path)) {
-            logger.typed (LogType.WARN, "Failed to save runner state for prefix");
+            logger.typed (LogType.WARN, failure_message);
         }
     }
 

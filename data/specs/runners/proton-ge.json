@@ -9,63 +9,30 @@
   "checksum_regex": "GE-Proton.*\\.(sha512sum|sha512)$",
   "support_files": [
     {
-      "id": "vkd3d-win32-libvkd3d",
-      "src": [
-        "files/lib/vkd3d/i386-windows/libvkd3d-1.dll",
-        "files/lib/vkd3d/libvkd3d-1.dll",
-        "files/share/default_pfx/drive_c/windows/syswow64/libvkd3d-1.dll"
+      "id": "vkd3d-win32",
+      "files": ["libvkd3d-1.dll", "libvkd3d-shader-1.dll"],
+      "src_dirs": [
+        "files/lib/vkd3d"
       ],
-      "dst": "drive_c/windows/system32/libvkd3d-1.dll",
+      "dst_dir": "drive_c/windows/system32",
       "when": { "ARCH": "win32" }
     },
     {
-      "id": "vkd3d-win32-shader",
-      "src": [
-        "files/lib/vkd3d/i386-windows/libvkd3d-shader-1.dll",
-        "files/lib/vkd3d/libvkd3d-shader-1.dll",
-        "files/share/default_pfx/drive_c/windows/syswow64/libvkd3d-shader-1.dll"
+      "id": "vkd3d-win64-x86",
+      "files": ["libvkd3d-1.dll", "libvkd3d-shader-1.dll"],
+      "src_dirs": [
+        "files/lib/vkd3d"
       ],
-      "dst": "drive_c/windows/system32/libvkd3d-shader-1.dll",
-      "when": { "ARCH": "win32" }
-    },
-    {
-      "id": "vkd3d-win64-libvkd3d-x86",
-      "src": [
-        "files/lib/vkd3d/i386-windows/libvkd3d-1.dll",
-        "files/lib/vkd3d/libvkd3d-1.dll",
-        "files/share/default_pfx/drive_c/windows/syswow64/libvkd3d-1.dll"
-      ],
-      "dst": "drive_c/windows/syswow64/libvkd3d-1.dll",
+      "dst_dir": "drive_c/windows/syswow64",
       "when": { "ARCH": "win64" }
     },
     {
-      "id": "vkd3d-win64-shader-x86",
-      "src": [
-        "files/lib/vkd3d/i386-windows/libvkd3d-shader-1.dll",
-        "files/lib/vkd3d/libvkd3d-shader-1.dll",
-        "files/share/default_pfx/drive_c/windows/syswow64/libvkd3d-shader-1.dll"
+      "id": "vkd3d-win64-x64",
+      "files": ["libvkd3d-1.dll", "libvkd3d-shader-1.dll"],
+      "src_dirs": [
+        "files/lib64/vkd3d"
       ],
-      "dst": "drive_c/windows/syswow64/libvkd3d-shader-1.dll",
-      "when": { "ARCH": "win64" }
-    },
-    {
-      "id": "vkd3d-win64-libvkd3d-x64",
-      "src": [
-        "files/lib/vkd3d/x86_64-windows/libvkd3d-1.dll",
-        "files/lib64/vkd3d/libvkd3d-1.dll",
-        "files/share/default_pfx/drive_c/windows/system32/libvkd3d-1.dll"
-      ],
-      "dst": "drive_c/windows/system32/libvkd3d-1.dll",
-      "when": { "ARCH": "win64" }
-    },
-    {
-      "id": "vkd3d-win64-shader-x64",
-      "src": [
-        "files/lib/vkd3d/x86_64-windows/libvkd3d-shader-1.dll",
-        "files/lib64/vkd3d/libvkd3d-shader-1.dll",
-        "files/share/default_pfx/drive_c/windows/system32/libvkd3d-shader-1.dll"
-      ],
-      "dst": "drive_c/windows/system32/libvkd3d-shader-1.dll",
+      "dst_dir": "drive_c/windows/system32",
       "when": { "ARCH": "win64" }
     }
   ],

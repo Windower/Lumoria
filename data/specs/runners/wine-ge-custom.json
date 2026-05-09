@@ -1,0 +1,37 @@
+{
+  "id": "wine-ge-custom",
+  "name": "Wine-GE (deprecated)",
+  "wine_arch": "win64",
+  "host_arches": ["x86_64"],
+  "github_repo": "GloriousEggroll/wine-ge-custom",
+  "version_dir": "GE-Proton(.+)",
+  "asset_regex": "wine-lutris-GE-Proton.*-x86_64\\.tar\\.xz$",
+  "checksum_regex": "wine-lutris-GE-Proton.*-x86_64\\.sha512sum$",
+  "wine_bin": "bin/wine",
+  "wineserver": "bin/wineserver",
+  "variants": [
+    {
+      "id": "wine-ge-custom",
+      "label": "64-bit (recommended)",
+      "default": true,
+      "wine_arch": "win64",
+      "binary_kind": "wow64",
+      "sandbox_supported": true
+    },
+    {
+      "id": "win32",
+      "label": "32-bit (legacy)",
+      "wine_arch": "win32",
+      "binary_kind": "legacy32",
+      "sandbox_supported": false
+    }
+  ],
+  "paths": {
+    "bin": "bin",
+    "lib": ["lib", "lib64"],
+    "lib_32": ["lib"],
+    "lib_64": ["lib64"],
+    "wine_dll": ["lib/wine", "lib64/wine"],
+    "wine_unix": ["lib64/wine/x86_64-unix", "lib/wine/i386-unix"]
+  }
+}
