@@ -95,14 +95,19 @@ namespace Lumoria.Widgets.Services {
 
         private string build_desktop_id (Models.PrefixEntry entry, string entrypoint_id) {
             var id_seed = "%s:%s".printf (entry.id, entrypoint_id);
-            var desktop_id = "%s.%s.desktop".printf (Config.APP_ID, Utils.slugify (id_seed));
-            if (desktop_id.length > 200) {
-                desktop_id = "%s.%s.desktop".printf (
-                    Config.APP_ID,
-                    Checksum.compute_for_string (ChecksumType.SHA256, id_seed).substring (0, 16)
-                );
+            var slug = sanitize_flatpak_segment (Utils.slugify (id_seed));
+            var desktop_id = "%s.%s.desktop".printf (Config.APP_ID, slug);
+            if (desktop_id.length > 255 + 8) {
+                var hash = Checksum.compute_for_string (ChecksumType.SHA256, id_seed).substring (0, 16);
+                desktop_id = "%s.l%s.desktop".printf (Config.APP_ID, hash);
             }
             return desktop_id;
+        }
+
+        private static string sanitize_flatpak_segment (string raw) {
+            if (raw == "") return "l0";
+            if (raw[0].isalpha () || raw[0] == '_' || raw[0] == '-') return raw;
+            return "l" + raw;
         }
 
         private string build_try_exec () {

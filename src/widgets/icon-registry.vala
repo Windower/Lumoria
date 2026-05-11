@@ -28,7 +28,7 @@ namespace Lumoria.Widgets {
         public const string PAGE_COMPONENTS = "applications-utilities-symbolic";
         public const string PAGE_LAUNCH = "media-playback-start-symbolic";
         public const string PAGE_SHORTCUTS = MENU;
-        public const string PAGE_PACKAGES = "application-x-addon-symbolic";
+        public const string PAGE_PACKAGES = "system-software-install-symbolic";
         public const string PAGE_STORAGE = "drive-harddisk-symbolic";
         public const string PAGE_ADVANCED = "applications-system-symbolic";
         public const string PAGE_ABOUT = "help-about-symbolic";
