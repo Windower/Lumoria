@@ -125,8 +125,8 @@ modules:
     sources:
       - type: git
         url: https://github.com/Windower/Lumoria.git
-        tag: v0.1.7
-        commit: ed8256494981c28864a1489f95f642840f221d86
+        tag: v0.1.10
+        commit: a5a1d114e305826d1218c0b034bf3044361eca63
         x-checker-data:
           type: git
           tag-pattern: ^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.\-]+)?)$
