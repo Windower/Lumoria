@@ -22,7 +22,7 @@ namespace Lumoria.Widgets.Preferences {
             } else {
                 title = version.tag;
                 if (version.date != "") {
-                    subtitle = version.date;
+                    subtitle = Utils.format_release_date (version.date);
                 }
             }
 

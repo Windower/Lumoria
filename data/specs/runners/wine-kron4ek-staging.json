@@ -1,6 +1,6 @@
 {
   "id": "wine-kron4ek-staging",
-  "name": "Wine Staging",
+  "name": "Wine Staging (kron4ek)",
   "wine_arch": "win64",
   "host_arches": ["x86_64"],
   "github_repo": "Kron4ek/Wine-Builds",

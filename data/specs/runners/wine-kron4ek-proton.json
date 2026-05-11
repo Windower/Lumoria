@@ -1,6 +1,6 @@
 {
   "id": "wine-kron4ek-proton",
-  "name": "Wine Proton",
+  "name": "Wine Proton (kron4ek) - Experimental",
   "wine_arch": "win64",
   "host_arches": ["x86_64"],
   "github_repo": "Kron4ek/Wine-Builds",

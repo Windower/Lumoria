@@ -14,11 +14,12 @@ namespace Lumoria.Widgets.Preferences {
         private Gee.ArrayList<VersionRow> version_rows;
         private Gee.ArrayList<Models.ToolVersion> loaded_versions;
         private Adw.EntryRow? search_row = null;
-        private Adw.ActionRow? load_more_row = null;
         private int next_page = 1;
         private bool has_more = true;
         private bool loading = false;
         private bool loaded = false;
+        private uint search_timeout_id = 0;
+        private string last_searched_query = "";
 
         public ToolGroupWidget (Models.ToolSpec tool) {
             this.tool = tool;
@@ -134,10 +135,6 @@ namespace Lumoria.Widgets.Preferences {
                 expander.remove (search_row);
                 search_row = null;
             }
-            if (load_more_row != null) {
-                expander.remove (load_more_row);
-                load_more_row = null;
-            }
         }
 
         private void wire_row_signals (VersionRow row) {
@@ -160,6 +157,7 @@ namespace Lumoria.Widgets.Preferences {
             spinner.visible = true;
             spinner.spinning = true;
             expander.subtitle = _("Loading releases\u2026");
+            last_searched_query = current_search_query ();
 
             new Thread<bool> ("load-versions-%s".printf (tool.tool_id), () => {
                 var page_versions = new Gee.ArrayList<Models.ToolVersion> ();
@@ -209,6 +207,10 @@ namespace Lumoria.Widgets.Preferences {
                     ensure_control_rows ();
                     rebuild_version_rows ();
                     loaded = true;
+                    var current_query = current_search_query ();
+                    if (current_query != last_searched_query) {
+                        schedule_search ();
+                    }
                     return false;
                 });
                 return true;
@@ -246,11 +248,26 @@ namespace Lumoria.Widgets.Preferences {
                 search_row = new Adw.EntryRow ();
                 search_row.title = _("Search Versions");
                 search_row.notify["text"].connect (() => {
-                    rebuild_version_rows ();
+                    schedule_search ();
                 });
                 expander.add_row (search_row);
             }
-            update_load_more_row ();
+        }
+
+        private void schedule_search () {
+            if (search_timeout_id != 0) {
+                GLib.Source.remove (search_timeout_id);
+                search_timeout_id = 0;
+            }
+            search_timeout_id = GLib.Timeout.add (300, () => {
+                search_timeout_id = 0;
+                var query = current_search_query ();
+                rebuild_version_rows ();
+                if (query != last_searched_query && query != "" && has_more) {
+                    load_version_page (true);
+                }
+                return false;
+            });
         }
 
         private void rebuild_version_rows () {
@@ -258,14 +275,9 @@ namespace Lumoria.Widgets.Preferences {
                 expander.remove (row);
             }
             version_rows.clear ();
-            if (load_more_row != null) {
-                expander.remove (load_more_row);
-                load_more_row = null;
-            }
 
             var query = current_search_query ();
             int release_count = 0;
-            int visible_count = 0;
             foreach (var ver in loaded_versions) {
                 if (!ver.is_latest) release_count++;
                 if (query != "" && !ver.is_latest && !ver.tag.down ().contains (query)) continue;
@@ -274,43 +286,11 @@ namespace Lumoria.Widgets.Preferences {
                 wire_row_signals (row);
                 version_rows.add (row);
                 expander.add_row (row);
-                visible_count++;
             }
 
-            update_load_more_row ();
             expander.subtitle = has_more
                 ? _("%d release(s), more available").printf (release_count)
                 : _("%d release(s)").printf (release_count);
-            if (query != "" && visible_count == 0 && has_more) {
-                expander.subtitle = _("No loaded matches; search older releases");
-            }
-        }
-
-        private void update_load_more_row () {
-            if (!has_more) {
-                if (load_more_row != null) {
-                    expander.remove (load_more_row);
-                    load_more_row = null;
-                }
-                return;
-            }
-
-            if (load_more_row == null) {
-                load_more_row = new Adw.ActionRow ();
-                load_more_row.activatable = true;
-                load_more_row.activated.connect (() => {
-                    load_version_page (current_search_query () != "");
-                });
-                expander.add_row (load_more_row);
-            }
-
-            if (current_search_query () != "") {
-                load_more_row.title = _("Search Older Releases");
-                load_more_row.subtitle = _("Fetch more GitHub releases for this search");
-            } else {
-                load_more_row.title = _("Load Older Versions");
-                load_more_row.subtitle = _("Fetch the next GitHub release page");
-            }
         }
 
         private string current_search_query () {

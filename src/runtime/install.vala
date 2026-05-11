@@ -54,8 +54,9 @@ namespace Lumoria.Runtime {
             bool ignore_when = false
         ) throws Error {
             advance ();
-            emit_progress (step.description);
-            logger.step (idx, total, step.description, step.step_type);
+            var desc = Utils.expand_vars (step.description, vars);
+            emit_progress (desc);
+            logger.step (idx, total, desc, step.step_type);
             var step_env = step.env.size > 0 ? env.copy () : env;
             if (step.env.size > 0) apply_env_rules (step_env, step.env, vars);
             run_install_step (step, vars, paths, step_env, logger, cancellable, ignore_when);
@@ -63,7 +64,13 @@ namespace Lumoria.Runtime {
 
         public void run_download (Models.DownloadItem dl, Gee.HashMap<string, string> vars) throws Error {
             advance ();
-            ensure_download_item (dl, expand_path (dl.url, vars), expand_path (dl.dest, vars), idx, total, progress, logger);
+            ensure_download_item (
+                expand_path (dl.id, vars),
+                expand_path (dl.url, vars),
+                expand_path (dl.dest, vars),
+                expand_path (dl.sha256, vars),
+                idx, total, progress, logger
+            );
         }
 
         public DownloadProgress download_progress_cb () {
@@ -266,13 +273,11 @@ namespace Lumoria.Runtime {
                 : null;
 
             var all_redists = Models.RedistSpec.load_all_from_resource ();
-            var launcher_redists = ResolvedRedistSet.resolve (
-                merged_redist_ids (installer_spec.redists, launcher),
-                all_redists
-            );
-            var post_redists = post_install_spec != null
-                ? ResolvedRedistSet.resolve (post_install_spec.redists, all_redists)
-                : new ResolvedRedistSet ();
+            var combined_redist_ids = merged_redist_ids (installer_spec.redists, launcher);
+            if (post_install_spec != null) {
+                combined_redist_ids.add_all (post_install_spec.redists);
+            }
+            var launcher_redists = ResolvedRedistSet.resolve (combined_redist_ids, all_redists);
 
             const int FIXED_STEPS = 5;
             int total_steps = FIXED_STEPS
@@ -280,7 +285,7 @@ namespace Lumoria.Runtime {
                 + (launcher != null ? launcher.downloads.size + launcher.steps.size : 0)
                 + launcher_redists.step_count
                 + (post_install_spec != null
-                    ? 1 + post_install_spec.downloads.size + post_install_spec.steps.size + post_redists.step_count
+                    ? 1 + post_install_spec.downloads.size + post_install_spec.steps.size
                     : 0);
 
             var rep = new StepReporter (total_steps, progress, logger, cancellable);
@@ -336,31 +341,33 @@ namespace Lumoria.Runtime {
                 )
                 : null;
             if (post_install_vars != null) {
-                inject_redist_vars (post_install_vars, post_redists);
+                inject_redist_vars (post_install_vars, launcher_redists);
+                var post_rules = merged_variable_rules (installer_spec, launcher);
+                post_rules.add_all (post_install_spec.variable_rules);
                 inject_prefix_context (
                     post_install_vars,
                     runtime,
                     prefix_entry,
                     logger,
-                    merged_variable_rules (installer_spec, launcher)
+                    post_rules
                 );
                 apply_env_rules (env, post_install_spec.env, post_install_vars);
             }
 
             var installer_phase = new InstallPhase (
                 installer_spec.downloads, installer_spec.steps,
-                new ResolvedRedistSet (), installer_vars, prefix_entry
+                launcher_redists, installer_vars, prefix_entry
             );
             var launcher_phase = launcher != null
                 ? new InstallPhase (
                     launcher.downloads, launcher.steps,
-                    launcher_redists, launcher_vars, prefix_entry
+                    new ResolvedRedistSet (), launcher_vars, prefix_entry
                 )
                 : null;
             var post_phase = post_install_spec != null
                 ? new InstallPhase (
                     post_install_spec.downloads, post_install_spec.steps,
-                    post_redists, post_install_vars, prefix_entry
+                    new ResolvedRedistSet (), post_install_vars, prefix_entry
                 )
                 : null;
 
@@ -474,7 +481,12 @@ namespace Lumoria.Runtime {
                     }
                 }
             }
-            apply_install_variable_rules (vars, merged_variable_rules (installer_spec, launcher));
+            var action_rules = merged_variable_rules (installer_spec, launcher);
+            var post_install_spec_for_action = Runtime.load_prefix_post_install_spec (entry);
+            if (post_install_spec_for_action != null) {
+                action_rules.add_all (post_install_spec_for_action.variable_rules);
+            }
+            apply_install_variable_rules (vars, action_rules);
             apply_env_rules (runtime.env, action.env, vars);
             resolve_computed_vars (vars, runtime.paths, runtime.env, logger);
             Utils.resolve_var_references (vars);
@@ -743,18 +755,19 @@ namespace Lumoria.Runtime {
     }
 
     private void ensure_download_item (
-        Models.DownloadItem dl,
+        string id,
         string url,
         string dest,
+        string sha256,
         int step_idx,
         int total_steps,
         InstallProgress progress,
         RuntimeLog logger
     ) throws Error {
         Utils.ensure_dir (Path.get_dirname (dest));
-        progress.step_changed ("(%d/%d) Downloading %s\u2026".printf (step_idx, total_steps, dl.id));
+        progress.step_changed ("(%d/%d) Downloading %s\u2026".printf (step_idx, total_steps, id));
 
-        if (download_item_is_valid (dl, dest, logger)) {
+        if (download_item_is_valid (id, dest, sha256, logger)) {
             progress.progress_changed ((double) step_idx / total_steps);
             logger.typed (LogType.CACHED, dest);
             return;
@@ -767,25 +780,25 @@ namespace Lumoria.Runtime {
             url,
             dest,
             0,
-            dl.sha256,
-            dl.id,
+            sha256,
+            id,
             (downloaded, total) => {
                 if (total > 0) {
                     progress.progress_changed (s_base + (double) downloaded / (double) total * s_range);
                 }
             }
         );
-        logger.typed (LogType.DONE, dl.id);
+        logger.typed (LogType.DONE, id);
     }
 
-    private bool download_item_is_valid (Models.DownloadItem dl, string path, RuntimeLog logger) {
+    private bool download_item_is_valid (string id, string path, string sha256, RuntimeLog logger) {
         if (!FileUtils.test (path, FileTest.EXISTS)) return false;
 
-        if (dl.sha256 == "") {
-            logger.typed (LogType.WARN, "%s has no checksum; using size-only cache validation".printf (dl.id));
+        if (sha256 == "") {
+            logger.typed (LogType.WARN, "%s has no checksum; using size-only cache validation".printf (id));
         }
 
-        var valid = Utils.validate_downloaded_file (path, 0, dl.sha256, dl.id);
+        var valid = Utils.validate_downloaded_file (path, 0, sha256, id);
         if (!valid && FileUtils.test (path, FileTest.EXISTS)) {
             FileUtils.remove (path);
         }
@@ -804,7 +817,7 @@ namespace Lumoria.Runtime {
         check_cancelled (cancellable);
 
         if (!ignore_when && step.when != null && !step.when.evaluate (vars)) {
-            logger.typed (LogType.SKIP, "when clause not met, skipping: %s".printf (step.description));
+            logger.typed (LogType.SKIP, "when clause not met, skipping: %s".printf (Utils.expand_vars (step.description, vars)));
             return;
         }
 

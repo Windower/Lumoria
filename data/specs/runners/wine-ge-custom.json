@@ -1,6 +1,6 @@
 {
   "id": "wine-ge-custom",
-  "name": "Wine-GE (deprecated)",
+  "name": "Wine-GE (deprecated 8.x)",
   "wine_arch": "win64",
   "host_arches": ["x86_64"],
   "github_repo": "GloriousEggroll/wine-ge-custom",

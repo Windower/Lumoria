@@ -236,4 +236,11 @@ namespace Lumoria.Utils {
         output.close ();
     }
 
+    public string format_release_date (string iso8601) {
+        if (iso8601 == "") return "";
+        var dt = new DateTime.from_iso8601 (iso8601, new TimeZone.utc ());
+        if (dt == null) return iso8601;
+        return dt.format ("%x");
+    }
+
 }

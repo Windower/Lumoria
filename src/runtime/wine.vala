@@ -217,6 +217,8 @@ namespace Lumoria.Runtime {
             env.add_dll_override ("winex11.drv", DLL_DISABLED);
         } else if (has_x11) {
             env.add_dll_override ("winewayland.drv", DLL_DISABLED);
+        } else if (!wayland_enabled && has_wayland) {
+            env.add_dll_override ("winewayland.drv", DLL_DISABLED);
         } else if (has_wayland) {
             env.add_dll_override ("winex11.drv", DLL_DISABLED);
         }

@@ -68,6 +68,16 @@
   </screenshots>
 
   <releases>
+    <release version="0.1.10" date="2026-05-10">
+      <description>
+        <ul>
+          <li>New Wine runners for older hardware architectures.</li>
+          <li>Set default wine runner to GE-Proton.</li>
+          <li>Fixes to installation process so post install redists are installed correctly.</li>
+          <li>Better UI/UX for version selection and management.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.9" date="2026-05-07">
       <description>
         <ul>

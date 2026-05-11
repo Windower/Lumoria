@@ -1,7 +1,7 @@
 {
   "default": {
     "runner": {
-      "id": "wine-kron4ek-staging",
+      "id": "ge-proton",
       "version": "latest"
     },
     "wine": {
@@ -22,7 +22,7 @@
   "environments": {
     "sandbox": {
       "runner": {
-        "id": "wine-kron4ek-staging",
+        "id": "ge-proton",
         "version": "latest"
       }
     }

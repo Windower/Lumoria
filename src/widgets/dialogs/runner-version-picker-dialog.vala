@@ -10,18 +10,19 @@ namespace Lumoria.Widgets.Dialogs {
         private string current_value;
 
         private Adw.EntryRow search_row;
-        private Adw.PreferencesGroup pinned_group;
-        private Adw.PreferencesGroup releases_group;
+        private Adw.PreferencesGroup versions_group;
         private Gtk.Button previous_btn;
         private Gtk.Button next_btn;
-        private Gtk.Button search_more_btn;
         private Gtk.Label page_label;
         private Gtk.Spinner spinner;
 
         private Gee.ArrayList<Adw.ActionRow> release_rows;
+        private Gee.HashSet<string> installed_set;
         private int current_page = 1;
         private bool has_more = true;
         private bool loading = false;
+        private uint search_timeout_id = 0;
+        private string last_searched_query = "";
 
         public RunnerVersionPickerDialog (
             Models.RunnerSpec runner,
@@ -38,9 +39,12 @@ namespace Lumoria.Widgets.Dialogs {
             this.variant = variant;
             this.current_value = current_value != "" ? current_value : "default";
             release_rows = new Gee.ArrayList<Adw.ActionRow> ();
+            installed_set = new Gee.HashSet<string> ();
+            foreach (var dir in Utils.list_dirs (Path.build_filename (Utils.runner_dir (), runner.id))) {
+                installed_set.add (dir);
+            }
 
             build_ui ();
-            rebuild_pinned_rows ();
             load_page (1, false);
         }
 
@@ -57,20 +61,17 @@ namespace Lumoria.Widgets.Dialogs {
             search_row = new Adw.EntryRow ();
             search_row.title = _("Version");
             search_row.notify["text"].connect (() => {
-                rebuild_visible_release_rows ();
-                update_controls ();
+                schedule_search ();
             });
             search_group.add (search_row);
             content.append (search_group);
 
             var scroller = new Gtk.ScrolledWindow ();
             scroller.vexpand = true;
-            var list = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
-            pinned_group = SettingsShared.build_group (_("Pinned"), 12, 12);
-            releases_group = SettingsShared.build_group (_("GitHub Releases"), 12, 12);
-            list.append (pinned_group);
-            list.append (releases_group);
-            scroller.child = list;
+            versions_group = SettingsShared.build_group (_("Versions"), 12, 12);
+            add_fixed_row (default_label (), "default", _("Use the global/default runner version"));
+            add_fixed_row (_("Latest (always newest)"), "latest", "");
+            scroller.child = versions_group;
             content.append (scroller);
 
             var controls = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8);
@@ -94,12 +95,6 @@ namespace Lumoria.Widgets.Dialogs {
             spinner = new Gtk.Spinner ();
             controls.append (spinner);
 
-            search_more_btn = new Gtk.Button.with_label (_("Search Older"));
-            search_more_btn.clicked.connect (() => {
-                load_page (1, true);
-            });
-            controls.append (search_more_btn);
-
             next_btn = new Gtk.Button.with_label (_("Next"));
             next_btn.clicked.connect (() => {
                 if (has_more) load_page (current_page + 1, false);
@@ -111,25 +106,20 @@ namespace Lumoria.Widgets.Dialogs {
             child = toolbar;
         }
 
-        private void rebuild_pinned_rows () {
-            add_choice_row (
-                pinned_group,
-                default_label (),
-                "default",
-                _("Use the global/default runner version")
-            );
-            add_choice_row (
-                pinned_group,
-                _("Latest (always newest)"),
-                "latest",
-                ""
-            );
-
-            var installed = Utils.list_dirs (Path.build_filename (Utils.runner_dir (), runner.id));
-            installed.sort ((a, b) => strcmp (b, a));
-            foreach (var dir_name in installed) {
-                add_choice_row (pinned_group, dir_name, dir_name, _("Installed"));
+        private void add_fixed_row (string label, string value, string subtitle) {
+            var row = new Adw.ActionRow ();
+            row.title = label;
+            row.subtitle = subtitle;
+            row.activatable = true;
+            if (value == current_value) {
+                var check = new Gtk.Image.from_icon_name (IconRegistry.CHECKMARK);
+                row.add_suffix (check);
             }
+            row.activated.connect (() => {
+                version_selected (label, value);
+                close ();
+            });
+            versions_group.add (row);
         }
 
         private string default_label () {
@@ -151,6 +141,7 @@ namespace Lumoria.Widgets.Dialogs {
             update_controls ();
 
             var query = search_row.text.down ().strip ();
+            last_searched_query = query;
             var selected_variant = (Models.RunnerVariant) variant;
 
             new Thread<bool> ("runner-version-picker-%s".printf (runner.id), () => {
@@ -196,6 +187,10 @@ namespace Lumoria.Widgets.Dialogs {
                     has_more = result.has_more;
                     replace_release_rows (result);
                     update_controls ();
+                    var current_query = search_row.text.down ().strip ();
+                    if (current_query != last_searched_query) {
+                        schedule_search ();
+                    }
                     return false;
                 });
                 return true;
@@ -214,47 +209,59 @@ namespace Lumoria.Widgets.Dialogs {
         private void replace_release_rows (ReleasePageResult result) {
             clear_release_rows ();
             for (int i = 0; i < result.labels.size; i++) {
-                add_choice_row (releases_group, result.labels[i], result.values[i], "");
+                if (installed_set.contains (result.values[i])) {
+                    add_release_row (result.labels[i], result.values[i], _("Installed"));
+                }
+            }
+            for (int i = 0; i < result.labels.size; i++) {
+                if (!installed_set.contains (result.values[i])) {
+                    add_release_row (result.labels[i], result.values[i], "");
+                }
             }
             if (result.labels.size == 0) {
                 var row = new Adw.ActionRow ();
                 row.title = _("No matching releases on this page");
                 row.activatable = false;
-                releases_group.add (row);
+                versions_group.add (row);
                 release_rows.add (row);
             }
         }
 
         private void clear_release_rows () {
             foreach (var row in release_rows) {
-                releases_group.remove (row);
+                versions_group.remove (row);
             }
             release_rows.clear ();
         }
 
-        private void rebuild_visible_release_rows () {
-            if (search_row.text.strip () == "") return;
-            page_label.label = _("Search older releases to find matches");
+        private void schedule_search () {
+            if (search_timeout_id != 0) {
+                GLib.Source.remove (search_timeout_id);
+                search_timeout_id = 0;
+            }
+            update_controls ();
+            search_timeout_id = GLib.Timeout.add (300, () => {
+                search_timeout_id = 0;
+                var query = search_row.text.down ().strip ();
+                if (query == last_searched_query) return false;
+                if (query != "") {
+                    load_page (1, true);
+                } else {
+                    load_page (1, false);
+                }
+                return false;
+            });
         }
 
         private void update_controls () {
             previous_btn.sensitive = !loading && current_page > 1;
             next_btn.sensitive = !loading && has_more && search_row.text.strip () == "";
-            search_more_btn.sensitive = !loading && search_row.text.strip () != "";
-            search_more_btn.visible = search_row.text.strip () != "";
-            if (!loading && page_label.label == "") {
-                page_label.label = _("Page %d").printf (current_page);
-            } else if (!loading && !page_label.label.has_prefix (_("Failed:"))) {
+            if (!loading && !page_label.label.has_prefix (_("Failed:"))) {
                 page_label.label = _("Page %d").printf (current_page);
             }
         }
 
-        private void add_choice_row (
-            Adw.PreferencesGroup group,
-            string label,
-            string value,
-            string subtitle
-        ) {
+        private void add_release_row (string label, string value, string subtitle) {
             var row = new Adw.ActionRow ();
             row.title = label;
             row.subtitle = subtitle;
@@ -267,8 +274,8 @@ namespace Lumoria.Widgets.Dialogs {
                 version_selected (label, value);
                 close ();
             });
-            group.add (row);
-            if (group == releases_group) release_rows.add (row);
+            versions_group.add (row);
+            release_rows.add (row);
         }
 
         private class ReleasePageResult : Object {
