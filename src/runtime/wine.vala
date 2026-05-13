@@ -37,6 +37,7 @@ namespace Lumoria.Runtime {
 
     const string[] LOG_ENV_KEYS = {
         "WINEPREFIX", "WINEARCH", "WINEDLLOVERRIDES", "WINEDEBUG",
+        "WINE_LARGE_ADDRESS_AWARE",
         "WINEESYNC", "WINEFSYNC", "WINENTSYNC",
         "PATH", "LD_LIBRARY_PATH", "WINEDLLPATH",
         "DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"
@@ -149,6 +150,9 @@ namespace Lumoria.Runtime {
         public Gee.ArrayList<string> wine_dll_dirs {
             get; owned set; default = new Gee.ArrayList<string> ();
         }
+        public Gee.ArrayList<string> winedllpath_dirs {
+            get; owned set; default = new Gee.ArrayList<string> ();
+        }
 
         public string find_runner_pe_dir (string arch_subdir) {
             foreach (var dir in wine_dll_dirs) {
@@ -178,10 +182,23 @@ namespace Lumoria.Runtime {
         paths.wine = wine_bin;
         paths.wineserver = wineserver;
         paths.root = root;
-        foreach (var d in v.paths.wine_dll) paths.wine_dll_dirs.add (resolve_spec_path_public (root, d));
-        foreach (var d in v.paths.wine_dll_64) paths.wine_dll_dirs.add (resolve_spec_path_public (root, d));
-        foreach (var d in v.paths.wine_dll_32) paths.wine_dll_dirs.add (resolve_spec_path_public (root, d));
+        foreach (var d in v.paths.wine_dll) add_wine_dll_dir (paths, root, d);
+        foreach (var d in v.paths.wine_dll_64) add_wine_dll_dir (paths, root, d);
+        foreach (var d in v.paths.wine_dll_32) add_wine_dll_dir (paths, root, d);
         return paths;
+    }
+
+    private void add_wine_dll_dir (WinePaths paths, string root, string spec_path) {
+        var resolved = resolve_spec_path_public (root, spec_path);
+        paths.wine_dll_dirs.add (resolved);
+        if (!is_wine_dll_root (spec_path)) {
+            paths.winedllpath_dirs.add (resolved);
+        }
+    }
+
+    private bool is_wine_dll_root (string spec_path) {
+        var normalized = spec_path.strip ().replace ("\\", "/");
+        return normalized == "wine" || normalized.has_suffix ("/wine");
     }
 
     public WineEnv build_wine_env (
@@ -232,7 +249,12 @@ namespace Lumoria.Runtime {
             var p = v.paths;
             var root = paths.root;
 
-            var bin_dir = resolve_first_existing_spec_path (root, p.bin_paths, p.bin);
+            var bin_parts = new Gee.ArrayList<string> ();
+            if (p.bin_paths.size > 0) {
+                foreach (var b in p.bin_paths) bin_parts.add (resolve_spec_path_public (root, b));
+            } else if (p.bin != "") {
+                bin_parts.add (resolve_spec_path_public (root, p.bin));
+            }
 
             var ld_parts = new Gee.ArrayList<string> ();
             foreach (var l in p.lib) ld_parts.add (resolve_spec_path_public (root, l));
@@ -241,11 +263,9 @@ namespace Lumoria.Runtime {
             foreach (var l in p.wine_unix) ld_parts.add (resolve_spec_path_public (root, l));
 
             var ld = join_existing_paths (ld_parts);
-            var wine_dll = join_existing_paths (paths.wine_dll_dirs);
+            var wine_dll = join_existing_paths (paths.winedllpath_dirs);
 
-            if (bin_dir != "" && FileUtils.test (bin_dir, FileTest.IS_DIR)) {
-                env.prepend_path ("PATH", bin_dir);
-            }
+            env.prepend_path ("PATH", join_existing_paths (bin_parts));
             env.prepend_path ("LD_LIBRARY_PATH", ld);
             env.prepend_path ("WINEDLLPATH", wine_dll);
         }
@@ -328,6 +348,7 @@ namespace Lumoria.Runtime {
         string sync_mode,
         string wine_debug,
         bool? wine_wayland,
+        bool? large_address_aware,
         Gee.HashMap<string, string>? entry_runtime_env_vars,
         DownloadProgress? download_progress_cb,
         RuntimeLog logger,
@@ -361,6 +382,9 @@ namespace Lumoria.Runtime {
             false,
             Utils.Preferences.resolve_wine_wayland (wine_wayland)
         );
+        if (Utils.Preferences.resolve_large_address_aware (large_address_aware)) {
+            env.set_var ("WINE_LARGE_ADDRESS_AWARE", "1");
+        }
         apply_env_overrides (env, Utils.Preferences.instance ().get_runtime_env_vars ());
         if (entry_runtime_env_vars != null) {
             apply_env_overrides (env, entry_runtime_env_vars);
@@ -426,6 +450,10 @@ namespace Lumoria.Runtime {
             );
         }
 
+        if (cleanup_runner_support_files (entry, logger)) {
+            persist_runner_support_files (entry, logger);
+        }
+
         if (run_update) {
             if (status_cb != null) {
                 status_cb (_("Updating prefix for %s %s...").printf (
@@ -446,6 +474,35 @@ namespace Lumoria.Runtime {
         next.resolved_version = resolved_version;
         entry.runner_state = next;
         persist_prefix_runner_state (entry, next, logger);
+    }
+
+    public void ensure_prefix_runner_ready (
+        Models.PrefixEntry entry,
+        WineRuntime runtime,
+        RuntimeLog logger,
+        bool run_update = true,
+        LaunchPolicy launch_policy = LaunchPolicy.INTERACTIVE,
+        RuntimeStatusCallback? status_cb = null
+    ) throws Error {
+        ensure_prefix_runner_current (entry, runtime, logger, run_update, launch_policy, status_cb);
+        apply_runner_support_files (runtime, entry, logger);
+    }
+
+    private bool cleanup_runner_support_files (
+        Models.PrefixEntry entry,
+        RuntimeLog logger
+    ) throws Error {
+        if (entry.runner_support_files.size == 0) return false;
+
+        foreach (var path in entry.runner_support_files) {
+            if (Utils.remove_file_or_symlink (path)) {
+                logger.typed (LogType.COPY, "removed runner support %s".printf (path));
+            } else {
+                logger.typed (LogType.DEBUG, "runner support cleanup skipped %s".printf (path));
+            }
+        }
+        entry.runner_support_files.clear ();
+        return true;
     }
 
     public void apply_runner_support_files (
@@ -478,7 +535,7 @@ namespace Lumoria.Runtime {
                         Path.build_filename (support.dst_dir, file),
                         vars
                     );
-                    if (copy_runner_support_file (entry, support.id, src, dst, logger)) {
+                    if (apply_runner_support_file (entry, support, src, dst, logger)) {
                         dirty = true;
                     }
                 }
@@ -488,7 +545,7 @@ namespace Lumoria.Runtime {
             if (support.dst.strip () == "") continue;
             var src = resolve_runner_support_source (runtime.paths.root, support.src, vars);
             var dst = resolve_runner_support_destination (runtime.prefix_path, support.dst, vars);
-            if (copy_runner_support_file (entry, support.id, src, dst, logger)) {
+            if (apply_runner_support_file (entry, support, src, dst, logger)) {
                 dirty = true;
             }
         }
@@ -498,19 +555,27 @@ namespace Lumoria.Runtime {
         }
     }
 
-    private bool copy_runner_support_file (
+    private bool apply_runner_support_file (
         Models.PrefixEntry entry,
-        string id,
+        Models.RunnerSupportFile support,
         string src,
         string dst,
         RuntimeLog logger
     ) throws Error {
+        var id = support.id;
         if (src == "") {
             logger.typed (LogType.DEBUG, "runner support %s: source missing".printf (id));
             return false;
         }
 
-        if (FileUtils.test (dst, FileTest.EXISTS)) {
+        var mode = support.mode.down ().strip ();
+        if (mode == "") mode = "copy";
+
+        if (Utils.is_link_mode (mode)) {
+            return link_runner_support_file (entry, id, src, dst, mode, logger);
+        }
+
+        if (FileUtils.test (dst, FileTest.EXISTS) || FileUtils.test (dst, FileTest.IS_SYMLINK)) {
             logger.typed (LogType.DEBUG, "runner support %s: already present".printf (id));
             return false;
         }
@@ -518,6 +583,42 @@ namespace Lumoria.Runtime {
         Utils.copy_path (src, dst);
         logger.typed (LogType.COPY, "runner support %s: %s -> %s".printf (id, src, dst));
 
+        if (entry.runner_support_files.contains (dst)) return false;
+        entry.runner_support_files.add (dst);
+        return true;
+    }
+
+    private bool link_runner_support_file (
+        Models.PrefixEntry entry,
+        string id,
+        string src,
+        string dst,
+        string mode,
+        RuntimeLog logger
+    ) throws Error {
+        var dst_exists = FileUtils.test (dst, FileTest.EXISTS);
+        var dst_is_symlink = FileUtils.test (dst, FileTest.IS_SYMLINK);
+
+        if (dst_is_symlink && mode == "symlink" && Utils.is_symlink_to (dst, src)) {
+            logger.typed (LogType.DEBUG, "runner support %s: already linked".printf (id));
+            return track_runner_support_file (entry, dst);
+        }
+
+        if (dst_exists && !dst_is_symlink) {
+            logger.typed (LogType.DEBUG, "runner support %s: already present".printf (id));
+            return false;
+        }
+
+        if (dst_is_symlink) {
+            logger.typed (LogType.LINK, "runner support %s: replacing stale link %s".printf (id, dst));
+        }
+
+        Utils.link_file (src, dst, mode, dst_is_symlink);
+        logger.typed (LogType.LINK, "runner support %s: %s %s -> %s".printf (id, mode, src, dst));
+        return track_runner_support_file (entry, dst);
+    }
+
+    private bool track_runner_support_file (Models.PrefixEntry entry, string dst) {
         if (entry.runner_support_files.contains (dst)) return false;
         entry.runner_support_files.add (dst);
         return true;
@@ -662,22 +763,11 @@ namespace Lumoria.Runtime {
                 env.set_var ("WINENTSYNC", "0");
                 break;
             default:
-                if (ntsync_available ()) {
-                    env.set_var ("WINEESYNC", "0");
-                    env.set_var ("WINEFSYNC", "0");
-                    env.set_var ("WINENTSYNC", "1");
-                } else {
-                    env.set_var ("WINEESYNC", "1");
-                    env.set_var ("WINEFSYNC", "1");
-                    env.set_var ("WINENTSYNC", "0");
-                }
+                env.set_var ("WINEESYNC", "1");
+                env.set_var ("WINEFSYNC", "1");
+                env.set_var ("WINENTSYNC", "1");
                 break;
         }
-    }
-
-    private bool ntsync_available () {
-        return FileUtils.test ("/dev/ntsync", FileTest.EXISTS) ||
-               FileUtils.test ("/sys/module/ntsync", FileTest.IS_DIR);
     }
 
     public string runtime_prefix_path (string prefix_path) {

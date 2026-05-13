@@ -69,6 +69,76 @@ namespace Lumoria.Utils {
         }
     }
 
+    public static bool is_link_mode (string mode) {
+        var normalized = mode.down ().strip ();
+        return normalized == "symlink" || normalized == "hardlink";
+    }
+
+    public static bool is_symlink_to (string path, string target) {
+        try {
+            var info = File.new_for_path (path).query_info (
+                FileAttribute.STANDARD_SYMLINK_TARGET,
+                FileQueryInfoFlags.NOFOLLOW_SYMLINKS
+            );
+            var link_target = info.get_symlink_target ();
+            return link_target == target;
+        } catch (Error e) {
+            return false;
+        }
+    }
+
+    public static bool remove_file_or_symlink (string path) throws Error {
+        var is_symlink = FileUtils.test (path, FileTest.IS_SYMLINK);
+        var exists = FileUtils.test (path, FileTest.EXISTS);
+        if (!is_symlink && !exists) return false;
+        if (!is_symlink && FileUtils.test (path, FileTest.IS_DIR)) return false;
+        if (FileUtils.remove (path) != 0) {
+            throw new IOError.FAILED (
+                "Failed to remove %s: %s",
+                path,
+                Posix.strerror (Posix.errno)
+            );
+        }
+        return true;
+    }
+
+    public static void link_file (
+        string src,
+        string dst,
+        string mode,
+        bool replace_existing = false
+    ) throws Error {
+        var normalized = mode.down ().strip ();
+        if (normalized == "") normalized = "symlink";
+        if (!is_link_mode (normalized)) {
+            throw new IOError.FAILED ("Invalid link mode: %s", mode);
+        }
+        if (!FileUtils.test (src, FileTest.EXISTS)) {
+            throw new IOError.FAILED ("Link source missing: %s", src);
+        }
+
+        ensure_dir (Path.get_dirname (dst));
+        if (FileUtils.test (dst, FileTest.EXISTS) || FileUtils.test (dst, FileTest.IS_SYMLINK)) {
+            if (!replace_existing) {
+                throw new IOError.FAILED ("Link target exists: %s", dst);
+            }
+            remove_file_or_symlink (dst);
+        }
+
+        if (normalized == "hardlink") {
+            if (Posix.link (src, dst) != 0) {
+                throw new IOError.FAILED (
+                    "Hardlink failed: %s -> %s: %s",
+                    src,
+                    dst,
+                    Posix.strerror (Posix.errno)
+                );
+            }
+        } else {
+            FileUtils.symlink (src, dst);
+        }
+    }
+
     public static void copy_path (string src, string dst, CopyFileCallback? on_file = null) throws Error {
         if (FileUtils.test (src, FileTest.IS_DIR)) {
             var src_treated_as_contents = src.has_suffix ("/");

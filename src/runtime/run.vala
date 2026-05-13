@@ -205,16 +205,16 @@ namespace Lumoria.Runtime {
             runner_spec, entry.variant_id, entry.runner_version,
             entry.path, entry.wine_arch,
             entry.sync_mode, entry.wine_debug, entry.wine_wayland,
+            entry.large_address_aware,
             null, null, logger,
             launch_policy,
             entry.runner_state
         );
-        ensure_prefix_runner_current (entry, runtime, logger, true, launch_policy, status_cb);
+        ensure_prefix_runner_ready (entry, runtime, logger, true, launch_policy, status_cb);
 
         if (disable_mscoree) {
             runtime.env.add_dll_override ("mscoree", DLL_DISABLED);
         }
-        apply_runner_support_files (runtime, entry, logger);
         try {
             var comp_result = apply_enabled_components (
                 runtime.paths,

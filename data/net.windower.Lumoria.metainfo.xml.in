@@ -68,6 +68,13 @@
   </screenshots>
 
   <releases>
+    <release version="0.1.11" date="2026-05-12">
+      <description>
+        <ul>
+          <li>Fix icu library path issues for Proton runners.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.10" date="2026-05-10">
       <description>
         <ul>

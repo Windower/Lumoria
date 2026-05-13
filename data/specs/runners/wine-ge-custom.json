@@ -31,7 +31,7 @@
     "lib": ["lib", "lib64"],
     "lib_32": ["lib"],
     "lib_64": ["lib64"],
-    "wine_dll": ["lib/wine", "lib64/wine"],
+    "wine_dll": ["lib/wine", "lib/wine/i386-windows", "lib64/wine", "lib64/wine/x86_64-windows"],
     "wine_unix": ["lib64/wine/x86_64-unix", "lib/wine/i386-unix"]
   }
 }

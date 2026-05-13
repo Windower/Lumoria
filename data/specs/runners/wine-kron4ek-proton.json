@@ -19,7 +19,7 @@
         "bin": "bin",
         "lib": ["lib"],
         "lib_64": ["lib/x86_64-linux-gnu"],
-        "wine_dll": ["lib/wine"],
+        "wine_dll": ["lib/wine", "lib/wine/i386-windows", "lib/wine/x86_64-windows"],
         "wine_unix": ["lib/wine/x86_64-unix", "lib/wine/i386-unix"]
       }
     }

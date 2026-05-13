@@ -6,6 +6,38 @@
   "version_dir": "cachyos-(.+)",
   "asset_regex": "proton-cachyos-.*-x86_64\\.tar\\.xz$",
   "checksum_regex": "proton-cachyos-.*-x86_64\\.sha512sum$",
+  "support_files": [
+    {
+      "id": "icu-win32",
+      "mode": "symlink",
+      "files": ["icudt68.dll", "icuin68.dll", "icuuc68.dll"],
+      "src_dirs": [
+        "files/lib/wine/icu/i386-windows"
+      ],
+      "dst_dir": "drive_c/windows/system32",
+      "when": { "ARCH": "win32" }
+    },
+    {
+      "id": "icu-win64-x86",
+      "mode": "symlink",
+      "files": ["icudt68.dll", "icuin68.dll", "icuuc68.dll"],
+      "src_dirs": [
+        "files/lib/wine/icu/i386-windows"
+      ],
+      "dst_dir": "drive_c/windows/syswow64",
+      "when": { "ARCH": "win64" }
+    },
+    {
+      "id": "icu-win64-x64",
+      "mode": "symlink",
+      "files": ["icudt68.dll", "icuin68.dll", "icuuc68.dll"],
+      "src_dirs": [
+        "files/lib/wine/icu/x86_64-windows"
+      ],
+      "dst_dir": "drive_c/windows/system32",
+      "when": { "ARCH": "win64" }
+    }
+  ],
   "variants": [
     {
       "id": "wow64",
@@ -23,7 +55,7 @@
         "lib": ["files/lib"],
         "lib_32": ["files/lib/i386-linux-gnu"],
         "lib_64": ["files/lib/x86_64-linux-gnu"],
-        "wine_dll": ["files/lib/wine", "files/lib/vkd3d", "files/lib/wine/vkd3d-proton", "files/lib/wine/dxvk", "files/lib/wine/nvapi"],
+        "wine_dll": ["files/lib/wine", "files/lib/wine/i386-windows", "files/lib/wine/x86_64-windows", "files/lib/wine/icu/i386-windows", "files/lib/wine/icu/x86_64-windows", "files/lib/vkd3d", "files/lib/wine/vkd3d-proton", "files/lib/wine/dxvk", "files/lib/wine/nvapi"],
         "wine_unix": ["files/lib/wine/x86_64-unix", "files/lib/wine/i386-unix"]
       }
     },
@@ -40,7 +72,7 @@
         "lib": ["files/lib"],
         "lib_32": ["files/lib/i386-linux-gnu"],
         "lib_64": ["files/lib/x86_64-linux-gnu"],
-        "wine_dll": ["files/lib/wine", "files/lib/vkd3d", "files/lib/wine/vkd3d-proton", "files/lib/wine/dxvk", "files/lib/wine/nvapi"],
+        "wine_dll": ["files/lib/wine", "files/lib/wine/i386-windows", "files/lib/wine/x86_64-windows", "files/lib/wine/icu/i386-windows", "files/lib/wine/icu/x86_64-windows", "files/lib/vkd3d", "files/lib/wine/vkd3d-proton", "files/lib/wine/dxvk", "files/lib/wine/nvapi"],
         "wine_unix": ["files/lib/wine/x86_64-unix", "files/lib/wine/i386-unix"]
       }
     }

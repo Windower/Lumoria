@@ -46,6 +46,7 @@ namespace Lumoria.Models {
         public Gee.ArrayList<string> files {
             get; owned set; default = new Gee.ArrayList<string> ();
         }
+        public string mode { get; set; default = ""; }
         public string dst { get; set; default = ""; }
         public string dst_dir { get; set; default = ""; }
         public WhenClause? when { get; set; default = null; }
@@ -56,6 +57,7 @@ namespace Lumoria.Models {
             f.src = json_string_array (obj, "src");
             f.src_dirs = json_string_array (obj, "src_dirs");
             f.files = json_string_array (obj, "files");
+            f.mode = json_string (obj, "mode");
             f.dst = json_string (obj, "dst");
             f.dst_dir = json_string (obj, "dst_dir");
             f.when = WhenClause.from_json_member (obj);

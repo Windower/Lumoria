@@ -309,6 +309,7 @@ namespace Lumoria.Runtime {
                 opts.prefix_path, opts.wine_arch,
                 opts.prefix_entry != null ? opts.prefix_entry.sync_mode : "",
                 opts.wine_debug, opts.wine_wayland,
+                prefix_entry != null ? prefix_entry.large_address_aware : null,
                 prefix_entry != null ? prefix_entry.runtime_env_vars : null,
                 rep.download_progress_cb (),
                 logger
@@ -388,7 +389,7 @@ namespace Lumoria.Runtime {
             logger.banner ("Creating wine prefix");
             create_wine_prefix (paths, env, logger, cancellable);
             if (prefix_entry != null) {
-                ensure_prefix_runner_current (prefix_entry, runtime, logger, false);
+                ensure_prefix_runner_ready (prefix_entry, runtime, logger, false);
             }
             logger.emit_line ("Wine prefix created at: %s\n\n".printf (pfx_path));
 
@@ -463,9 +464,10 @@ namespace Lumoria.Runtime {
                 runner_spec, entry.variant_id, entry.runner_version,
                 entry.path, entry.wine_arch,
                 entry.sync_mode, entry.wine_debug, entry.wine_wayland,
+                entry.large_address_aware,
                 entry.runtime_env_vars, null, logger
             );
-            ensure_prefix_runner_current (entry, runtime, logger);
+            ensure_prefix_runner_ready (entry, runtime, logger);
 
             var cache_root = ensure_cache_subdir (Path.build_filename ("actions", entry.id), action.id);
             var vars = build_action_vars (runtime.prefix_path, cache_root, entry, launcher_specs, action);
@@ -540,9 +542,10 @@ namespace Lumoria.Runtime {
                 runner_spec, entry.variant_id, entry.runner_version,
                 entry.path, entry.wine_arch,
                 entry.sync_mode, entry.wine_debug, entry.wine_wayland,
+                entry.large_address_aware,
                 entry.runtime_env_vars, null, logger
             );
-            ensure_prefix_runner_current (entry, runtime, logger);
+            ensure_prefix_runner_ready (entry, runtime, logger);
 
             var cache_root = ensure_cache_subdir ("redist", redist_id);
             var vars = build_prefix_vars (runtime.prefix_path, cache_root, null);
@@ -1377,24 +1380,11 @@ namespace Lumoria.Runtime {
             var target = Path.build_filename (dst, name);
             if (FileUtils.test (target, FileTest.EXISTS) || FileUtils.test (target, FileTest.IS_SYMLINK)) {
                 logger.typed (LogType.LINK, "%s already exists, replacing".printf (target));
-                FileUtils.remove (target);
             }
             var src_exists = FileUtils.test (src, FileTest.EXISTS);
             logger.typed (LogType.LINK, "%s %s -> %s (source %s)".printf (
                 mode, src, target, src_exists ? "exists" : "MISSING"));
-            if (!src_exists) {
-                throw new IOError.FAILED ("Link source missing: %s", src);
-            }
-            if (mode == "hardlink") {
-                if (Posix.link (src, target) != 0) {
-                    throw new IOError.FAILED (
-                        "Hardlink failed: %s -> %s: %s",
-                        src, target, Posix.strerror (Posix.errno)
-                    );
-                }
-            } else {
-                FileUtils.symlink (src, target);
-            }
+            Utils.link_file (src, target, mode, true);
         }
     }
 
