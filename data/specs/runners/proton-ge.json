@@ -61,7 +61,7 @@
       }
     },
     {
-      "id": "bin",
+      "id": "32bit",
       "label": "32-bit (legacy)",
       "wine_bin": "files/bin/wine",
       "wineserver": "files/bin/wineserver",
