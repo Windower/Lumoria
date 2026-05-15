@@ -11,14 +11,10 @@
 
 ## What is this?
 
-Getting FFXI running on Linux has always meant juggling Lutris, ProtonUp-Qt, Winetricks, and whatever else breaks this week. Lumoria rolls all of that into a single app trying to ease the barrier to entry.
+Lumoria is a Windower Community project that brings the tools for playing **Final Fantasy XI** with **Windower 4** on Linux into one place, making setup easier from start to finish.
 
-Still rough around the edges, but it:
-- Manages Wine prefixes -- create, configure, launch.
-- Downloads and swaps Wine builds (Kron4ek Staging, GE-Proton, Proton-CachyOS).
-- Installs and toggles DXVK.
-- Installs the FFXI retail client and everything it needs to run under Wine.
-- Supports Windower 4.
+It is intended for modern Linux systems and newer hardware. If you are using an older device or need 32-bit support inside of a Flatpak, we recommend following the [Lutris guide](https://docs.windower.net/linux/#lutris) from the Windower documentation.
+
 
 ## How to install
 
@@ -39,4 +35,4 @@ We are not affiliated with SQUARE ENIX CO., LTD. in any way.
 ## Special Thanks
 - Lutris, Winetricks, and ProtonPlus for inspiration. Learned a lot from tinkering with their projects.
 - Thorny for the original Large Address Aware patch.
-- @taru on the Windower Discord server for extensive beta testing.
+- taru and Arieh from the Windower Discord server for extensive beta testing.
