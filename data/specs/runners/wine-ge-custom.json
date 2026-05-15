@@ -2,6 +2,7 @@
   "id": "wine-ge-custom",
   "name": "Wine-GE (deprecated 8.x)",
   "wine_arch": "win64",
+  "sandbox_supported": false,
   "host_arches": ["x86_64"],
   "github_repo": "GloriousEggroll/wine-ge-custom",
   "version_dir": "GE-Proton(.+)",
@@ -15,15 +16,13 @@
       "label": "64-bit (recommended)",
       "default": true,
       "wine_arch": "win64",
-      "binary_kind": "wow64",
-      "sandbox_supported": true
+      "binary_kind": "wow64"
     },
     {
       "id": "win32",
       "label": "32-bit (legacy)",
       "wine_arch": "win32",
-      "binary_kind": "legacy32",
-      "sandbox_supported": false
+      "binary_kind": "legacy32"
     }
   ],
   "paths": {

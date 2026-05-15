@@ -11,6 +11,14 @@ namespace Lumoria.Widgets.Services {
             return msg;
         }
 
+        private static bool is_missing_shortcut_error (Error e) {
+            if (e.matches (IOError.quark (), IOError.NOT_FOUND)) return true;
+
+            var msg = e.message.down ();
+            return msg.contains ("_g_2dio_2derror_2dquark.code1") ||
+                (msg.contains ("error removing file") && msg.contains ("no such file or directory"));
+        }
+
         public async bool install_menu_shortcut (
             Gtk.Window parent,
             Models.PrefixEntry entry,
@@ -41,13 +49,7 @@ namespace Lumoria.Widgets.Services {
                 string token_str = tok.get_string ();
 
                 var desktop_id = build_desktop_id (entry, target.id);
-                var exec = build_cli_exec (entry, target.id);
-                var try_exec = build_try_exec ();
-                var desktop_entry = "[Desktop Entry]\nType=Application\nComment=%s\nTerminal=false\nCategories=Game;\nStartupNotify=true\n%s\n%s\n".printf (
-                    _("Final Fantasy XI Launcher for Linux"),
-                    exec,
-                    try_exec
-                );
+                var desktop_entry = build_desktop_entry (label, entry, target.id);
 
                 if (!portal.dynamic_launcher_install (token_str, desktop_id, desktop_entry)) {
                     throw new IOError.FAILED (_("Menu shortcut install did not complete."));
@@ -69,6 +71,10 @@ namespace Lumoria.Widgets.Services {
                     throw new IOError.FAILED (_("Menu shortcut removal did not complete."));
                 }
             } catch (Error e) {
+                if (is_missing_shortcut_error (e)) {
+                    entry.dynamic_launcher_desktop_ids.unset (entrypoint_id);
+                    return true;
+                }
                 warning ("%s", e.message);
                 throw new IOError.FAILED (portal_error_message (e));
             }
@@ -93,6 +99,29 @@ namespace Lumoria.Widgets.Services {
             return "%s - %s".printf (prefix_label, target.selector_label);
         }
 
+        private string build_desktop_entry (
+            string label,
+            Models.PrefixEntry entry,
+            string entrypoint_id
+        ) throws Error {
+            var key_file = new KeyFile ();
+            key_file.set_string ("Desktop Entry", "Type", "Application");
+            key_file.set_string ("Desktop Entry", "Name", label);
+            key_file.set_string ("Desktop Entry", "Comment", _("Final Fantasy XI Launcher for Linux"));
+            key_file.set_boolean ("Desktop Entry", "Terminal", false);
+            key_file.set_string ("Desktop Entry", "Categories", "Game;");
+            key_file.set_boolean ("Desktop Entry", "StartupNotify", true);
+            key_file.set_string ("Desktop Entry", "Exec", build_cli_exec (entry, entrypoint_id));
+            key_file.set_string ("Desktop Entry", "TryExec", build_try_exec ());
+
+            size_t length;
+            var data = key_file.to_data (out length);
+            if (length == 0) {
+                throw new IOError.FAILED ("Dynamic launcher: empty desktop entry");
+            }
+            return data;
+        }
+
         private string build_desktop_id (Models.PrefixEntry entry, string entrypoint_id) {
             var id_seed = "%s:%s".printf (entry.id, entrypoint_id);
             var slug = sanitize_flatpak_segment (Utils.slugify (id_seed));
@@ -112,25 +141,25 @@ namespace Lumoria.Widgets.Services {
 
         private string build_try_exec () {
             if (Utils.EnvironmentInfo.is_flatpak ()) {
-                return "TryExec=flatpak";
+                return "flatpak";
             }
             var exe = Utils.current_executable_path ();
             if (exe != null && exe != "") {
-                return "TryExec=%s".printf (exe);
+                return exe;
             }
-            return "TryExec=lumoria";
+            return "lumoria";
         }
 
         private string build_cli_exec (Models.PrefixEntry entry, string entrypoint_id) {
             var ep_arg = entrypoint_id != "" ? " --entrypoint %s".printf (shell_quote (entrypoint_id)) : "";
             if (Utils.EnvironmentInfo.is_flatpak ()) {
-                return "Exec=lumoria launch %s%s".printf (shell_quote (entry.id), ep_arg);
+                return "lumoria launch %s%s".printf (shell_quote (entry.id), ep_arg);
             }
             var exe = Utils.current_executable_path ();
             if (exe != null && exe != "") {
-                return "Exec=%s launch %s%s".printf (shell_quote (exe), shell_quote (entry.id), ep_arg);
+                return "%s launch %s%s".printf (shell_quote (exe), shell_quote (entry.id), ep_arg);
             }
-            return "Exec=lumoria launch %s%s".printf (shell_quote (entry.id), ep_arg);
+            return "lumoria launch %s%s".printf (shell_quote (entry.id), ep_arg);
         }
 
         private string shell_quote (string s) {

@@ -85,7 +85,9 @@ namespace Lumoria.Models {
                 var root = parser.get_root ().get_object ();
                 reg.prefixes = parse_json_array<PrefixEntry> (root, "prefixes", (o) => PrefixEntry.from_json (o));
                 reg.default_prefix_id = json_string (root, "default_prefix_id");
-                if (reg.backfill_runner_state ()) {
+                var changed = reg.backfill_runner_state ();
+                changed = reg.migrate_duplicate_custom_entry_ids () || changed;
+                if (changed) {
                     reg.save (path);
                 }
             } catch (Error e) {
@@ -109,6 +111,72 @@ namespace Lumoria.Models {
                 changed = true;
             }
             return changed;
+        }
+
+        private bool migrate_duplicate_custom_entry_ids () {
+            var changed = false;
+            foreach (var prefix in prefixes) {
+                if (migrate_duplicate_custom_entry_ids_for_prefix (prefix)) changed = true;
+            }
+            return changed;
+        }
+
+        private bool migrate_duplicate_custom_entry_ids_for_prefix (PrefixEntry prefix) {
+            if (prefix.custom_entrypoints.size < 2) return false;
+
+            var changed = false;
+            var seen_ids = new Gee.HashSet<string> ();
+            var used_ids = new Gee.HashSet<string> ();
+            foreach (var ep in prefix.custom_entrypoints) {
+                if (ep.id != "") used_ids.add (ep.id);
+            }
+
+            foreach (var ep in prefix.custom_entrypoints) {
+                if (!PrefixEntry.is_legacy_custom_entry_id (ep.id)) continue;
+
+                var old_id = ep.id;
+                if (!seen_ids.contains (old_id)) {
+                    seen_ids.add (old_id);
+                    continue;
+                }
+
+                var new_id = generate_unique_custom_entry_id (used_ids);
+                ep.id = new_id;
+                used_ids.add (new_id);
+
+                if (!custom_entry_id_exists (prefix, old_id)) {
+                    remap_entrypoint_id (prefix, old_id, new_id);
+                }
+                changed = true;
+            }
+
+            return changed;
+        }
+
+        private static string generate_unique_custom_entry_id (Gee.HashSet<string> used_ids) {
+            while (true) {
+                var id = PrefixEntry.generate_custom_entry_id ();
+                if (!used_ids.contains (id)) return id;
+            }
+        }
+
+        private static bool custom_entry_id_exists (PrefixEntry prefix, string id) {
+            if (id == "") return false;
+            foreach (var ep in prefix.custom_entrypoints) {
+                if (ep.id == id) return true;
+            }
+            return false;
+        }
+
+        private static void remap_entrypoint_id (PrefixEntry prefix, string old_id, string new_id) {
+            if (prefix.launch_entrypoint_id == old_id) {
+                prefix.launch_entrypoint_id = new_id;
+            }
+            if (prefix.dynamic_launcher_desktop_ids.has_key (old_id)) {
+                var desktop_id = prefix.dynamic_launcher_desktop_ids[old_id];
+                prefix.dynamic_launcher_desktop_ids.unset (old_id);
+                prefix.dynamic_launcher_desktop_ids[new_id] = desktop_id;
+            }
         }
 
         private static bool is_deferred_runner_version (string version) {

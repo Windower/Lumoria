@@ -122,6 +122,7 @@ namespace Lumoria.Models {
         public string wine_arch { get; set; default = ""; }
         public string version_dir { get; set; default = ""; }
         public bool is_default { get; set; default = false; }
+        public bool sandbox_supported { get; set; default = true; }
         public RunnerPaths paths { get; owned set; default = new RunnerPaths (); }
         public Gee.ArrayList<RunnerSupportFile> support_files {
             get; owned set; default = new Gee.ArrayList<RunnerSupportFile> ();
@@ -151,7 +152,7 @@ namespace Lumoria.Models {
                 copy_strings (wineservers, base_variant.wineservers);
                 base_variant.wine_arch = wine_arch;
                 base_variant.binary_kind = "wow64";
-                base_variant.sandbox_supported = true;
+                base_variant.sandbox_supported = sandbox_supported;
                 base_variant.paths = paths;
                 if (!sandboxed || variant_supported_in_sandbox (base_variant)) {
                     result.add (base_variant);
@@ -165,6 +166,10 @@ namespace Lumoria.Models {
                 }
             }
             return result;
+        }
+
+        public bool supported_in_environment (bool sandboxed) {
+            return !sandboxed || selectable_variants (true).size > 0;
         }
 
         public RunnerVariant effective_variant (string variant_id) throws Error {
@@ -229,7 +234,7 @@ namespace Lumoria.Models {
             if (m.wineservers.size == 0 && m.wineserver != "") m.wineservers.add (m.wineserver);
             m.wine_arch = v.wine_arch != "" ? v.wine_arch : wine_arch;
             m.binary_kind = v.binary_kind;
-            m.sandbox_supported = v.sandbox_supported;
+            m.sandbox_supported = sandbox_supported && v.sandbox_supported;
             m.paths = v.paths.is_empty () ? paths : v.paths;
             return m;
         }
@@ -287,6 +292,9 @@ namespace Lumoria.Models {
             s.wine_arch = parse_arch_strict (obj, "wine_arch");
             s.version_dir = json_string (obj, "version_dir");
             s.is_default = json_bool (obj, "default");
+            if (obj.has_member ("sandbox_supported")) {
+                s.sandbox_supported = json_bool (obj, "sandbox_supported");
+            }
             s.host_arches = json_string_array (obj, "host_arches");
             if (obj.has_member ("paths")) {
                 s.paths = RunnerPaths.from_json (obj.get_object_member ("paths"));
@@ -326,6 +334,14 @@ namespace Lumoria.Models {
             var filtered = new Gee.ArrayList<RunnerSpec> ();
             foreach (var spec in specs) {
                 if (spec.supports_host_arch (host)) filtered.add (spec);
+            }
+            return filtered;
+        }
+
+        public static Gee.ArrayList<RunnerSpec> filter_for_environment (Gee.ArrayList<RunnerSpec> specs, bool sandboxed) {
+            var filtered = new Gee.ArrayList<RunnerSpec> ();
+            foreach (var spec in specs) {
+                if (spec.supported_in_environment (sandboxed)) filtered.add (spec);
             }
             return filtered;
         }

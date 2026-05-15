@@ -2,6 +2,7 @@
   "id": "proton-cachyos",
   "name": "Proton-CachyOS",
   "wine_arch": "win64",
+  "sandbox_supported": false,
   "github_repo": "CachyOS/proton-cachyos",
   "version_dir": "cachyos-(.+)",
   "asset_regex": "proton-cachyos-.*-x86_64\\.tar\\.xz$",
@@ -48,7 +49,6 @@
       "wine_bins": ["files/bin-wow64/wine", "files/bin/wine"],
       "wineservers": ["files/bin-wow64/wineserver", "files/bin/wineserver"],
       "binary_kind": "wow64",
-      "sandbox_supported": true,
       "paths": {
         "bin": "files/bin-wow64",
         "bin_paths": ["files/bin-wow64", "files/bin"],
@@ -66,7 +66,6 @@
       "wineserver": "files/bin/wineserver",
       "binary_kind": "legacy32",
       "wine_arch": "win32",
-      "sandbox_supported": false,
       "paths": {
         "bin": "files/bin",
         "lib": ["files/lib"],

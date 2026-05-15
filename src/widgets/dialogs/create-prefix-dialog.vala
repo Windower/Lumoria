@@ -46,7 +46,7 @@ namespace Lumoria.Widgets.Dialogs {
                 content_height: 600
             );
             this.registry = registry;
-            this.runner_specs = runner_specs;
+            this.runner_specs = Models.RunnerSpec.filter_for_environment (runner_specs, Utils.is_sandboxed ());
             this.launcher_specs = launcher_specs;
             visible_variants = new Gee.ArrayList<Models.RunnerVariant> ();
             component_mode_rows = new Gee.HashMap<string, OptionListRow> ();
@@ -464,6 +464,11 @@ namespace Lumoria.Widgets.Dialogs {
                         _("The selected runner has no compatible variants in this environment."));
                     return;
                 }
+            } else {
+                SettingsShared.present_alert (this,
+                    _("No Compatible Runner"),
+                    _("No Wine runners are compatible with this environment."));
+                return;
             }
 
             var variant_id = "";

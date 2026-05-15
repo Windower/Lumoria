@@ -92,8 +92,13 @@ namespace Lumoria.Runtime {
 
         var argv = wine_argv;
         if (!Utils.EnvironmentInfo.is_gamescope ()) {
-            argv = wrap_with_prelaunch (active_entrypoint != null ? active_entrypoint.prelaunch_script : "", argv);
-            argv = wrap_with_prelaunch (entry.prelaunch_script, argv);
+            var prelaunch_work_dir = ctx.prefix_path;
+            argv = wrap_with_prelaunch (
+                active_entrypoint != null ? active_entrypoint.prelaunch_script : "",
+                prelaunch_work_dir,
+                argv
+            );
+            argv = wrap_with_prelaunch (entry.prelaunch_script, prelaunch_work_dir, argv);
         }
 
         return spawn_wrapped_process (
@@ -175,6 +180,7 @@ namespace Lumoria.Runtime {
 
     private Gee.ArrayList<string> wrap_with_prelaunch (
         string prelaunch_script,
+        string prelaunch_work_dir,
         Gee.ArrayList<string> wine_argv
     ) {
         if (prelaunch_script == "" || !FileUtils.test (prelaunch_script, FileTest.EXISTS)) {
@@ -184,9 +190,10 @@ namespace Lumoria.Runtime {
         var argv = new Gee.ArrayList<string> ();
         argv.add ("bash");
         argv.add ("-c");
-        argv.add ("source \"$1\" && shift && exec \"$@\"");
+        argv.add ("cd \"$2\" && source \"$1\" && shift 2 && exec \"$@\"");
         argv.add ("--");
         argv.add (prelaunch_script);
+        argv.add (prelaunch_work_dir);
         foreach (var arg in wine_argv) argv.add (arg);
         return argv;
     }

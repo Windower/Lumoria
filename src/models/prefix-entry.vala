@@ -194,6 +194,32 @@ namespace Lumoria.Models {
             return variant_id;
         }
 
+        public static string generate_custom_entry_id () {
+            var part3 = ((uint16) GLib.Random.next_int () & 0x0fff) | 0x4000;
+            var part4 = ((uint16) GLib.Random.next_int () & 0x3fff) | 0x8000;
+            return "custom-%08x-%04x-%04x-%04x-%04x%08x".printf (
+                (uint32) GLib.Random.next_int (),
+                (uint16) GLib.Random.next_int (),
+                part3,
+                part4,
+                (uint16) GLib.Random.next_int (),
+                (uint32) GLib.Random.next_int ()
+            );
+        }
+
+        public static bool is_legacy_custom_entry_id (string id) {
+            if (!id.has_prefix ("custom-") || id.length != 39) return false;
+            for (int i = 7; i < id.length; i++) {
+                var c = id[i];
+                if (!((c >= '0' && c <= '9') ||
+                      (c >= 'a' && c <= 'f') ||
+                      (c >= 'A' && c <= 'F'))) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         public Json.Object to_json () {
             var obj = new Json.Object ();
             obj.set_string_member ("id", id);

@@ -51,7 +51,7 @@ namespace Lumoria.Widgets.Dialogs {
             this.host_window = parent;
             this.registry = registry;
             this.prefix_index = prefix_index;
-            this.runner_specs = runner_specs;
+            this.runner_specs = Models.RunnerSpec.filter_for_environment (runner_specs, Utils.is_sandboxed ());
             this.launcher_specs = launcher_specs;
             selected_runner_version = registry.prefixes[prefix_index].runner_version != ""
                 ? registry.prefixes[prefix_index].runner_version
@@ -747,7 +747,9 @@ namespace Lumoria.Widgets.Dialogs {
                 entry_prelaunch_path = "";
                 entry_prelaunch_row.subtitle = _("None");
             });
-            entry_prelaunch_row.add_suffix (ep_clear_btn);
+            if (entry_prelaunch_path != "") {
+                entry_prelaunch_row.add_suffix (ep_clear_btn);
+            }
             prelaunch_group.add (entry_prelaunch_row);
             var entry_prelaunch_note = new Adw.ActionRow ();
             entry_prelaunch_note.title = _("Prelaunch scripts are skipped in gamescope sessions");
@@ -756,47 +758,30 @@ namespace Lumoria.Widgets.Dialogs {
             prelaunch_group.add (entry_prelaunch_note);
             editor_body.append (prelaunch_group);
 
-            var component_specs = Models.ComponentSpec.load_all_from_resource ();
-            var entry_component_mode_rows = new Gee.HashMap<string, OptionListRow> ();
-            if (component_specs.size > 0) {
-                var component_group = SettingsShared.build_group (_("Runtime Components"), 12, 12);
-                component_group.description = _("Inherit uses the prefix-level component setting.");
-                foreach (var spec in component_specs) {
-                    bool? current_mode = null;
-                    if (existing != null && existing.component_overrides.has_key (spec.id)) {
-                        current_mode = existing.component_overrides[spec.id].enabled;
-                    }
-                    var mode_row = SettingsShared.build_toggle_override_combo (
-                        spec.display_label (),
-                        current_mode,
-                        _("prefix setting")
-                    );
-                    entry_component_mode_rows[spec.id] = mode_row;
-                    component_group.add (mode_row);
-                }
-                editor_body.append (component_group);
-            }
-
-            var overrides_group = SettingsShared.build_group (_("Runtime Overrides"), 12, 12, 8);
+            var dll_group = SettingsShared.build_group (_("DLL Overrides"), 12, 12);
+            dll_group.description = _("Use dll=mode entries separated by semicolons.");
             var dll_row = new Adw.EntryRow ();
-            dll_row.title = _("DLL Overrides (dll=mode;...)");
+            dll_row.title = _("DLL Overrides");
             dll_row.text = stringify_dll_overrides (
                 existing != null ? existing.runtime_dll_overrides : null
             );
-            overrides_group.add (dll_row);
+            dll_group.add (dll_row);
+            editor_body.append (dll_group);
 
+            var env_group = SettingsShared.build_group (_("Environment Variables"), 12, 12, 8);
             var entry_env_label = new Adw.ActionRow ();
-            entry_env_label.title = _("Entrypoint Runtime Environment Overrides");
+            entry_env_label.title = _("Entrypoint Runtime Variables");
+            entry_env_label.subtitle = _("Applied to this custom entry. These override prefix and global variables.");
             entry_env_label.activatable = false;
-            overrides_group.add (entry_env_label);
+            env_group.add (entry_env_label);
             var entry_env_editor = new Lumoria.Widgets.EnvVarsEditor (
                 existing != null ? existing.runtime_env_overrides : null
             );
             entry_env_editor.margin_start = 8;
             entry_env_editor.margin_end = 8;
             entry_env_editor.margin_bottom = 8;
-            overrides_group.add (entry_env_editor);
-            editor_body.append (overrides_group);
+            env_group.add (entry_env_editor);
+            editor_body.append (env_group);
 
             var actions = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8);
             actions.margin_start = 16;
@@ -855,16 +840,7 @@ namespace Lumoria.Widgets.Dialogs {
                     if (a != "") ep.args.add (a);
                 }
                 if (ep.id == "") {
-                    ep.id = "custom-%s".printf (Checksum.compute_for_string (ChecksumType.MD5, ep.exe));
-                }
-                ep.component_overrides = new Gee.HashMap<string, Models.RuntimeComponentOverride> ();
-                foreach (var spec in component_specs) {
-                    var mode_row = entry_component_mode_rows[spec.id];
-                    var selected_mode = (ToggleOverrideState) ((int) mode_row.selected);
-                    if (selected_mode == ToggleOverrideState.INHERIT) continue;
-                    var ov = new Models.RuntimeComponentOverride ();
-                    ov.enabled = selected_mode.to_nullable_bool ();
-                    ep.component_overrides[spec.id] = ov;
+                    ep.id = generate_unique_custom_entry_id ();
                 }
                 ep.runtime_dll_overrides = (Gee.HashMap<string, string>) parsed_dll_overrides;
                 ep.runtime_env_overrides = entry_env_editor.values ();
@@ -890,6 +866,20 @@ namespace Lumoria.Widgets.Dialogs {
             dialog.child = toolbar;
 
             dialog.present (this);
+        }
+
+        private string generate_unique_custom_entry_id () {
+            while (true) {
+                var id = Models.PrefixEntry.generate_custom_entry_id ();
+                var exists = false;
+                foreach (var ep in custom_entries) {
+                    if (ep.id == id) {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (!exists) return id;
+            }
         }
 
         private string stringify_dll_overrides (Gee.HashMap<string, string>? overrides) {
@@ -944,7 +934,12 @@ namespace Lumoria.Widgets.Dialogs {
 
         private void on_save () {
             var sel = (int) runner_combo.selected;
-            if (sel < 0 || sel >= runner_specs.size) return;
+            if (sel < 0 || sel >= runner_specs.size) {
+                SettingsShared.present_alert (this,
+                    _("No Compatible Runner"),
+                    _("No Wine runners are compatible with this environment."));
+                return;
+            }
             string env_error;
             if (!prefix_env_editor.validate (out env_error)) {
                 SettingsShared.present_alert (this, _("Invalid Environment Variables"), env_error);

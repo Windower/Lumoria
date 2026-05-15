@@ -90,15 +90,15 @@ namespace Lumoria.Widgets.Dialogs {
 
             var primary_group = new Adw.PreferencesGroup ();
             primary_group.add (build_tool_row (_("Run EXE inside Wine prefix"), () => run_exe_requested ()));
-            primary_group.add (build_tool_row (_("Open Bash terminal"), () => open_bash_requested ()));
-            primary_group.add (build_tool_row (_("Open Wine console"), () => open_wine_console_requested ()));
+            primary_group.add (build_tool_row (_("Open Bash Terminal"), () => open_bash_requested ()));
+            primary_group.add (build_tool_row (_("Open Wine Console"), () => open_wine_console_requested ()));
             content.append (primary_group);
 
             var tools_group = new Adw.PreferencesGroup ();
             tools_group.add (build_tool_row (_("Wine Task Manager"), () => open_taskmgr_requested ()));
             tools_group.add (build_tool_row (_("Wine Control Panel"), () => open_control_requested ()));
-            tools_group.add (build_tool_row (_("Wine registry"), () => open_regedit_requested ()));
-            tools_group.add (build_tool_row (_("Wine configuration"), () => open_winecfg_requested ()));
+            tools_group.add (build_tool_row (_("Wine Registry"), () => open_regedit_requested ()));
+            tools_group.add (build_tool_row (_("Wine Configuration"), () => open_winecfg_requested ()));
             content.append (tools_group);
 
             toolbar.content = content;

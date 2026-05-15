@@ -16,7 +16,7 @@ namespace Lumoria.Widgets.Dialogs {
                 content_width: 650,
                 content_height: 700
             );
-            this.runner_specs = runner_specs;
+            this.runner_specs = Models.RunnerSpec.filter_for_environment (runner_specs, Utils.is_sandboxed ());
             this.registry = registry;
             build_ui ();
         }
