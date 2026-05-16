@@ -68,14 +68,21 @@
   </screenshots>
 
   <releases>
+    <release version="0.1.13" date="2026-05-15">
+      <description>
+        <ul>
+          <li>Prelaunch Scripts broke with working directory changes</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.12" date="2026-05-14">
       <description>
         <ul>
           <li>Custom entries now use GUID for IDs.</li>
           <li>Hide 32-bit Wine runner variants by default in Flatpak builds.</li>
-	  <li>Further refinements to subreaper process management.</li>
-	  <li>Shortcuts can be removed if you already deleted the .desktop</li>
-	  <li>Custom Entry UI cleanup</li>
+          <li>Further refinements to subreaper process management.</li>
+          <li>Shortcuts can be removed if you already deleted the .desktop</li>
+          <li>Custom Entry UI cleanup</li>
         </ul>
       </description>
     </release>
