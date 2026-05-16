@@ -190,7 +190,7 @@ namespace Lumoria.Runtime {
         var argv = new Gee.ArrayList<string> ();
         argv.add ("bash");
         argv.add ("-c");
-        argv.add ("cd \"$2\" && source \"$1\" && shift 2 && exec \"$@\"");
+        argv.add ("__lumoria_script=\"$1\"; __lumoria_cwd=\"$2\"; __lumoria_launch_cwd=\"$PWD\"; shift 2; __lumoria_argv=(\"$@\"); cd \"$__lumoria_cwd\" && source \"$__lumoria_script\" && cd \"$__lumoria_launch_cwd\" && exec \"${__lumoria_argv[@]}\"");
         argv.add ("--");
         argv.add (prelaunch_script);
         argv.add (prelaunch_work_dir);
