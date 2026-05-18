@@ -25,6 +25,7 @@ namespace Lumoria.Widgets.Services {
         private const uint STICK_REPEAT_INITIAL_MS = 500;
         private const uint STICK_REPEAT_MS = 200;
         private const int64 BUTTON_DEBOUNCE_US = 150000;
+        private const int64 DUPLICATE_NAVIGATION_US = 60000;
 
         private GamepadAction? stick_held_action = null;
         private uint stick_repeat_source = 0;
@@ -32,6 +33,8 @@ namespace Lumoria.Widgets.Services {
         private double stick_y = 0.0;
         private GamepadAction? last_button_action = null;
         private int64 last_button_action_time_us = 0;
+        private GamepadAction? last_dispatched_action = null;
+        private int64 last_dispatched_action_time_us = 0;
 
         private GamepadService () {
             devices = new Gee.ArrayList<Manette.Device> ();
@@ -45,6 +48,9 @@ namespace Lumoria.Widgets.Services {
 
             monitor.device_connected.connect (bind_device);
             monitor.device_disconnected.connect (unbind_device);
+            Utils.Preferences.instance ().gamepad_navigation_changed.connect ((enabled) => {
+                if (!enabled) reset_input_state ();
+            });
         }
 
         public static GamepadService instance () {
@@ -70,6 +76,11 @@ namespace Lumoria.Widgets.Services {
         }
 
         private void on_button_press (Manette.Event event) {
+            if (!navigation_enabled ()) {
+                reset_input_state ();
+                return;
+            }
+
             uint16 button;
             if (!event.get_button (out button)) return;
 
@@ -80,6 +91,11 @@ namespace Lumoria.Widgets.Services {
         }
 
         private void on_hat_axis (Manette.Event event) {
+            if (!navigation_enabled ()) {
+                reset_input_state ();
+                return;
+            }
+
             uint16 axis;
             int8 value;
             if (!event.get_hat (out axis, out value)) return;
@@ -107,6 +123,11 @@ namespace Lumoria.Widgets.Services {
         }
 
         private void on_absolute_axis (Manette.Event event) {
+            if (!navigation_enabled ()) {
+                reset_input_state ();
+                return;
+            }
+
             uint16 axis;
             double value;
             if (!event.get_absolute (out axis, out value)) return;
@@ -147,6 +168,17 @@ namespace Lumoria.Widgets.Services {
             }
         }
 
+        private void reset_input_state () {
+            cancel_stick_repeat ();
+            stick_held_action = null;
+            stick_x = 0.0;
+            stick_y = 0.0;
+            last_button_action = null;
+            last_button_action_time_us = 0;
+            last_dispatched_action = null;
+            last_dispatched_action_time_us = 0;
+        }
+
         private void emit_button_action (GamepadAction action) {
             if (should_debounce_button_action (action)) {
                 return;
@@ -155,8 +187,41 @@ namespace Lumoria.Widgets.Services {
         }
 
         private void dispatch (GamepadAction action) {
-            if (!Utils.Preferences.instance ().gamepad_navigation) return;
+            if (!navigation_enabled ()) {
+                reset_input_state ();
+                return;
+            }
+            if (should_coalesce_navigation_action (action)) return;
             action_pressed (action);
+        }
+
+        private bool navigation_enabled () {
+            return Utils.Preferences.instance ().gamepad_navigation;
+        }
+
+        private bool should_coalesce_navigation_action (GamepadAction action) {
+            int64 now = GLib.get_monotonic_time ();
+            bool coalesced = is_navigation_action (action) &&
+                last_dispatched_action == action &&
+                (now - last_dispatched_action_time_us) < DUPLICATE_NAVIGATION_US;
+
+            last_dispatched_action = action;
+            last_dispatched_action_time_us = now;
+            return coalesced;
+        }
+
+        private bool is_navigation_action (GamepadAction action) {
+            switch (action) {
+                case GamepadAction.NAVIGATE_UP:
+                case GamepadAction.NAVIGATE_DOWN:
+                case GamepadAction.NAVIGATE_LEFT:
+                case GamepadAction.NAVIGATE_RIGHT:
+                case GamepadAction.TAB_PREV:
+                case GamepadAction.TAB_NEXT:
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         private bool should_debounce_button_action (GamepadAction action) {

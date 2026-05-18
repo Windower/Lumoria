@@ -319,8 +319,10 @@ namespace Lumoria.Runtime {
             var pfx_path = runtime.prefix_path;
             var paths = runtime.paths;
             var env = runtime.env;
+            var wineboot_mscoree_policy = resolve_wineboot_mscoree_policy (installer_spec, launcher);
 
             var installer_vars = make_install_vars (pfx_path, "installer", installer_spec.id, installer_spec.variables);
+            installer_vars["WINEBOOT_MSCOREE"] = wineboot_mscoree_policy;
             inject_redist_vars (installer_vars, launcher_redists);
             inject_prefix_context (installer_vars, runtime, prefix_entry, logger, installer_spec.variable_rules);
             apply_env_rules (env, installer_spec.env, installer_vars);
@@ -329,6 +331,7 @@ namespace Lumoria.Runtime {
                 ? make_install_vars (pfx_path, "launchers", launcher.id, launcher.variables)
                 : null;
             if (launcher_vars != null) {
+                launcher_vars["WINEBOOT_MSCOREE"] = wineboot_mscoree_policy;
                 inject_redist_vars (launcher_vars, launcher_redists);
                 inject_prefix_context (launcher_vars, runtime, prefix_entry, logger, launcher.variable_rules);
                 apply_env_rules (env, launcher.env, launcher_vars);
@@ -342,6 +345,7 @@ namespace Lumoria.Runtime {
                 )
                 : null;
             if (post_install_vars != null) {
+                post_install_vars["WINEBOOT_MSCOREE"] = wineboot_mscoree_policy;
                 inject_redist_vars (post_install_vars, launcher_redists);
                 var post_rules = merged_variable_rules (installer_spec, launcher);
                 post_rules.add_all (post_install_spec.variable_rules);
@@ -387,7 +391,7 @@ namespace Lumoria.Runtime {
             rep.label ("Creating wine prefix\u2026");
             guard_against_existing_prefix (pfx_path);
             logger.banner ("Creating wine prefix");
-            create_wine_prefix (paths, env, logger, cancellable);
+            create_wine_prefix (paths, env, logger, cancellable, wineboot_mscoree_policy);
             if (prefix_entry != null) {
                 ensure_prefix_runner_ready (prefix_entry, runtime, logger, false);
             }
@@ -603,6 +607,24 @@ namespace Lumoria.Runtime {
         merged.add_all (installer_redists);
         if (launcher != null) merged.add_all (launcher.redists);
         return merged;
+    }
+
+    private string resolve_wineboot_mscoree_policy (
+        Models.InstallerSpec installer_spec,
+        Models.LauncherSpec? launcher
+    ) {
+        var policy = installer_spec.wineboot_mscoree;
+        if (launcher != null && launcher.has_wineboot_mscoree) {
+            policy = launcher.wineboot_mscoree;
+        }
+        policy = policy.down ().strip ();
+        switch (policy) {
+            case "default":
+            case "disabled":
+                return policy;
+            default:
+                return "disabled";
+        }
     }
 
     private string ensure_cache_subdir (string category, string id) {

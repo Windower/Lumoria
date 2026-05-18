@@ -1,6 +1,8 @@
 namespace Lumoria.Widgets {
 
     public class Application : Adw.Application {
+        public bool flathub_screenshots { get; set; default = false; }
+
         public Application () {
             Object (
                 application_id: Config.APP_ID,

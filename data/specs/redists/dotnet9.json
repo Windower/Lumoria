@@ -1,0 +1,70 @@
+{
+  "id": "dotnet9",
+  "name": ".NET Runtime 9.0",
+  "variables": {
+    "DOTNET_X86_ROOT": {
+      "default": "drive_c/Program Files/dotnet",
+      "rules": [
+        {
+          "value": "drive_c/Program Files (x86)/dotnet",
+          "when": {
+            "var": {
+              "ARCH": "win64"
+            }
+          }
+        }
+      ]
+    },
+    "DOTNET_X64_ROOT": "drive_c/Program Files/dotnet"
+  },
+  "downloads": [
+    {
+      "id": "dotnet9_x86",
+      "url": "https://builds.dotnet.microsoft.com/dotnet/Runtime/9.0.14/dotnet-runtime-9.0.14-win-x86.exe",
+      "dest": "${var.CACHE_REDIST}/dotnet9/dotnet-runtime-9.0.14-win-x86.exe",
+      "sha256": "a99eb555e90eaa6703efa20f3b8fe676a9ba24bd24d439f016c20815d4ff815c"
+    },
+    {
+      "id": "dotnet9_x64",
+      "url": "https://builds.dotnet.microsoft.com/dotnet/Runtime/9.0.14/dotnet-runtime-9.0.14-win-x64.exe",
+      "dest": "${var.CACHE_REDIST}/dotnet9/dotnet-runtime-9.0.14-win-x64.exe",
+      "sha256": "690f85d3592edb3e5810f8cd8b4a630bbaa2a8abc354061d44d7d6c0f0d8a0dd",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    }
+  ],
+  "steps": [
+    {
+      "type": "wineexec",
+      "description": "Install .NET Runtime 9.0 (x86)",
+      "command": "${var.CACHE_REDIST}/dotnet9/dotnet-runtime-9.0.14-win-x86.exe",
+      "args": [
+        "/quiet"
+      ],
+      "working_dir": "${var.CACHE_REDIST}/dotnet9",
+      "verify_paths": [
+        "${var.PREFIX}/${var.DOTNET_X86_ROOT}/dotnet.exe"
+      ]
+    },
+    {
+      "type": "wineexec",
+      "description": "Install .NET Runtime 9.0 (x64)",
+      "command": "${var.CACHE_REDIST}/dotnet9/dotnet-runtime-9.0.14-win-x64.exe",
+      "args": [
+        "/quiet"
+      ],
+      "working_dir": "${var.CACHE_REDIST}/dotnet9",
+      "verify_paths": [
+        "${var.PREFIX}/${var.DOTNET_X64_ROOT}/dotnet.exe"
+      ],
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    }
+  ]
+}

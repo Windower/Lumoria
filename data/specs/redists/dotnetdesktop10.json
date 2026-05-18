@@ -1,0 +1,70 @@
+{
+  "id": "dotnetdesktop10",
+  "name": ".NET Desktop Runtime 10.0",
+  "variables": {
+    "DOTNET_X86_ROOT": {
+      "default": "drive_c/Program Files/dotnet",
+      "rules": [
+        {
+          "value": "drive_c/Program Files (x86)/dotnet",
+          "when": {
+            "var": {
+              "ARCH": "win64"
+            }
+          }
+        }
+      ]
+    },
+    "DOTNET_X64_ROOT": "drive_c/Program Files/dotnet"
+  },
+  "downloads": [
+    {
+      "id": "dotnetdesktop10_x86",
+      "url": "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/10.0.0/windowsdesktop-runtime-10.0.0-win-x86.exe",
+      "dest": "${var.CACHE_REDIST}/dotnetdesktop10/windowsdesktop-runtime-10.0.0-win-x86.exe",
+      "sha256": "ac38c81fef78c565d6bfbddf49ac5bcca354616176c0108c5f0e23333c3d093a"
+    },
+    {
+      "id": "dotnetdesktop10_x64",
+      "url": "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/10.0.0/windowsdesktop-runtime-10.0.0-win-x64.exe",
+      "dest": "${var.CACHE_REDIST}/dotnetdesktop10/windowsdesktop-runtime-10.0.0-win-x64.exe",
+      "sha256": "fc0494eaf529b15f74b10d920784cc618ff0845bebfdfd5d85d585e921157a5c",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    }
+  ],
+  "steps": [
+    {
+      "type": "wineexec",
+      "description": "Install .NET Desktop Runtime 10.0 (x86)",
+      "command": "${var.CACHE_REDIST}/dotnetdesktop10/windowsdesktop-runtime-10.0.0-win-x86.exe",
+      "args": [
+        "/quiet"
+      ],
+      "working_dir": "${var.CACHE_REDIST}/dotnetdesktop10",
+      "verify_paths": [
+        "${var.PREFIX}/${var.DOTNET_X86_ROOT}/dotnet.exe"
+      ]
+    },
+    {
+      "type": "wineexec",
+      "description": "Install .NET Desktop Runtime 10.0 (x64)",
+      "command": "${var.CACHE_REDIST}/dotnetdesktop10/windowsdesktop-runtime-10.0.0-win-x64.exe",
+      "args": [
+        "/quiet"
+      ],
+      "working_dir": "${var.CACHE_REDIST}/dotnetdesktop10",
+      "verify_paths": [
+        "${var.PREFIX}/${var.DOTNET_X64_ROOT}/dotnet.exe"
+      ],
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    }
+  ]
+}

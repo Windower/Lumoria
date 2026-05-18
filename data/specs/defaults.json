@@ -15,8 +15,12 @@
       "large_address_aware": false
     },
     "components": {
-      "dxvk": { "enabled": true },
-      "d7vk": { "enabled": true }
+      "dxvk": {
+        "enabled": true
+      },
+      "d7vk": {
+        "enabled": true
+      }
     }
   },
   "environments": {

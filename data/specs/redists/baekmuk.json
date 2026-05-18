@@ -5,7 +5,7 @@
     {
       "id": "baekmuk_archive",
       "url": "https://deb.debian.org/debian/pool/main/f/fonts-baekmuk/fonts-baekmuk_2.2.orig.tar.gz",
-      "dest": "${CACHE_REDIST}/baekmuk/fonts-baekmuk_2.2.orig.tar.gz",
+      "dest": "${var.CACHE_REDIST}/baekmuk/fonts-baekmuk_2.2.orig.tar.gz",
       "sha256": "08ab7dffb55d5887cc942ce370f5e33b756a55fbb4eaf0b90f244070e8d51882"
     }
   ],
@@ -13,15 +13,21 @@
     {
       "type": "fonts",
       "description": "Install Baekmuk fonts",
-      "dst": "${FONTS}",
-      "args": ["${CACHE_REDIST}/baekmuk/fonts-baekmuk_2.2.orig.tar.gz"],
+      "dst": "${var.FONTS}",
+      "args": [
+        "${var.CACHE_REDIST}/baekmuk/fonts-baekmuk_2.2.orig.tar.gz"
+      ],
       "font_registrations": [
         "batang.ttf|Baekmuk Batang",
         "gulim.ttf|Baekmuk Gulim",
         "dotum.ttf|Baekmuk Dotum",
         "hline.ttf|Baekmuk Headline"
       ],
-      "when": { "not": { "file_exists": "${FONTS}/batang.ttf" } }
+      "when": {
+        "not": {
+          "file_exists": "${var.FONTS}/batang.ttf"
+        }
+      }
     }
   ]
 }

@@ -1,7 +1,9 @@
 {
   "id": "fakekorean",
   "name": "Korean Font Aliases",
-  "redists": ["sourcehansans"],
+  "redists": [
+    "sourcehansans"
+  ],
   "steps": [
     {
       "type": "font_replacement",

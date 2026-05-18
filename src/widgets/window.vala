@@ -33,8 +33,14 @@ namespace Lumoria.Widgets {
         }
 
         construct {
-            default_width = 860;
-            default_height = 540;
+            var app = this.application as Application;
+            if (app != null && app.flathub_screenshots) {
+                default_width = 1000;
+                default_height = 700;
+            } else {
+                default_width = 860;
+                default_height = 540;
+            }
 
             registry = Models.PrefixRegistry.load (Utils.prefix_registry_path ());
             runner_specs = Models.RunnerSpec.filter_for_host (Models.RunnerSpec.load_all_from_resource ());
@@ -44,12 +50,15 @@ namespace Lumoria.Widgets {
 
             gamepad = Services.GamepadService.instance ();
             gamepad.action_pressed.connect (on_gamepad_action);
+            Utils.Preferences.instance ().gamepad_navigation_changed.connect (on_gamepad_navigation_changed);
             close_request.connect (() => on_close_request ());
 
             build_ui ();
             refresh_list ();
             Idle.add (() => {
-                initialize_gamepad_focus ();
+                if (Utils.Preferences.instance ().gamepad_navigation) {
+                    initialize_gamepad_focus ();
+                }
                 return false;
             });
         }
@@ -68,7 +77,7 @@ namespace Lumoria.Widgets {
             out_close_btn.tooltip_text = _("Quit");
             out_close_btn.focusable = true;
             out_close_btn.add_css_class ("circular");
-            out_close_btn.clicked.connect (() => request_quit_confirmation ());
+            out_close_btn.clicked.connect (() => request_quit ());
             header.pack_end (out_close_btn);
 
             out_prefs_btn = new Gtk.Button.from_icon_name (IconRegistry.MANAGE);
@@ -547,6 +556,7 @@ namespace Lumoria.Widgets {
 
         private void on_gamepad_action (Services.GamepadAction action) {
             if (!is_active) return;
+            if (!Utils.Preferences.instance ().gamepad_navigation) return;
 
             focus_visible = true;
 
@@ -793,6 +803,8 @@ namespace Lumoria.Widgets {
         }
 
         private void set_gamepad_focus_widget (Gtk.Widget target) {
+            if (!Utils.Preferences.instance ().gamepad_navigation) return;
+
             if (gamepad_focus_widget == target) {
                 target.grab_focus ();
                 return;
@@ -804,6 +816,26 @@ namespace Lumoria.Widgets {
 
             gamepad_focus_widget = target;
             Services.GamepadFocus.apply (gamepad_focus_widget);
+        }
+
+        private void on_gamepad_navigation_changed (bool enabled) {
+            if (enabled) {
+                initialize_gamepad_focus ();
+            } else {
+                clear_gamepad_focus ();
+            }
+        }
+
+        private void clear_gamepad_focus () {
+            if (gamepad_focus_widget != null) {
+                Services.GamepadFocus.clear (gamepad_focus_widget);
+                gamepad_focus_widget = null;
+            }
+
+            Services.GamepadFocus.clear_tree ((Gtk.Widget) this);
+            foreach (var dialog in active_dialogs) {
+                Services.GamepadFocus.clear_tree ((Gtk.Widget) dialog);
+            }
         }
 
         private Gee.ArrayList<Gtk.Widget> collect_gamepad_targets (Gtk.Widget root) {
@@ -950,8 +982,18 @@ namespace Lumoria.Widgets {
 
         private bool on_close_request () {
             if (allow_window_close) return false;
+            if (!Utils.EnvironmentInfo.is_gamescope ()) return false;
             request_quit_confirmation ();
             return true;
+        }
+
+        private void request_quit () {
+            if (Utils.EnvironmentInfo.is_gamescope ()) {
+                request_quit_confirmation ();
+                return;
+            }
+            allow_window_close = true;
+            this.close ();
         }
 
         private void request_quit_confirmation () {
@@ -969,6 +1011,8 @@ namespace Lumoria.Widgets {
         }
 
         private void initialize_gamepad_focus () {
+            if (!Utils.Preferences.instance ().gamepad_navigation) return;
+
             var targets = collect_gamepad_targets (this);
             if (targets.size == 0) return;
 
@@ -988,7 +1032,7 @@ namespace Lumoria.Widgets {
             if (root is Adw.Dialog) {
                 ((Adw.Dialog) root).close ();
             } else {
-                request_quit_confirmation ();
+                request_quit ();
             }
         }
     }

@@ -68,6 +68,18 @@
   </screenshots>
 
   <releases>
+    <release version="0.1.14" date="2026-05-17">
+      <description>
+        <ul>
+          <li>Setup Prefix, Manage Prefix, and Preferences UX cleanup and improvements.</li>
+          <li>Additional .NET and VC++ runtime versions supported.</li>
+          <li>Fixes to gamepad navigation.</li>
+          <li>Experimental support for Windower 5.</li>
+          <li>Cleanup of installer JSON language variable handling.</li>
+          <li>Fix Windower addon settings reverting to off.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.13" date="2026-05-15">
       <description>
         <ul>

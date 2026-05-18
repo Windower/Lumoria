@@ -28,6 +28,7 @@ namespace Lumoria.Widgets.Preferences {
                 if (prefs.logging_mode != mode) {
                     prefs.set_logging_mode (mode);
                 }
+                update_debug_combo_state ();
             });
             logging_group.add (logging_combo);
             append (logging_group);
@@ -58,7 +59,9 @@ namespace Lumoria.Widgets.Preferences {
                 var debug_val = Runtime.wine_debug_value_for_index (debug_combo.selected);
                 if (prefs.wine_debug != debug_val)
                     prefs.set_wine_debug (debug_val);
+                update_debug_combo_state ();
             });
+            update_debug_combo_state ();
             wine_group.add (debug_combo);
 
             append (wine_group);
@@ -80,12 +83,8 @@ namespace Lumoria.Widgets.Preferences {
             }
 
             var env_group = SettingsShared.build_group (_("Global Runtime Variables"), 24, 12, 12);
+            env_group.description = _("Applied to all prefixes. Prefix-level variables with the same key take precedence.");
 
-            var env_row = new Adw.ActionRow ();
-            env_row.title = _("Environment Variables");
-            env_row.subtitle = _("Applied to all prefixes. Prefix-level variables with the same key take precedence.");
-            env_row.activatable = false;
-            env_group.add (env_row);
             global_env_editor = new Lumoria.Widgets.EnvVarsEditor (prefs.get_runtime_env_vars ());
             global_env_editor.margin_top = 8;
             global_env_editor.margin_bottom = 6;
@@ -115,6 +114,22 @@ namespace Lumoria.Widgets.Preferences {
             }
             env_validation_label.visible = false;
             Utils.Preferences.instance ().set_runtime_env_vars (global_env_editor.values ());
+        }
+
+        private void update_debug_combo_state () {
+            if (debug_combo == null || logging_combo == null) return;
+
+            var logs_disabled = ((Utils.LoggingMode) logging_combo.selected) == Utils.LoggingMode.DONT_KEEP;
+            debug_combo.sensitive = !logs_disabled;
+            if (logs_disabled) {
+                debug_combo.subtitle = _("Forced off while runtime launch logs are not kept.");
+                return;
+            }
+
+            var model = debug_combo.model;
+            if (model != null && debug_combo.selected < model.get_n_items ()) {
+                debug_combo.subtitle = model.get_string (debug_combo.selected);
+            }
         }
     }
 }

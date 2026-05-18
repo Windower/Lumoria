@@ -253,6 +253,9 @@ namespace Lumoria.Widgets.Dialogs {
         private void bind_progress_handlers () {
             install_progress.step_changed.connect ((desc) => {
                 Idle.add (() => {
+                    if (cancellable.is_cancelled ()) {
+                        return false;
+                    }
                     status_label.label = desc;
                     return false;
                 });
@@ -260,6 +263,9 @@ namespace Lumoria.Widgets.Dialogs {
 
             install_progress.progress_changed.connect ((frac) => {
                 Idle.add (() => {
+                    if (cancellable.is_cancelled ()) {
+                        return false;
+                    }
                     progress_bar.fraction = frac;
                     progress_bar.text = "%.0f%%".printf (frac * 100);
                     return false;

@@ -1,11 +1,13 @@
 namespace Lumoria.Runtime {
     public const string STDERR_LOG_PREFIX = "[stderr] ";
     public const SpawnFlags CHILD_SPAWN_FLAGS = SpawnFlags.SEARCH_PATH | SpawnFlags.DO_NOT_REAP_CHILD;
+    private const int LOG_OUTPUT_TAIL_BYTES = 8192;
 
     public const string DLL_NATIVE   = "native";
     public const string DLL_BUILTIN  = "builtin";
     public const string DLL_DISABLED = "d";
     public const string WINE_DEBUG_DEFAULT = "";
+    public const string WINE_DEBUG_OFF = "-all";
     public const string WINE_DEBUG_GENERAL = "+warn,+err,+fixme";
     public const string WINE_DEBUG_FULL = "+warn,+err,+fixme,+seh,+loaddll,+debugstr";
     public const string WINE_DEBUG_LABEL_DEFAULT = "Default";
@@ -32,6 +34,12 @@ namespace Lumoria.Runtime {
             case 1: return WINE_DEBUG_GENERAL;
             case 2: return WINE_DEBUG_FULL;
             default: return WINE_DEBUG_DEFAULT;
+        }
+    }
+
+    public void apply_runtime_logging_policy (WineEnv env) {
+        if (Utils.LoggingMode.from_settings () == Utils.LoggingMode.DONT_KEEP) {
+            env.set_var ("WINEDEBUG", WINE_DEBUG_OFF);
         }
     }
 
@@ -389,6 +397,7 @@ namespace Lumoria.Runtime {
         if (entry_runtime_env_vars != null) {
             apply_env_overrides (env, entry_runtime_env_vars);
         }
+        apply_runtime_logging_policy (env);
         return new WineRuntime (
             runner_spec, variant, extract.version, extract,
             paths, pfx_path, arch, env
@@ -867,7 +876,8 @@ namespace Lumoria.Runtime {
             stderr_fd,
             stdout_output,
             stderr_output,
-            emit_fn
+            emit_fn,
+            logger.is_disk_enabled () ? 0 : LOG_OUTPUT_TAIL_BYTES
         );
 
         if (cancellable != null && cancel_handler != 0) {
@@ -905,12 +915,13 @@ namespace Lumoria.Runtime {
         int stderr_fd,
         StringBuilder stdout_output,
         StringBuilder stderr_output,
-        LogFunc emit_log
+        LogFunc emit_log,
+        int max_retained_bytes = 0
     ) {
         var stderr_thread = new Thread<void> ("stderr-reader", () => {
-            read_fd_to_log (stderr_fd, stderr_output, emit_log, STDERR_LOG_PREFIX);
+            read_fd_to_log (stderr_fd, stderr_output, emit_log, STDERR_LOG_PREFIX, max_retained_bytes);
         });
-        read_fd_to_log (stdout_fd, stdout_output, emit_log, "");
+        read_fd_to_log (stdout_fd, stdout_output, emit_log, "", max_retained_bytes);
         stderr_thread.join ();
 
         int status;
@@ -919,7 +930,13 @@ namespace Lumoria.Runtime {
         return Process.if_exited (status) ? Process.exit_status (status) : -1;
     }
 
-    private void read_fd_to_log (int fd, StringBuilder output, LogFunc emit_log, string line_prefix) {
+    private void read_fd_to_log (
+        int fd,
+        StringBuilder output,
+        LogFunc emit_log,
+        string line_prefix,
+        int max_retained_bytes = 0
+    ) {
         var channel = new IOChannel.unix_new (fd);
         try {
             channel.set_flags (IOFlags.NONBLOCK);
@@ -938,7 +955,7 @@ namespace Lumoria.Runtime {
                     continue;
                 }
                 var chunk = ((string) buf).substring (0, (long) bytes_read);
-                output.append (chunk);
+                append_retained_output (output, chunk, max_retained_bytes);
                 if (line_prefix != "") {
                     var lines = chunk.split ("\n");
                     for (int i = 0; i < lines.length; i++) {
@@ -957,12 +974,26 @@ namespace Lumoria.Runtime {
         }
     }
 
-    public void create_wine_prefix (WinePaths paths, WineEnv env, RuntimeLog logger, Cancellable? cancellable = null) throws Error {
+    private void append_retained_output (StringBuilder output, string chunk, int max_retained_bytes) {
+        output.append (chunk);
+        if (max_retained_bytes <= 0 || output.len <= max_retained_bytes) return;
+        output.erase (0, (ssize_t) (output.len - max_retained_bytes));
+    }
+
+    public void create_wine_prefix (
+        WinePaths paths,
+        WineEnv env,
+        RuntimeLog logger,
+        Cancellable? cancellable = null,
+        string wineboot_mscoree = "disabled"
+    ) throws Error {
         var prefix = env.get_var ("WINEPREFIX");
         if (prefix != null) Utils.ensure_dir (prefix);
 
         var boot_env = env.copy ();
-        boot_env.add_dll_override ("mscoree", DLL_DISABLED);
+        if (wineboot_mscoree.down ().strip () == "disabled") {
+            boot_env.add_dll_override ("mscoree", DLL_DISABLED);
+        }
 
         run_wine_command (paths.wine, { "wineboot", "-u" }, boot_env, null, logger, cancellable);
         // Settle the initial prefix-update session before any subsequent wine
@@ -985,13 +1016,13 @@ namespace Lumoria.Runtime {
         foreach (var k in vars.keys) keys.add (k);
         foreach (var k in keys) {
             var raw = vars[k];
-            if (!raw.has_prefix ("@prefix:")) continue;
-            var field = raw.substring (8);
+            string field;
+            if (!parse_computed_expr (raw, "prefix.", out field)) continue;
             var resolved = resolve_prefix_field (entry, field);
             if (resolved != null) {
                 vars[k] = resolved;
             } else {
-                logger.typed (LogType.WARN, "unknown @prefix field '%s' in %s".printf (field, k));
+                logger.typed (LogType.WARN, "unknown prefix field '%s' in %s".printf (field, k));
             }
         }
     }
@@ -1024,26 +1055,26 @@ namespace Lumoria.Runtime {
         foreach (var k in vars.keys) keys.add (k);
         foreach (var k in keys) {
             var raw = vars[k];
-            if (!raw.has_prefix ("@")) continue;
-            if (raw.has_prefix ("@prefix:")) continue;
-            var colon = raw.index_of_char (':');
-            if (colon < 2) continue;
-            var func = raw.substring (1, colon - 1);
-            var arg = raw.substring (colon + 1);
             string? resolved = null;
-            switch (func) {
-                case "winepath":
-                    resolved = resolve_winepath (arg, paths, env, logger);
-                    break;
-                case "pref":
-                    resolved = resolve_pref (arg, logger);
-                    break;
-                default:
-                    logger.typed (LogType.WARN, "unknown computed var function '%s' in %s".printf (func, k));
-                    continue;
+            string arg;
+            if (parse_computed_expr (raw, "winepath:", out arg)) {
+                resolved = resolve_winepath (arg, paths, env, logger);
+            } else if (parse_computed_expr (raw, "pref:", out arg)) {
+                resolved = resolve_pref (arg, logger);
+            } else {
+                continue;
             }
             if (resolved != null) vars[k] = resolved;
         }
+    }
+
+    private bool parse_computed_expr (string raw, string prefix, out string arg) {
+        arg = "";
+        if (!raw.has_prefix ("${") || !raw.has_suffix ("}")) return false;
+        var body = raw.substring (2, raw.length - 3);
+        if (!body.has_prefix (prefix)) return false;
+        arg = body.substring (prefix.length);
+        return arg != "";
     }
 
     public string? resolve_pref (string key, RuntimeLog logger) {
@@ -1054,7 +1085,7 @@ namespace Lumoria.Runtime {
                 case Json.NodeType.OBJECT:
                     var obj = node.get_object ();
                     if (!obj.has_member (part)) {
-                        logger.typed (LogType.WARN, "unknown @pref key '%s'".printf (key));
+                        logger.typed (LogType.WARN, "unknown pref key '%s'".printf (key));
                         return null;
                     }
                     node = obj.get_member (part);
@@ -1062,24 +1093,24 @@ namespace Lumoria.Runtime {
                 case Json.NodeType.ARRAY:
                     int64 idx;
                     if (!int64.try_parse (part, out idx) || idx < 0) {
-                        logger.typed (LogType.WARN, "@pref '%s': '%s' is not a valid array index".printf (key, part));
+                        logger.typed (LogType.WARN, "pref '%s': '%s' is not a valid array index".printf (key, part));
                         return null;
                     }
                     var arr = node.get_array ();
                     if (idx >= arr.get_length ()) {
-                        logger.typed (LogType.WARN, "@pref '%s': index %s out of range (size=%u)".printf (key, part, arr.get_length ()));
+                        logger.typed (LogType.WARN, "pref '%s': index %s out of range (size=%u)".printf (key, part, arr.get_length ()));
                         return null;
                     }
                     node = arr.get_element ((uint) idx);
                     break;
                 default:
-                    logger.typed (LogType.WARN, "@pref '%s': cannot descend through '%s'".printf (key, part));
+                    logger.typed (LogType.WARN, "pref '%s': cannot descend through '%s'".printf (key, part));
                     return null;
             }
         }
         var s = json_node_to_string (node);
         if (s == null) {
-            logger.typed (LogType.WARN, "@pref '%s' is not a scalar value".printf (key));
+            logger.typed (LogType.WARN, "pref '%s' is not a scalar value".printf (key));
         }
         return s;
     }

@@ -80,6 +80,41 @@ namespace Lumoria.Widgets {
             return group;
         }
 
+        public static Gtk.Widget build_warning_card (
+            string message,
+            int margin_top = 12,
+            int margin_bottom = 4,
+            int margin_start = 12,
+            int margin_end = 12
+        ) {
+            var warning_box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8);
+            warning_box.add_css_class ("card");
+            warning_box.add_css_class ("warning");
+            warning_box.margin_top = margin_top;
+            warning_box.margin_bottom = margin_bottom;
+            warning_box.margin_start = margin_start;
+            warning_box.margin_end = margin_end;
+            warning_box.hexpand = true;
+
+            var warning_icon = new Gtk.Image.from_icon_name (IconRegistry.WARNING);
+            warning_icon.valign = Gtk.Align.START;
+            warning_icon.margin_top = 10;
+            warning_icon.margin_start = 10;
+            warning_box.append (warning_icon);
+
+            var warning_label = new Gtk.Label (message);
+            warning_label.wrap = true;
+            warning_label.xalign = 0f;
+            warning_label.hexpand = true;
+            warning_label.margin_top = 10;
+            warning_label.margin_bottom = 10;
+            warning_label.margin_end = 10;
+            warning_label.add_css_class ("dim-label");
+            warning_box.append (warning_label);
+
+            return warning_box;
+        }
+
         public static Gtk.StringList build_toggle_override_model (string default_label) {
             var model = new Gtk.StringList (null);
             model.append (_("Inherit default (%s)").printf (default_label));

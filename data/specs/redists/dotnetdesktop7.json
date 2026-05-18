@@ -1,0 +1,70 @@
+{
+  "id": "dotnetdesktop7",
+  "name": ".NET Desktop Runtime 7.0",
+  "variables": {
+    "DOTNET_X86_ROOT": {
+      "default": "drive_c/Program Files/dotnet",
+      "rules": [
+        {
+          "value": "drive_c/Program Files (x86)/dotnet",
+          "when": {
+            "var": {
+              "ARCH": "win64"
+            }
+          }
+        }
+      ]
+    },
+    "DOTNET_X64_ROOT": "drive_c/Program Files/dotnet"
+  },
+  "downloads": [
+    {
+      "id": "dotnetdesktop7_x86",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/b840017b-c69f-4724-a152-11020a0039e6/b74aa12e4ee765a3387a7dcd4ba56187/windowsdesktop-runtime-7.0.20-win-x86.exe",
+      "dest": "${var.CACHE_REDIST}/dotnetdesktop7/windowsdesktop-runtime-7.0.20-win-x86.exe",
+      "sha256": "58d32d9857bda5da99afc217669aedacdffb20aed61f15315718eeb3a455b273"
+    },
+    {
+      "id": "dotnetdesktop7_x64",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/08bbfe8f-812d-479f-803b-23ea0bffce47/c320e4b037f3e92ab7ea92c3d7ea3ca1/windowsdesktop-runtime-7.0.20-win-x64.exe",
+      "dest": "${var.CACHE_REDIST}/dotnetdesktop7/windowsdesktop-runtime-7.0.20-win-x64.exe",
+      "sha256": "57e7c16e7226c9a29dbc3faedd9e5876cec494c7660528052f52160521e7b714",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    }
+  ],
+  "steps": [
+    {
+      "type": "wineexec",
+      "description": "Install .NET Desktop Runtime 7.0 (x86)",
+      "command": "${var.CACHE_REDIST}/dotnetdesktop7/windowsdesktop-runtime-7.0.20-win-x86.exe",
+      "args": [
+        "/quiet"
+      ],
+      "working_dir": "${var.CACHE_REDIST}/dotnetdesktop7",
+      "verify_paths": [
+        "${var.PREFIX}/${var.DOTNET_X86_ROOT}/dotnet.exe"
+      ]
+    },
+    {
+      "type": "wineexec",
+      "description": "Install .NET Desktop Runtime 7.0 (x64)",
+      "command": "${var.CACHE_REDIST}/dotnetdesktop7/windowsdesktop-runtime-7.0.20-win-x64.exe",
+      "args": [
+        "/quiet"
+      ],
+      "working_dir": "${var.CACHE_REDIST}/dotnetdesktop7",
+      "verify_paths": [
+        "${var.PREFIX}/${var.DOTNET_X64_ROOT}/dotnet.exe"
+      ],
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    }
+  ]
+}

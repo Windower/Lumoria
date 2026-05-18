@@ -14,6 +14,13 @@ namespace Lumoria.Widgets.Services {
             widget.grab_focus ();
         }
 
+        public static void clear_tree (Gtk.Widget widget) {
+            clear (widget);
+            for (var child = widget.get_first_child (); child != null; child = child.get_next_sibling ()) {
+                clear_tree (child);
+            }
+        }
+
         public static bool is_descendant_of (Gtk.Widget widget, Gtk.Widget ancestor) {
             for (var current = widget; current != null; current = current.get_parent ()) {
                 if (current == ancestor) return true;

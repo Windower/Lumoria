@@ -60,6 +60,7 @@ namespace Lumoria.Runtime {
         );
         apply_launch_env (entry, launcher_specs, custom_exe != "" ? "" : active_entrypoint_id, ctx.env);
         apply_entrypoint_runtime_overrides (active_entrypoint, ctx.env, logger);
+        apply_runtime_logging_policy (ctx.env);
 
         var host_exe = resolve_host_path (exe, ctx.prefix_path);
         var wine_path = to_wine_path (ctx.prefix_path, host_exe);
@@ -128,6 +129,7 @@ namespace Lumoria.Runtime {
             status_cb
         );
         apply_launch_env (entry, null, "", ctx.env);
+        apply_runtime_logging_policy (ctx.env);
         var argv = new Gee.ArrayList<string> ();
         argv.add (ctx.paths.wine);
         argv.add_all (wine_args);
@@ -159,6 +161,7 @@ namespace Lumoria.Runtime {
         var logger = RuntimeLog.for_run (entry.path, session_id);
         var ctx = prepare_runtime_context (entry, runner_specs, false, logger, null);
         apply_launch_env (entry, null, "", ctx.env);
+        apply_runtime_logging_policy (ctx.env);
 
         var result = new TerminalContext ();
         result.working_directory = entry.resolved_path ();
@@ -239,6 +242,7 @@ namespace Lumoria.Runtime {
         }
         apply_env_overrides (runtime.env, Utils.Preferences.instance ().get_runtime_env_vars ());
         apply_env_overrides (runtime.env, entry.runtime_env_vars);
+        apply_runtime_logging_policy (runtime.env);
         return runtime;
     }
 

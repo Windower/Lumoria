@@ -170,6 +170,8 @@ namespace Lumoria.Models {
         public Gee.ArrayList<SpecAction> actions { get; owned set; default = new Gee.ArrayList<SpecAction> (); }
         public Gee.ArrayList<EnvRule> env { get; owned set; default = new Gee.ArrayList<EnvRule> (); }
         public bool reinstallable { get; set; default = true; }
+        public string wineboot_mscoree { get; set; default = "disabled"; }
+        public bool has_wineboot_mscoree { get; set; default = false; }
 
         protected void parse_installable (Json.Object obj) throws Error {
             parse_base (obj);
@@ -178,6 +180,8 @@ namespace Lumoria.Models {
             actions = parse_actions (obj);
             env = parse_env_rules (obj);
             reinstallable = json_bool (obj, "reinstallable", true);
+            has_wineboot_mscoree = obj.has_member ("wineboot_mscoree");
+            wineboot_mscoree = json_string (obj, "wineboot_mscoree", "disabled");
         }
 
         protected void parse_installable_supporting_fields (

@@ -1,0 +1,79 @@
+{
+  "id": "windower5",
+  "name": "Windower 5 (Experimental)",
+  "prefix": "default",
+  "default": false,
+  "variables": {
+    "WINE_USERPROFILE_HOST": "${winepath:%USERPROFILE%}",
+    "WINDOWER": {
+      "default": "drive_c/Program Files (x86)/Windower Dev",
+      "rules": [
+        {
+          "value": "drive_c/Program Files/Windower Dev",
+          "when": {
+            "var": {
+              "ARCH": "win32"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "entrypoints": [
+    {
+      "id": "windower",
+      "name": "Windower",
+      "exe": "${var.WINDOWER}/windower.exe",
+      "args": [
+        "launch",
+        "default"
+      ],
+      "default": true
+    }
+  ],
+  "downloads": [
+    {
+      "id": "windower5",
+      "url": "http://files.windower.net/5/core/test/windower.msi",
+      "dest": "${var.CACHE}/windower5/windower.msi"
+    }
+  ],
+  "redists": [
+    "dotnet48",
+    "vcrun2022"
+  ],
+  "steps": [
+    {
+      "type": "wineexec",
+      "description": "Install Windower 5",
+      "command": "msiexec",
+      "args": [
+        "-q",
+        "-i",
+        "${var.CACHE}/windower5/windower.msi"
+      ],
+      "working_dir": "${var.CACHE}/windower5",
+      "when": {
+        "not": {
+          "file_exists": "${var.PREFIX}/${var.WINDOWER}/windower.exe"
+        }
+      },
+      "verify_paths": [
+        "${var.PREFIX}/${var.WINDOWER}/windower.exe"
+      ]
+    },
+    {
+      "type": "wineexec",
+      "description": "Configure Windower 5",
+      "command": "${var.WINDOWER}/windower.exe",
+      "args": [
+        "save",
+        "default",
+        "--overwrite"
+      ],
+      "verify_paths": [
+        "${var.WINE_USERPROFILE_HOST}/AppData/Local/Windower/profiles.xml"
+      ]
+    }
+  ]
+}

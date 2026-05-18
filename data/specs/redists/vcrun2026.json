@@ -1,0 +1,251 @@
+{
+  "id": "vcrun2026",
+  "name": "Visual C++ 2017-2026 Runtime",
+  "downloads": [
+    {
+      "id": "vcrun2026_x86",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6f02464a-5e9b-486d-a506-c99a17db9a83/E7267C1BDF9237C0B4A28CF027C382B97AA909934F84F1C92D3FB9F04173B33E/VC_redist.x86.exe",
+      "dest": "${var.CACHE_REDIST}/vcrun2026/vc_redist.x86.exe",
+      "sha256": "e7267c1bdf9237c0b4a28cf027c382b97aa909934f84f1c92d3fb9f04173b33e"
+    },
+    {
+      "id": "vcrun2026_x64",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/6f02464a-5e9b-486d-a506-c99a17db9a83/8995548DFFFCDE7C49987029C764355612BA6850EE09A7B6F0FDDC85BDC5C280/VC_redist.x64.exe",
+      "dest": "${var.CACHE_REDIST}/vcrun2026/vc_redist.x64.exe",
+      "sha256": "8995548dfffcde7c49987029c764355612ba6850ee09a7b6f0fddc85bdc5c280",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    }
+  ],
+  "steps": [
+    {
+      "type": "dll_override",
+      "description": "concrt140 override",
+      "command": "concrt140",
+      "mode": "native,builtin"
+    },
+    {
+      "type": "dll_override",
+      "description": "msvcp140 override",
+      "command": "msvcp140",
+      "mode": "native,builtin"
+    },
+    {
+      "type": "dll_override",
+      "description": "msvcp140_1 override",
+      "command": "msvcp140_1",
+      "mode": "native,builtin"
+    },
+    {
+      "type": "dll_override",
+      "description": "msvcp140_2 override",
+      "command": "msvcp140_2",
+      "mode": "native,builtin"
+    },
+    {
+      "type": "dll_override",
+      "description": "msvcp140_atomic_wait override",
+      "command": "msvcp140_atomic_wait",
+      "mode": "native,builtin"
+    },
+    {
+      "type": "dll_override",
+      "description": "msvcp140_codecvt_ids override",
+      "command": "msvcp140_codecvt_ids",
+      "mode": "native,builtin"
+    },
+    {
+      "type": "dll_override",
+      "description": "vcamp140 override",
+      "command": "vcamp140",
+      "mode": "native,builtin"
+    },
+    {
+      "type": "dll_override",
+      "description": "vccorlib140 override",
+      "command": "vccorlib140",
+      "mode": "native,builtin"
+    },
+    {
+      "type": "dll_override",
+      "description": "vcomp140 override",
+      "command": "vcomp140",
+      "mode": "native,builtin"
+    },
+    {
+      "type": "dll_override",
+      "description": "vcruntime140 override",
+      "command": "vcruntime140",
+      "mode": "native,builtin"
+    },
+    {
+      "type": "dll_override",
+      "description": "vcruntime140_1 override",
+      "command": "vcruntime140_1",
+      "mode": "native,builtin",
+      "idempotent": false,
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    },
+    {
+      "type": "wineexec",
+      "description": "Run VC++ 2026 x86 installer",
+      "command": "${var.CACHE_REDIST}/vcrun2026/vc_redist.x86.exe",
+      "args": [
+        "/q"
+      ],
+      "working_dir": "${var.CACHE_REDIST}/vcrun2026"
+    },
+    {
+      "type": "cabextract",
+      "description": "Extract a2 from x86 installer",
+      "src": "${var.CACHE_REDIST}/vcrun2026/vc_redist.x86.exe",
+      "args": [
+        "a2"
+      ],
+      "dst": "${var.CACHE_REDIST}/vcrun2026/a2_x86",
+      "idempotent": false
+    },
+    {
+      "type": "cabextract",
+      "description": "Extract msvcp140.dll (x86 -> syswow64)",
+      "src": "${var.CACHE_REDIST}/vcrun2026/a2_x86",
+      "args": [
+        "msvcp140.dll_x86"
+      ],
+      "dst": "${var.SYSWOW64}/msvcp140.dll",
+      "idempotent": false,
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    },
+    {
+      "type": "cabextract",
+      "description": "Extract msvcp140_2.dll (x86 -> syswow64)",
+      "src": "${var.CACHE_REDIST}/vcrun2026/a2_x86",
+      "args": [
+        "msvcp140_2.dll_x86"
+      ],
+      "dst": "${var.SYSWOW64}/msvcp140_2.dll",
+      "idempotent": false,
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    },
+    {
+      "type": "cabextract",
+      "description": "Extract msvcp140.dll (x86 -> system32)",
+      "src": "${var.CACHE_REDIST}/vcrun2026/a2_x86",
+      "args": [
+        "msvcp140.dll_x86"
+      ],
+      "dst": "${var.SYSTEM32}/msvcp140.dll",
+      "idempotent": false,
+      "when": {
+        "var": {
+          "ARCH": "win32"
+        }
+      }
+    },
+    {
+      "type": "cabextract",
+      "description": "Extract msvcp140_2.dll (x86 -> system32)",
+      "src": "${var.CACHE_REDIST}/vcrun2026/a2_x86",
+      "args": [
+        "msvcp140_2.dll_x86"
+      ],
+      "dst": "${var.SYSTEM32}/msvcp140_2.dll",
+      "idempotent": false,
+      "when": {
+        "var": {
+          "ARCH": "win32"
+        }
+      }
+    },
+    {
+      "type": "wineexec",
+      "description": "Run VC++ 2026 x64 installer",
+      "command": "${var.CACHE_REDIST}/vcrun2026/vc_redist.x64.exe",
+      "args": [
+        "/q"
+      ],
+      "working_dir": "${var.CACHE_REDIST}/vcrun2026",
+      "idempotent": false,
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    },
+    {
+      "type": "cabextract",
+      "description": "Extract a4 from x64 installer",
+      "src": "${var.CACHE_REDIST}/vcrun2026/vc_redist.x64.exe",
+      "args": [
+        "a4"
+      ],
+      "dst": "${var.CACHE_REDIST}/vcrun2026/a4_x64",
+      "idempotent": false,
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    },
+    {
+      "type": "cabextract",
+      "description": "Extract msvcp140.dll (x64 -> system32)",
+      "src": "${var.CACHE_REDIST}/vcrun2026/a4_x64",
+      "args": [
+        "msvcp140.dll_amd64"
+      ],
+      "dst": "${var.SYSTEM32}/msvcp140.dll",
+      "idempotent": false,
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    },
+    {
+      "type": "cabextract",
+      "description": "Extract msvcp140_2.dll (x64 -> system32)",
+      "src": "${var.CACHE_REDIST}/vcrun2026/a4_x64",
+      "args": [
+        "msvcp140_2.dll_amd64"
+      ],
+      "dst": "${var.SYSTEM32}/msvcp140_2.dll",
+      "idempotent": false,
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    },
+    {
+      "type": "cabextract",
+      "description": "Extract vcruntime140_1.dll (x64 -> system32)",
+      "src": "${var.CACHE_REDIST}/vcrun2026/a4_x64",
+      "args": [
+        "vcruntime140_1.dll_amd64"
+      ],
+      "dst": "${var.SYSTEM32}/vcruntime140_1.dll",
+      "idempotent": false,
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    }
+  ]
+}

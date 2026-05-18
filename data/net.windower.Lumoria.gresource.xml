@@ -13,10 +13,20 @@
     <file>specs/runners/wine-kron4ek-proton.json</file>
     <file>specs/runners/wine-kron4ek-staging.json</file>
     <file>specs/launchers/windower4.json</file>
+    <file>specs/launchers/windower5.json</file>
     <file>specs/redists/corefonts.json</file>
     <file>specs/redists/gdiplus.json</file>
     <file>specs/redists/dotnet48.json</file>
+    <file>specs/redists/dotnet7.json</file>
+    <file>specs/redists/dotnet8.json</file>
+    <file>specs/redists/dotnet9.json</file>
+    <file>specs/redists/dotnet10.json</file>
+    <file>specs/redists/dotnetdesktop7.json</file>
+    <file>specs/redists/dotnetdesktop8.json</file>
+    <file>specs/redists/dotnetdesktop9.json</file>
+    <file>specs/redists/dotnetdesktop10.json</file>
     <file>specs/redists/vcrun2022.json</file>
+    <file>specs/redists/vcrun2026.json</file>
     <file>specs/redists/andale.json</file>
     <file>specs/redists/baekmuk.json</file>
     <file>specs/redists/tahoma.json</file>

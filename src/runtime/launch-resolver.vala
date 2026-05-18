@@ -437,8 +437,8 @@ namespace Lumoria.Runtime {
         foreach (var k in vars.keys) keys.add (k);
         foreach (var k in keys) {
             var raw = vars[k];
-            if (!raw.has_prefix ("@prefix:")) continue;
-            var field = raw.substring (8);
+            if (!raw.has_prefix ("${prefix.") || !raw.has_suffix ("}")) continue;
+            var field = raw.substring (9, raw.length - 10);
             string? resolved = null;
             switch (field) {
                 case "region":         resolved = entry.region; break;

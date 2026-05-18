@@ -5,7 +5,7 @@
     {
       "id": "liberation_archive",
       "url": "https://releases.pagure.org/liberation-fonts/liberation-fonts-ttf-1.07.4.tar.gz",
-      "dest": "${CACHE_REDIST}/liberation/liberation-fonts-ttf-1.07.4.tar.gz",
+      "dest": "${var.CACHE_REDIST}/liberation/liberation-fonts-ttf-1.07.4.tar.gz",
       "sha256": "61a7e2b6742a43c73e8762cdfeaf6dfcf9abdd2cfa0b099a9854d69bc4cfee5c"
     }
   ],
@@ -13,8 +13,10 @@
     {
       "type": "fonts",
       "description": "Install Liberation fonts",
-      "dst": "${FONTS}",
-      "args": ["${CACHE_REDIST}/liberation/liberation-fonts-ttf-1.07.4.tar.gz"],
+      "dst": "${var.FONTS}",
+      "args": [
+        "${var.CACHE_REDIST}/liberation/liberation-fonts-ttf-1.07.4.tar.gz"
+      ],
       "font_registrations": [
         "liberationmono-bold.ttf|Liberation Mono Bold",
         "liberationmono-bolditalic.ttf|Liberation Mono Bold Italic",
@@ -33,7 +35,11 @@
         "liberationserif-italic.ttf|Liberation Serif Italic",
         "liberationserif-regular.ttf|Liberation Serif"
       ],
-      "when": { "not": { "file_exists": "${FONTS}/liberationmono-regular.ttf" } }
+      "when": {
+        "not": {
+          "file_exists": "${var.FONTS}/liberationmono-regular.ttf"
+        }
+      }
     }
   ]
 }

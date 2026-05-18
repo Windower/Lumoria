@@ -5,8 +5,7 @@
   "asset_regex": "dxvk-.*\\.tar\\.gz$",
   "checksum_regex": "dxvk-.*\\.(sha256|sha256sum|sha512|sha512sum)$",
   "default_version": "latest",
-  "system_env_defaults": {
-  },
+  "system_env_defaults": {},
   "overrides": {
     "d3d8": "n,b",
     "d3d9": "n,b",
@@ -18,23 +17,35 @@
     {
       "type": "copy",
       "description": "Install DXVK x32 DLLs (win64)",
-      "src": "${COMPONENT}/x32/",
-      "dst": "${PREFIX}/drive_c/windows/syswow64",
-      "when": { "ARCH": "win64" }
+      "src": "${var.COMPONENT}/x32/",
+      "dst": "${var.PREFIX}/drive_c/windows/syswow64",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
     },
     {
       "type": "copy",
       "description": "Install DXVK x64 DLLs (win64)",
-      "src": "${COMPONENT}/x64/",
-      "dst": "${PREFIX}/drive_c/windows/system32",
-      "when": { "ARCH": "win64" }
+      "src": "${var.COMPONENT}/x64/",
+      "dst": "${var.PREFIX}/drive_c/windows/system32",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
     },
     {
       "type": "copy",
       "description": "Install DXVK x32 DLLs (win32)",
-      "src": "${COMPONENT}/x32/",
-      "dst": "${PREFIX}/drive_c/windows/system32",
-      "when": { "ARCH": "win32" }
+      "src": "${var.COMPONENT}/x32/",
+      "dst": "${var.PREFIX}/drive_c/windows/system32",
+      "when": {
+        "var": {
+          "ARCH": "win32"
+        }
+      }
     }
   ]
 }

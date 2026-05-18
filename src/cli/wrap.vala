@@ -54,18 +54,7 @@ namespace Lumoria.Cli {
                 Posix.errno);
         }
 
-        int log_fd = -1;
-        if (log_path != "") {
-            log_fd = Posix.open (log_path,
-                Posix.O_WRONLY | Posix.O_CREAT | Posix.O_APPEND, 0644);
-            if (log_fd >= 0) {
-                Posix.dup2 (log_fd, Posix.STDOUT_FILENO);
-                Posix.dup2 (log_fd, Posix.STDERR_FILENO);
-                Posix.close (log_fd);
-            } else {
-                stderr.printf ("warn: could not open log %s, inheriting caller fds\n", log_path);
-            }
-        }
+        redirect_stdio (log_path);
 
         var cmd = new string[args.length - cmd_start + 1];
         for (int i = cmd_start; i < args.length; i++) {
@@ -99,6 +88,23 @@ namespace Lumoria.Cli {
         }
 
         return initial_code >= 0 ? initial_code : 1;
+    }
+
+    private void redirect_stdio (string log_path) {
+        var target_path = log_path != "" ? log_path : "/dev/null";
+        var flags = log_path != ""
+            ? Posix.O_WRONLY | Posix.O_CREAT | Posix.O_APPEND
+            : Posix.O_WRONLY;
+        var fd = Posix.open (target_path, flags, 0644);
+        if (fd < 0) {
+            if (log_path != "") {
+                stderr.printf ("warn: could not open log %s, inheriting caller fds\n", log_path);
+            }
+            return;
+        }
+        Posix.dup2 (fd, Posix.STDOUT_FILENO);
+        Posix.dup2 (fd, Posix.STDERR_FILENO);
+        Posix.close (fd);
     }
 
     private int legacy_loop (int child_pid) {

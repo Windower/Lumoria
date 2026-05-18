@@ -5,7 +5,7 @@
     {
       "id": "unifont_ttf",
       "url": "https://unifoundry.com/pub/unifont/unifont-13.0.06/font-builds/unifont-13.0.06.ttf",
-      "dest": "${CACHE_REDIST}/unifont/unifont-13.0.06.ttf",
+      "dest": "${var.CACHE_REDIST}/unifont/unifont-13.0.06.ttf",
       "sha256": "d73c0425811ffd366b0d1973e9338bac26fe7cf085760a12e10c61241915e742"
     }
   ],
@@ -13,10 +13,18 @@
     {
       "type": "fonts",
       "description": "Install GNU Unifont",
-      "dst": "${FONTS}",
-      "args": ["${CACHE_REDIST}/unifont/unifont-13.0.06.ttf"],
-      "font_registrations": ["unifont-13.0.06.ttf|Unifont"],
-      "when": { "not": { "file_exists": "${FONTS}/unifont-13.0.06.ttf" } }
+      "dst": "${var.FONTS}",
+      "args": [
+        "${var.CACHE_REDIST}/unifont/unifont-13.0.06.ttf"
+      ],
+      "font_registrations": [
+        "unifont-13.0.06.ttf|Unifont"
+      ],
+      "when": {
+        "not": {
+          "file_exists": "${var.FONTS}/unifont-13.0.06.ttf"
+        }
+      }
     }
   ]
 }

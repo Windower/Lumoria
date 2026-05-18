@@ -1,7 +1,9 @@
 {
   "id": "fakejapanese_ipamona",
   "name": "Japanese Font Aliases (IPAMona)",
-  "redists": ["ipamona"],
+  "redists": [
+    "ipamona"
+  ],
   "steps": [
     {
       "type": "font_replacement",

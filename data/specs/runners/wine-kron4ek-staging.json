@@ -2,9 +2,13 @@
   "id": "wine-kron4ek-staging",
   "name": "Wine Staging (kron4ek)",
   "wine_arch": "win64",
-  "host_arches": ["x86_64"],
+  "host_arches": [
+    "x86_64"
+  ],
   "github_repo": "Kron4ek/Wine-Builds",
-  "skip_versions": ["11.8"],
+  "skip_versions": [
+    "11.8"
+  ],
   "checksum_regex": "sha256sums\\.txt$",
   "variants": [
     {
@@ -18,10 +22,21 @@
       "sandbox_supported": true,
       "paths": {
         "bin": "bin",
-        "lib": ["lib"],
-        "lib_64": ["lib/x86_64-linux-gnu"],
-        "wine_dll": ["lib/wine", "lib/wine/i386-windows", "lib/wine/x86_64-windows"],
-        "wine_unix": ["lib/wine/x86_64-unix", "lib/wine/i386-unix"]
+        "lib": [
+          "lib"
+        ],
+        "lib_64": [
+          "lib/x86_64-linux-gnu"
+        ],
+        "wine_dll": [
+          "lib/wine",
+          "lib/wine/i386-windows",
+          "lib/wine/x86_64-windows"
+        ],
+        "wine_unix": [
+          "lib/wine/x86_64-unix",
+          "lib/wine/i386-unix"
+        ]
       }
     },
     {
@@ -34,10 +49,21 @@
       "sandbox_supported": true,
       "paths": {
         "bin": "bin",
-        "lib": ["lib"],
-        "lib_64": ["lib/x86_64-linux-gnu"],
-        "wine_dll": ["lib/wine", "lib/wine/i386-windows", "lib/wine/x86_64-windows"],
-        "wine_unix": ["lib/wine/x86_64-unix", "lib/wine/i386-unix"]
+        "lib": [
+          "lib"
+        ],
+        "lib_64": [
+          "lib/x86_64-linux-gnu"
+        ],
+        "wine_dll": [
+          "lib/wine",
+          "lib/wine/i386-windows",
+          "lib/wine/x86_64-windows"
+        ],
+        "wine_unix": [
+          "lib/wine/x86_64-unix",
+          "lib/wine/i386-unix"
+        ]
       }
     }
   ]

@@ -42,42 +42,49 @@ namespace Lumoria.Models {
             }
         }
 
-        public static WhenClause? from_json_member (Json.Object obj) {
+        public static WhenClause? from_json_member (Json.Object obj) throws Error {
             if (!obj.has_member ("when")) return null;
             var node = obj.get_member ("when");
             if (node.get_node_type () != Json.NodeType.OBJECT) return null;
             return parse_node (node.get_object ());
         }
 
-        private static WhenClause parse_node (Json.Object obj) {
-            if (obj.has_member ("all")) {
-                var clause = new WhenClause (WhenClauseKind.ALL);
-                parse_array_children (obj.get_array_member ("all"), clause);
-                return clause;
-            }
-            if (obj.has_member ("any")) {
-                var clause = new WhenClause (WhenClauseKind.ANY);
-                parse_array_children (obj.get_array_member ("any"), clause);
-                return clause;
-            }
-            if (obj.has_member ("not")) {
-                var clause = new WhenClause (WhenClauseKind.NOT);
-                var inner = obj.get_member ("not").get_object ();
-                clause.children.add (parse_node (inner));
-                return clause;
-            }
-            if (obj.has_member ("file_exists")) {
-                var clause = new WhenClause (WhenClauseKind.FILE_EXISTS);
-                clause.value = obj.get_string_member ("file_exists");
-                return clause;
-            }
+        private static WhenClause parse_node (Json.Object obj) throws Error {
             var members = obj.get_members ();
-            if (members.length () == 1) {
-                var k = members.nth_data (0);
-                var clause = new WhenClause (WhenClauseKind.MATCH);
-                clause.key = k;
-                clause.value = obj.get_string_member (k);
-                return clause;
+            if (members.length () != 1) {
+                throw new IOError.FAILED ("Invalid when clause: expected exactly one operator");
+            }
+
+            var op = members.nth_data (0);
+            switch (op) {
+                case "all":
+                    var all_clause = new WhenClause (WhenClauseKind.ALL);
+                    parse_array_children (obj.get_array_member ("all"), all_clause);
+                    return all_clause;
+                case "any":
+                    var any_clause = new WhenClause (WhenClauseKind.ANY);
+                    parse_array_children (obj.get_array_member ("any"), any_clause);
+                    return any_clause;
+                case "not":
+                    var not_clause = new WhenClause (WhenClauseKind.NOT);
+                    var inner = obj.get_member ("not").get_object ();
+                    not_clause.children.add (parse_node (inner));
+                    return not_clause;
+                case "file_exists":
+                    var file_clause = new WhenClause (WhenClauseKind.FILE_EXISTS);
+                    file_clause.value = obj.get_string_member ("file_exists");
+                    return file_clause;
+                case "var":
+                    return parse_var_match (obj.get_object_member ("var"));
+                default:
+                    throw new IOError.FAILED ("Invalid when clause operator: %s", op);
+            }
+        }
+
+        private static WhenClause parse_var_match (Json.Object obj) throws Error {
+            var members = obj.get_members ();
+            if (members.length () == 0) {
+                throw new IOError.FAILED ("Invalid when var clause: expected at least one variable match");
             }
             var clause = new WhenClause (WhenClauseKind.ALL);
             foreach (unowned string k in members) {
@@ -86,10 +93,11 @@ namespace Lumoria.Models {
                 child.value = obj.get_string_member (k);
                 clause.children.add (child);
             }
+            if (clause.children.size == 1) return clause.children[0];
             return clause;
         }
 
-        private static void parse_array_children (Json.Array arr, WhenClause parent) {
+        private static void parse_array_children (Json.Array arr, WhenClause parent) throws Error {
             for (uint i = 0; i < arr.get_length (); i++) {
                 parent.children.add (parse_node (arr.get_object_element (i)));
             }
@@ -100,7 +108,7 @@ namespace Lumoria.Models {
         public Gee.HashMap<string, string> vars { get; owned set; default = new Gee.HashMap<string, string> (); }
         public WhenClause? when { get; set; default = null; }
 
-        public static EnvRule from_json (Json.Object obj) {
+        public static EnvRule from_json (Json.Object obj) throws Error {
             var r = new EnvRule ();
             r.vars = json_string_map (obj, "vars");
             r.when = WhenClause.from_json_member (obj);
@@ -113,7 +121,7 @@ namespace Lumoria.Models {
         string key,
         out Gee.HashMap<string, string> variables,
         out Gee.ArrayList<EnvRule> variable_rules
-    ) {
+    ) throws Error {
         var parsed_variables = new Gee.HashMap<string, string> ();
         var parsed_rules = new Gee.ArrayList<EnvRule> ();
         if (!obj.has_member (key)) {
@@ -123,7 +131,9 @@ namespace Lumoria.Models {
         }
 
         var map = obj.get_object_member (key);
-        map.foreach_member ((_, name, node) => {
+        var members = map.get_members ();
+        foreach (unowned string name in members) {
+            var node = map.get_member (name);
             switch (node.get_node_type ()) {
                 case Json.NodeType.OBJECT:
                     parse_variable_object (name, node.get_object (), parsed_variables, parsed_rules);
@@ -135,7 +145,7 @@ namespace Lumoria.Models {
                     parsed_variables[name] = node.get_string ();
                     break;
             }
-        });
+        }
         variables = parsed_variables;
         variable_rules = parsed_rules;
     }
@@ -145,7 +155,7 @@ namespace Lumoria.Models {
         Json.Object obj,
         Gee.HashMap<string, string> variables,
         Gee.ArrayList<EnvRule> variable_rules
-    ) {
+    ) throws Error {
         if (obj.has_member ("default")) {
             variables[name] = obj.get_string_member ("default");
         }
@@ -162,7 +172,7 @@ namespace Lumoria.Models {
         Json.Array arr,
         Gee.HashMap<string, string> variables,
         Gee.ArrayList<EnvRule> variable_rules
-    ) {
+    ) throws Error {
         for (uint i = 0; i < arr.get_length (); i++) {
             append_variable_rule_or_default (
                 name,
@@ -178,7 +188,7 @@ namespace Lumoria.Models {
         Json.Object obj,
         Gee.HashMap<string, string> variables,
         Gee.ArrayList<EnvRule> variable_rules
-    ) {
+    ) throws Error {
         if (!obj.has_member ("value")) return;
         if (!obj.has_member ("when")) {
             variables[name] = obj.get_string_member ("value");
@@ -231,7 +241,7 @@ namespace Lumoria.Models {
         public string sha256 { get; set; default = ""; }
         public WhenClause? when { get; set; default = null; }
 
-        public static DownloadItem from_json (Json.Object obj) {
+        public static DownloadItem from_json (Json.Object obj) throws Error {
             var d = new DownloadItem ();
             d.id = json_string (obj, "id");
             d.url = json_string (obj, "url");

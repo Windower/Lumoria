@@ -135,17 +135,28 @@ namespace Lumoria.Utils {
         try {
             return var_token_regex ().replace_eval (input, input.length, 0, 0, (match, builder) => {
                 var escape = match.fetch (1);
-                var name = match.fetch (2);
-                var chain = match.fetch (3);
+                var ns = match.fetch (2);
+                var name = match.fetch (3);
+                var chain = match.fetch (4);
                 if (escape != null && escape == "$") {
-                    builder.append ("${" + name + "}");
+                    builder.append ("${" + ns + "." + name + "}");
                     return false;
                 }
-                if (name == null) {
+                if (ns == null || name == null) {
                     builder.append (match.fetch (0));
                     return false;
                 }
-                string val = vars.has_key (name) ? vars[name] : "";
+                string val = "";
+                switch (ns) {
+                    case "var":
+                        val = vars.has_key (name) ? vars[name] : "";
+                        break;
+                    case "env":
+                        val = Environment.get_variable (name) ?? "";
+                        break;
+                    default:
+                        break;
+                }
                 builder.append (apply_modifier_chain (val, chain));
                 return false;
             });
@@ -234,7 +245,7 @@ namespace Lumoria.Utils {
     private static Regex var_token_regex () throws RegexError {
         if (_var_token_regex == null) {
             _var_token_regex = new Regex (
-                "\\$(\\$)?\\{([A-Za-z_][A-Za-z0-9_]*)(?::([^}]+))?\\}"
+                "\\$(\\$)?\\{(var|env)\\.([A-Za-z_][A-Za-z0-9_]*)(?::([^}]+))?\\}"
             );
         }
         return _var_token_regex;

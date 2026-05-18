@@ -71,6 +71,17 @@ namespace Lumoria.Widgets.Dialogs {
             variant_combo.selected = selected_idx;
         }
 
+        public static bool is_effective_latest (Models.RunnerSpec? runner, string value) {
+            var version = value != "" ? value : "default";
+            if (version == "latest") return true;
+            if (version != "default") return false;
+
+            var defaults = Utils.Preferences.instance ();
+            var runner_id = runner != null ? runner.id : "";
+            if (runner_id != "" && runner_id != defaults.runner_id) return true;
+            return defaults.get_default_runner_version () == "latest";
+        }
+
         public static string version_label_for_value (Models.RunnerSpec? runner, string value) {
             var version = value != "" ? value : "default";
             if (version == "latest") return _("Latest (always newest)");

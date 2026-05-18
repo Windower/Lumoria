@@ -1,7 +1,9 @@
 {
   "id": "fakechinese",
   "name": "Chinese Font Aliases",
-  "redists": ["sourcehansans"],
+  "redists": [
+    "sourcehansans"
+  ],
   "steps": [
     {
       "type": "font_replacement",

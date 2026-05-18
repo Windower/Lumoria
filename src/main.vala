@@ -17,6 +17,17 @@ int main (string[] args) {
 
     Lumoria.Utils.register_resources ();
 
+    bool flathub_screenshots = false;
+    var filtered = new string[0];
+    foreach (var a in args) {
+        if (a == "--flathub-screenshots") {
+            flathub_screenshots = true;
+            continue;
+        }
+        filtered += a;
+    }
+
     var app = new Lumoria.Widgets.Application ();
-    return app.run (args);
+    app.flathub_screenshots = flathub_screenshots;
+    return app.run (filtered);
 }

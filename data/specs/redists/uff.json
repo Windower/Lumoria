@@ -5,7 +5,7 @@
     {
       "id": "uff_archive",
       "url": "https://assets.ubuntu.com/v1/fad7939b-ubuntu-font-family-0.83.zip",
-      "dest": "${CACHE_REDIST}/uff/ubuntu-font-family-0.83.zip",
+      "dest": "${var.CACHE_REDIST}/uff/ubuntu-font-family-0.83.zip",
       "sha256": "456d7d42797febd0d7d4cf1b782a2e03680bb4a5ee43cc9d06bda172bac05b42"
     }
   ],
@@ -13,8 +13,10 @@
     {
       "type": "fonts",
       "description": "Install Ubuntu Font Family",
-      "dst": "${FONTS}",
-      "args": ["${CACHE_REDIST}/uff/ubuntu-font-family-0.83.zip"],
+      "dst": "${var.FONTS}",
+      "args": [
+        "${var.CACHE_REDIST}/uff/ubuntu-font-family-0.83.zip"
+      ],
       "font_registrations": [
         "ubuntu-r.ttf|Ubuntu",
         "ubuntu-b.ttf|Ubuntu Bold",
@@ -30,7 +32,11 @@
         "ubuntumono-bi.ttf|Ubuntu Mono Bold Italic",
         "ubuntumono-ri.ttf|Ubuntu Mono Italic"
       ],
-      "when": { "not": { "file_exists": "${FONTS}/ubuntu-r.ttf" } }
+      "when": {
+        "not": {
+          "file_exists": "${var.FONTS}/ubuntu-r.ttf"
+        }
+      }
     }
   ]
 }

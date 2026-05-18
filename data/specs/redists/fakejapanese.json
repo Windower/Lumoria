@@ -1,7 +1,9 @@
 {
   "id": "fakejapanese",
   "name": "Japanese Font Aliases",
-  "redists": ["sourcehansans"],
+  "redists": [
+    "sourcehansans"
+  ],
   "steps": [
     {
       "type": "font_replacement",

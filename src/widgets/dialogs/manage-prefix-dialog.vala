@@ -12,6 +12,7 @@ namespace Lumoria.Widgets.Dialogs {
         private OptionListRow runner_combo;
         private OptionListRow variant_combo;
         private Adw.ActionRow version_row;
+        private Gtk.Widget latest_runner_warning;
         private OptionListRow sync_combo;
         private OptionListRow debug_combo;
         private OptionListRow wayland_combo;
@@ -30,9 +31,26 @@ namespace Lumoria.Widgets.Dialogs {
         private Gtk.Label env_validation_label;
         private Adw.ToastOverlay toast_overlay;
         private Gtk.Window host_window;
+        private ulong host_width_handler = 0;
+        private ulong host_height_handler = 0;
         private Services.DynamicLauncherService shortcut_service;
         private Gtk.Box shortcuts_content;
         private Gtk.Box packages_content;
+        private Gee.HashMap<string, Models.RedistSpec> package_specs;
+        private Gee.HashMap<string, Gtk.Widget> package_installed_rows;
+        private Gee.HashMap<string, Gtk.Widget> package_available_rows;
+        private Adw.PreferencesGroup packages_installed_group;
+        private Adw.PreferencesGroup packages_available_group;
+        private Adw.ViewStack packages_inner_stack;
+        private Adw.ViewStackPage packages_installed_page;
+        private Adw.ViewStackPage packages_available_page;
+        private Gtk.ToggleButton packages_installed_button;
+        private Gtk.ToggleButton packages_available_button;
+        private Gtk.Widget packages_installed_empty_row;
+        private Gtk.Widget packages_available_empty_row;
+        private int packages_installed_count = 0;
+        private int packages_available_count = 0;
+        private string packages_visible_page = "installed";
         private string selected_runner_version = "default";
         private string selected_runner_version_label = "";
 
@@ -53,6 +71,8 @@ namespace Lumoria.Widgets.Dialogs {
             this.prefix_index = prefix_index;
             this.runner_specs = Models.RunnerSpec.filter_for_environment (runner_specs, Utils.is_sandboxed ());
             this.launcher_specs = launcher_specs;
+            update_dialog_size ();
+            bind_host_size ();
             selected_runner_version = registry.prefixes[prefix_index].runner_version != ""
                 ? registry.prefixes[prefix_index].runner_version
                 : "default";
@@ -61,6 +81,35 @@ namespace Lumoria.Widgets.Dialogs {
             entrypoint_values = new Gee.ArrayList<string> ();
             shortcut_service = new Services.DynamicLauncherService ();
             build_ui ();
+        }
+
+        ~ManagePrefixDialog () {
+            unbind_host_size ();
+        }
+
+        private void bind_host_size () {
+            host_width_handler = host_window.notify["width"].connect (() => update_dialog_size ());
+            host_height_handler = host_window.notify["height"].connect (() => update_dialog_size ());
+            closed.connect (() => unbind_host_size ());
+        }
+
+        private void unbind_host_size () {
+            if (host_width_handler != 0) {
+                host_window.disconnect (host_width_handler);
+                host_width_handler = 0;
+            }
+            if (host_height_handler != 0) {
+                host_window.disconnect (host_height_handler);
+                host_height_handler = 0;
+            }
+        }
+
+        private void update_dialog_size () {
+            var pw = host_window.get_width ();
+            var ph = host_window.get_height ();
+            if (pw <= 0 || ph <= 0) return;
+            content_width = (int) (pw * 0.9).clamp (540, 1200);
+            content_height = (int) (ph * 0.92).clamp (600, 1100);
         }
 
         private void build_ui () {
@@ -159,43 +208,11 @@ namespace Lumoria.Widgets.Dialogs {
             rebuild_custom_entries_ui ();
             general_content.append (custom_entries_group);
 
-            var prelaunch_group = SettingsShared.build_group (_("Prelaunch"), 12, 12);
-            prelaunch_script_path = entry.prelaunch_script;
+            SettingsShared.add_scrolled_settings_page (stack, general_content, SettingsShared.PAGE_GENERAL, _("General"));
 
-            prelaunch_row = new Adw.ActionRow ();
-            prelaunch_row.title = _("Prelaunch Script");
-            prelaunch_row.subtitle = prelaunch_script_path != ""
-                ? prelaunch_script_path
-                : _("None");
+            var runner_content = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
 
-            var prelaunch_browse_btn = new Gtk.Button.with_label (_("Browse\u2026"));
-            prelaunch_browse_btn.valign = Gtk.Align.CENTER;
-            prelaunch_browse_btn.sensitive = !is_gamescope;
-            prelaunch_browse_btn.clicked.connect (on_browse_prelaunch);
-            prelaunch_row.add_suffix (prelaunch_browse_btn);
-
-            if (prelaunch_script_path != "") {
-                var prelaunch_clear_btn = new Gtk.Button.from_icon_name (IconRegistry.CLOSE);
-                prelaunch_clear_btn.valign = Gtk.Align.CENTER;
-                prelaunch_clear_btn.tooltip_text = _("Clear");
-                prelaunch_clear_btn.add_css_class ("flat");
-                prelaunch_clear_btn.clicked.connect (() => {
-                    prelaunch_script_path = "";
-                    prelaunch_row.subtitle = _("None");
-                });
-                prelaunch_row.add_suffix (prelaunch_clear_btn);
-            }
-
-            prelaunch_group.add (prelaunch_row);
-            var prelaunch_note_row = new Adw.ActionRow ();
-            prelaunch_note_row.title = _("Prelaunch scripts are skipped in gamescope sessions");
-            prelaunch_note_row.subtitle = _("They still run when launching from desktop mode.");
-            prelaunch_note_row.activatable = false;
-            prelaunch_group.add (prelaunch_note_row);
-            general_content.append (prelaunch_group);
-
-
-            var runner_group = SettingsShared.build_group (_("Runner"), 12);
+            var runner_group = SettingsShared.build_group (_("Wine Runner"), 12);
 
             var runner_model = RunnerSettingsShared.build_runner_model (runner_specs);
             runner_combo = new OptionListRow ();
@@ -218,16 +235,27 @@ namespace Lumoria.Widgets.Dialogs {
             update_version_row ();
             variant_combo.notify["selected"].connect (on_variant_changed);
 
+            runner_content.append (runner_group);
+
+            latest_runner_warning = SettingsShared.build_warning_card (
+                _("Latest keeps this prefix on the newest runner automatically. Updates may change compatibility or behavior without notice.")
+            );
+            latest_runner_warning.visible = false;
+            runner_content.append (latest_runner_warning);
+            update_latest_runner_warning ();
+
+            var runner_opts_group = SettingsShared.build_group (_("Runner Options"), 12, 12);
+
             sync_combo = RunnerSettingsShared.build_sync_override_combo (entry.sync_mode);
-            runner_group.add (sync_combo);
+            runner_opts_group.add (sync_combo);
 
             debug_combo = RunnerSettingsShared.build_debug_override_combo (entry.wine_debug);
-            runner_group.add (debug_combo);
+            runner_opts_group.add (debug_combo);
 
             wayland_combo = RunnerSettingsShared.build_wayland_combo (entry.wine_wayland);
-            runner_group.add (wayland_combo);
+            runner_opts_group.add (wayland_combo);
 
-            general_content.append (runner_group);
+            runner_content.append (runner_opts_group);
 
             var component_specs = Models.ComponentSpec.load_all_from_resource ();
             if (component_specs.size > 0) {
@@ -247,10 +275,10 @@ namespace Lumoria.Widgets.Dialogs {
                     component_mode_rows[spec.id] = mode_row;
                     comp_group.add (mode_row);
                 }
-                general_content.append (comp_group);
+                runner_content.append (comp_group);
             }
 
-            SettingsShared.add_scrolled_settings_page (stack, general_content, SettingsShared.PAGE_GENERAL, _("General"));
+            SettingsShared.add_scrolled_settings_page (stack, runner_content, SettingsShared.PAGE_RUNNERS, _("Runner"));
 
             shortcuts_content = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
             SettingsShared.add_scrolled_settings_page (stack, shortcuts_content, SettingsShared.PAGE_SHORTCUTS, _("Shortcuts"));
@@ -263,14 +291,10 @@ namespace Lumoria.Widgets.Dialogs {
             var advanced_content = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
 
             var env_group = SettingsShared.build_group (_("Environment Variables"), 12, 12, 0);
-
-            var env_info_row = new Adw.ActionRow ();
-            env_info_row.title = _("Prefix Runtime Variables");
-            env_info_row.subtitle = _("Per-prefix env variables (includes component defaults seeded at install). These override global variables.");
-            env_info_row.activatable = false;
-            env_group.add (env_info_row);
+            env_group.description = _("These override global environment variables.");
 
             prefix_env_editor = new Lumoria.Widgets.EnvVarsEditor (entry.runtime_env_vars);
+            prefix_env_editor.margin_top = 8;
             prefix_env_editor.margin_start = 8;
             prefix_env_editor.margin_end = 8;
             prefix_env_editor.margin_bottom = 6;
@@ -292,6 +316,44 @@ namespace Lumoria.Widgets.Dialogs {
             env_validation_label.margin_bottom = 4;
             env_group.add (env_validation_label);
             advanced_content.append (env_group);
+
+            var prelaunch_group = SettingsShared.build_group (_("Prelaunch"), 12, 12, 12);
+            prelaunch_script_path = entry.prelaunch_script;
+
+            prelaunch_row = new Adw.ActionRow ();
+            prelaunch_row.title = _("Prelaunch Script");
+            prelaunch_row.subtitle = prelaunch_script_path != ""
+                ? prelaunch_script_path
+                : _("None");
+
+            var prelaunch_browse_btn = new Gtk.Button.with_label (_("Browse…"));
+            prelaunch_browse_btn.valign = Gtk.Align.CENTER;
+            prelaunch_browse_btn.sensitive = !is_gamescope;
+            prelaunch_browse_btn.clicked.connect (on_browse_prelaunch);
+            prelaunch_row.add_suffix (prelaunch_browse_btn);
+
+            if (prelaunch_script_path != "") {
+                var prelaunch_clear_btn = new Gtk.Button.from_icon_name (IconRegistry.CLOSE);
+                prelaunch_clear_btn.valign = Gtk.Align.CENTER;
+                prelaunch_clear_btn.tooltip_text = _("Clear");
+                prelaunch_clear_btn.add_css_class ("flat");
+                prelaunch_clear_btn.clicked.connect (() => {
+                    prelaunch_script_path = "";
+                    prelaunch_row.subtitle = _("None");
+                });
+                prelaunch_row.add_suffix (prelaunch_clear_btn);
+            }
+
+            prelaunch_group.add (prelaunch_row);
+            prelaunch_group.add (SettingsShared.build_warning_card (
+                _("Prelaunch scripts are skipped in gamescope sessions. They still run when launching from desktop mode."),
+                8,
+                8,
+                8,
+                8
+            ));
+
+            advanced_content.append (prelaunch_group);
 
             if (Utils.Preferences.instance ().experimental_features) {
                 var patches_group = SettingsShared.build_group (_("Patches"), 12, 12, 12);
@@ -417,11 +479,19 @@ namespace Lumoria.Widgets.Dialogs {
         private void update_version_row () {
             if (selected_runner_version_label != "") {
                 version_row.subtitle = selected_runner_version_label;
-                return;
+            } else {
+                version_row.subtitle = RunnerSettingsShared.version_label_for_value (
+                    selected_runner (),
+                    selected_runner_version
+                );
             }
-            version_row.subtitle = RunnerSettingsShared.version_label_for_value (
-                selected_runner (),
-                selected_runner_version
+            update_latest_runner_warning ();
+        }
+
+        private void update_latest_runner_warning () {
+            if (latest_runner_warning == null) return;
+            latest_runner_warning.visible = RunnerSettingsShared.is_effective_latest (
+                selected_runner (), selected_runner_version
             );
         }
 
@@ -751,12 +821,14 @@ namespace Lumoria.Widgets.Dialogs {
                 entry_prelaunch_row.add_suffix (ep_clear_btn);
             }
             prelaunch_group.add (entry_prelaunch_row);
-            var entry_prelaunch_note = new Adw.ActionRow ();
-            entry_prelaunch_note.title = _("Prelaunch scripts are skipped in gamescope sessions");
-            entry_prelaunch_note.subtitle = _("They still run when launching from desktop mode.");
-            entry_prelaunch_note.activatable = false;
-            prelaunch_group.add (entry_prelaunch_note);
             editor_body.append (prelaunch_group);
+            editor_body.append (SettingsShared.build_warning_card (
+                _("Prelaunch scripts are skipped in gamescope sessions. They still run when launching from desktop mode."),
+                8,
+                8,
+                12,
+                12
+            ));
 
             var dll_group = SettingsShared.build_group (_("DLL Overrides"), 12, 12);
             dll_group.description = _("Use dll=mode entries separated by semicolons.");
@@ -769,14 +841,11 @@ namespace Lumoria.Widgets.Dialogs {
             editor_body.append (dll_group);
 
             var env_group = SettingsShared.build_group (_("Environment Variables"), 12, 12, 8);
-            var entry_env_label = new Adw.ActionRow ();
-            entry_env_label.title = _("Entrypoint Runtime Variables");
-            entry_env_label.subtitle = _("Applied to this custom entry. These override prefix and global variables.");
-            entry_env_label.activatable = false;
-            env_group.add (entry_env_label);
+            env_group.description = _("Applied to this custom entry. These override prefix and global variables.");
             var entry_env_editor = new Lumoria.Widgets.EnvVarsEditor (
                 existing != null ? existing.runtime_env_overrides : null
             );
+            entry_env_editor.margin_top = 8;
             entry_env_editor.margin_start = 8;
             entry_env_editor.margin_end = 8;
             entry_env_editor.margin_bottom = 8;
@@ -1046,115 +1115,264 @@ namespace Lumoria.Widgets.Dialogs {
         }
 
         private void build_packages_page (Gtk.Box content, Models.PrefixEntry entry) {
-            var all_specs = Models.RedistSpec.load_all_from_resource ();
+            package_specs = Models.RedistSpec.load_all_from_resource ();
+            package_installed_rows = new Gee.HashMap<string, Gtk.Widget> ();
+            package_available_rows = new Gee.HashMap<string, Gtk.Widget> ();
+            packages_installed_empty_row = null;
+            packages_available_empty_row = null;
+            packages_installed_count = 0;
+            packages_available_count = 0;
+
             var installed = new Gee.HashSet<string> ();
             installed.add_all (entry.installed_redists);
 
             var installed_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
             var available_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
 
-            var installed_group = new Adw.PreferencesGroup ();
-            installed_group.margin_start = 12;
-            installed_group.margin_end = 12;
-            installed_group.margin_top = 6;
-            var available_group = new Adw.PreferencesGroup ();
-            available_group.margin_start = 12;
-            available_group.margin_end = 12;
-            available_group.margin_top = 6;
-
-            int installed_count = 0;
-            int available_count = 0;
+            packages_installed_group = new Adw.PreferencesGroup ();
+            packages_installed_group.margin_start = 12;
+            packages_installed_group.margin_end = 12;
+            packages_installed_group.margin_top = 6;
+            packages_available_group = new Adw.PreferencesGroup ();
+            packages_available_group.margin_start = 12;
+            packages_available_group.margin_end = 12;
+            packages_available_group.margin_top = 6;
 
             var sorted_ids = new Gee.ArrayList<string> ();
-            sorted_ids.add_all (all_specs.keys);
+            sorted_ids.add_all (package_specs.keys);
             sorted_ids.sort ((a, b) => {
-                return all_specs[a].name.collate (all_specs[b].name);
+                return package_specs[a].name.collate (package_specs[b].name);
             });
 
             foreach (var id in sorted_ids) {
-                var spec = all_specs[id];
-                var row = new Adw.ActionRow ();
-                row.title = spec.name;
-
-                if (installed.contains (id)) {
-                    if (spec.reinstallable) {
-                        var reinstall_btn = new Gtk.Button.with_label (_("Reinstall"));
-                        reinstall_btn.valign = Gtk.Align.CENTER;
-                        reinstall_btn.clicked.connect (() => {
-                            on_install_redist (entry, id);
-                        });
-                        row.add_suffix (reinstall_btn);
-                        row.activatable_widget = reinstall_btn;
-                    } else {
-                        var check = new Gtk.Image.from_icon_name ("emblem-ok-symbolic");
-                        check.valign = Gtk.Align.CENTER;
-                        row.add_suffix (check);
-                    }
-                    installed_group.add (row);
-                    installed_count++;
-                } else {
-                    var install_btn = new Gtk.Button.with_label (_("Install"));
-                    install_btn.valign = Gtk.Align.CENTER;
-                    install_btn.add_css_class ("suggested-action");
-                    install_btn.clicked.connect (() => {
-                        on_install_redist (entry, id);
-                    });
-                    row.add_suffix (install_btn);
-                    row.activatable_widget = install_btn;
-                    available_group.add (row);
-                    available_count++;
-                }
+                add_package_row (entry, id, package_specs[id], installed.contains (id));
             }
 
-            if (installed_count == 0) {
-                var empty_row = new Adw.ActionRow ();
-                empty_row.title = _("No packages installed yet");
-                empty_row.activatable = false;
-                installed_group.add (empty_row);
-            }
-            if (available_count == 0) {
-                var empty_row = new Adw.ActionRow ();
-                empty_row.title = _("All packages are installed");
-                empty_row.activatable = false;
-                available_group.add (empty_row);
-            }
+            update_package_empty_rows ();
 
-            installed_box.append (installed_group);
-            available_box.append (available_group);
+            installed_box.append (packages_installed_group);
+            available_box.append (packages_available_group);
 
-            var inner_stack = new Adw.ViewStack ();
-            inner_stack.vexpand = true;
-            inner_stack.add_titled (installed_box, "installed", _("Installed (%d)").printf (installed_count));
-            inner_stack.add_titled (available_box, "available", _("Available (%d)").printf (available_count));
+            packages_inner_stack = new Adw.ViewStack ();
+            packages_inner_stack.vexpand = true;
+            packages_installed_page = packages_inner_stack.add_titled (installed_box, "installed", "");
+            packages_available_page = packages_inner_stack.add_titled (available_box, "available", "");
+            update_package_page_titles ();
+            packages_inner_stack.visible_child_name = resolve_packages_visible_page ();
+            packages_inner_stack.notify["visible-child-name"].connect (() => {
+                var visible = packages_inner_stack.visible_child_name;
+                if (visible != null && visible != "") packages_visible_page = visible;
+                update_package_switcher_state ();
+            });
 
-            var switcher = new Adw.ViewSwitcher ();
-            switcher.stack = inner_stack;
-            switcher.policy = Adw.ViewSwitcherPolicy.WIDE;
+            var switcher = build_package_switcher ();
             switcher.margin_start = 12;
             switcher.margin_end = 12;
             switcher.margin_top = 12;
-            switcher.halign = Gtk.Align.CENTER;
 
+            content.append (build_packages_warning ());
             content.append (switcher);
-            content.append (inner_stack);
+            content.append (packages_inner_stack);
         }
 
-        private void rebuild_packages_page () {
-            if (packages_content == null) return;
-            Gtk.Widget? child;
-            while ((child = packages_content.get_first_child ()) != null) {
-                packages_content.remove (child);
+        private Gtk.Widget build_package_switcher () {
+            var switcher = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 0);
+            switcher.halign = Gtk.Align.CENTER;
+            switcher.add_css_class ("linked");
+
+            packages_installed_button = new Gtk.ToggleButton.with_label ("");
+            packages_installed_button.clicked.connect (() => {
+                if (packages_installed_button.active) packages_inner_stack.visible_child_name = "installed";
+                update_package_switcher_state ();
+            });
+            switcher.append (packages_installed_button);
+
+            packages_available_button = new Gtk.ToggleButton.with_label ("");
+            packages_available_button.clicked.connect (() => {
+                if (packages_available_button.active) packages_inner_stack.visible_child_name = "available";
+                update_package_switcher_state ();
+            });
+            switcher.append (packages_available_button);
+
+            update_package_switcher_labels ();
+            update_package_switcher_state ();
+            return switcher;
+        }
+
+        private Gtk.Widget build_packages_warning () {
+            return SettingsShared.build_warning_card (
+                _("Install additional packages at your own risk. Changing the default install can break this prefix.")
+            );
+        }
+
+        private void add_package_row (
+            Models.PrefixEntry entry,
+            string id,
+            Models.RedistSpec spec,
+            bool installed
+        ) {
+            var row = build_package_row (entry, id, spec, installed);
+            if (installed) {
+                packages_installed_group.add (row);
+                package_installed_rows[id] = row;
+                packages_installed_count++;
+            } else {
+                packages_available_group.add (row);
+                package_available_rows[id] = row;
+                packages_available_count++;
             }
-            build_packages_page (packages_content, registry.prefixes[prefix_index]);
+        }
+
+        private Adw.ActionRow build_package_row (
+            Models.PrefixEntry entry,
+            string id,
+            Models.RedistSpec spec,
+            bool installed
+        ) {
+            var row = new Adw.ActionRow ();
+            row.title = spec.name;
+
+            if (installed) {
+                if (spec.reinstallable) {
+                    var reinstall_btn = new Gtk.Button.with_label (_("Reinstall"));
+                    reinstall_btn.valign = Gtk.Align.CENTER;
+                    reinstall_btn.clicked.connect (() => {
+                        on_install_redist (entry, id);
+                    });
+                    row.add_suffix (reinstall_btn);
+                    row.activatable_widget = reinstall_btn;
+                } else {
+                    var check = new Gtk.Image.from_icon_name ("emblem-ok-symbolic");
+                    check.valign = Gtk.Align.CENTER;
+                    row.add_suffix (check);
+                }
+            } else {
+                var install_btn = new Gtk.Button.with_label (_("Install"));
+                install_btn.valign = Gtk.Align.CENTER;
+                install_btn.add_css_class ("suggested-action");
+                install_btn.clicked.connect (() => {
+                    on_install_redist (entry, id);
+                });
+                row.add_suffix (install_btn);
+                row.activatable_widget = install_btn;
+            }
+
+            return row;
+        }
+
+        private void update_package_empty_rows () {
+            if (packages_installed_count == 0) {
+                if (packages_installed_empty_row == null) {
+                    var empty_row = new Adw.ActionRow ();
+                    empty_row.title = _("No packages installed yet");
+                    empty_row.activatable = false;
+                    packages_installed_empty_row = empty_row;
+                    packages_installed_group.add (empty_row);
+                }
+            } else if (packages_installed_empty_row != null) {
+                packages_installed_group.remove (packages_installed_empty_row);
+                packages_installed_empty_row = null;
+            }
+
+            if (packages_available_count == 0) {
+                if (packages_available_empty_row == null) {
+                    var empty_row = new Adw.ActionRow ();
+                    empty_row.title = _("All packages are installed");
+                    empty_row.activatable = false;
+                    packages_available_empty_row = empty_row;
+                    packages_available_group.add (empty_row);
+                }
+            } else if (packages_available_empty_row != null) {
+                packages_available_group.remove (packages_available_empty_row);
+                packages_available_empty_row = null;
+            }
+        }
+
+        private void update_package_page_titles () {
+            if (packages_installed_page != null) {
+                packages_installed_page.title = _("Installed (%d)").printf (packages_installed_count);
+            }
+            if (packages_available_page != null) {
+                packages_available_page.title = _("Available (%d)").printf (packages_available_count);
+            }
+            update_package_switcher_labels ();
+        }
+
+        private void update_package_switcher_labels () {
+            if (packages_installed_button != null) {
+                packages_installed_button.label = _("Installed (%d)").printf (packages_installed_count);
+            }
+            if (packages_available_button != null) {
+                packages_available_button.label = _("Available (%d)").printf (packages_available_count);
+            }
+        }
+
+        private void update_package_switcher_state () {
+            if (packages_inner_stack == null) return;
+            var visible = packages_inner_stack.visible_child_name;
+            if (packages_installed_button != null) {
+                packages_installed_button.active = visible == "installed";
+            }
+            if (packages_available_button != null) {
+                packages_available_button.active = visible == "available";
+            }
+        }
+
+        private string resolve_packages_visible_page () {
+            if (packages_visible_page == "available" && packages_available_count > 0) return "available";
+            if (packages_visible_page == "installed" && packages_installed_count > 0) return "installed";
+            return packages_available_count > 0 ? "available" : "installed";
+        }
+
+        private void update_packages_after_install (
+            Models.PrefixEntry entry,
+            Gee.HashSet<string> previously_installed
+        ) {
+            bool changed = false;
+            foreach (var id in entry.installed_redists) {
+                if (previously_installed.contains (id)) continue;
+                if (!package_specs.has_key (id)) continue;
+                move_package_to_installed (entry, id, package_specs[id]);
+                changed = true;
+            }
+            if (!changed) return;
+
+            update_package_empty_rows ();
+            update_package_page_titles ();
+            packages_inner_stack.visible_child_name = resolve_packages_visible_page ();
+        }
+
+        private void move_package_to_installed (
+            Models.PrefixEntry entry,
+            string id,
+            Models.RedistSpec spec
+        ) {
+            if (package_available_rows.has_key (id)) {
+                var available_row = package_available_rows[id];
+                packages_available_group.remove (available_row);
+                package_available_rows.unset (id);
+                packages_available_count--;
+            }
+
+            if (!package_installed_rows.has_key (id)) {
+                var installed_row = build_package_row (entry, id, spec, true);
+                packages_installed_group.add (installed_row);
+                package_installed_rows[id] = installed_row;
+                packages_installed_count++;
+            }
         }
 
         private void on_install_redist (Models.PrefixEntry entry, string redist_id) {
+            var previously_installed = new Gee.HashSet<string> ();
+            previously_installed.add_all (entry.installed_redists);
+
             var dialog = new InstallDialog ();
             dialog.install_completed.connect ((success) => {
                 if (success) {
                     registry.save (Utils.prefix_registry_path ());
                     saved ();
-                    rebuild_packages_page ();
+                    update_packages_after_install (entry, previously_installed);
+                    toast_overlay.add_toast (new Adw.Toast (_("Package installed")));
                 }
             });
             dialog.present (host_window);

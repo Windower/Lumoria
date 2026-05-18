@@ -1,7 +1,9 @@
 {
   "id": "fakejapanese_vlgothic",
   "name": "Japanese Font Aliases (VL Gothic)",
-  "redists": ["vlgothic"],
+  "redists": [
+    "vlgothic"
+  ],
   "steps": [
     {
       "type": "font_replacement",

@@ -13,6 +13,7 @@ namespace Lumoria.Widgets.Dialogs {
         private OptionListRow runner_combo;
         private OptionListRow variant_combo;
         private Adw.ActionRow version_row;
+        private Gtk.Widget latest_runner_warning;
         private OptionListRow sync_combo;
         private OptionListRow debug_combo;
         private OptionListRow wayland_combo;
@@ -101,13 +102,39 @@ namespace Lumoria.Widgets.Dialogs {
             general_content.append (general_group);
 
             if (Utils.EnvironmentInfo.is_gamescope ()) {
-                var warn_group = SettingsShared.build_group (_("Warning"), 12, 12);
-                var warn_row = new Adw.ActionRow ();
-                warn_row.title = _("Prefix installation is disabled in gamescope sessions");
-                warn_row.subtitle = _("Enter desktop mode to create and install a new prefix.");
-                warn_group.add (warn_row);
-                general_content.append (warn_group);
+                general_content.append (SettingsShared.build_warning_card (
+                    _("Prefix installation is disabled in gamescope sessions. Enter desktop mode to create and install a new prefix.")
+                ));
             }
+
+            if (launcher_specs.size > 0) {
+                var launcher_group = SettingsShared.build_group (_("Launcher"), 12);
+                var launcher_model = new Gtk.StringList (null);
+                launcher_model.append (_("None"));
+                int default_launcher = 0;
+                for (int i = 0; i < launcher_specs.size; i++) {
+                    launcher_model.append (launcher_specs[i].display_label ());
+                    if (launcher_specs[i].is_default) default_launcher = i + 1;
+                }
+                launcher_combo = new OptionListRow ();
+                launcher_combo.title = _("Launcher");
+                launcher_combo.model = launcher_model;
+                launcher_combo.selected = default_launcher;
+                launcher_group.add (launcher_combo);
+                general_content.append (launcher_group);
+            }
+
+            var region_group = SettingsShared.build_group (_("Region"), 12, 12);
+            var region_model = new Gtk.StringList (null);
+            region_model.append (_("US (North America)"));
+            region_model.append (_("EU (Europe)"));
+            region_model.append (_("JP (Japan)"));
+            region_combo = new OptionListRow ();
+            region_combo.title = _("Region");
+            region_combo.model = region_model;
+            region_combo.selected = 0;
+            region_group.add (region_combo);
+            general_content.append (region_group);
 
             SettingsShared.add_scrolled_settings_page (stack, general_content, SettingsShared.PAGE_GENERAL, _("General"));
 
@@ -131,12 +158,20 @@ namespace Lumoria.Widgets.Dialogs {
             version_row.title = _("Version");
             version_row.activatable = true;
             version_row.activated.connect (open_version_picker);
+            version_row.add_suffix (new Gtk.Image.from_icon_name ("go-next-symbolic"));
             runner_group.add (version_row);
             rebuild_variant_combo ();
             update_version_row ();
             variant_combo.notify["selected"].connect (on_variant_changed);
 
             runner_content.append (runner_group);
+
+            latest_runner_warning = SettingsShared.build_warning_card (
+                _("Latest keeps this prefix on the newest runner automatically. Updates may change compatibility or behavior without notice.")
+            );
+            latest_runner_warning.visible = false;
+            runner_content.append (latest_runner_warning);
+            update_latest_runner_warning ();
 
             var runner_opts_group = SettingsShared.build_group (_("Runner Options"), 12, 12);
 
@@ -151,42 +186,16 @@ namespace Lumoria.Widgets.Dialogs {
 
             runner_content.append (runner_opts_group);
 
-            SettingsShared.add_scrolled_settings_page (stack, runner_content, SettingsShared.PAGE_RUNNERS, _("Runner"));
-
-            var game_content = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
-
-            if (launcher_specs.size > 0) {
-                var launcher_group = SettingsShared.build_group (_("Launcher"), 12);
-                var launcher_model = new Gtk.StringList (null);
-                launcher_model.append (_("None"));
-                int default_launcher = 0;
-                for (int i = 0; i < launcher_specs.size; i++) {
-                    launcher_model.append (launcher_specs[i].display_label ());
-                    if (launcher_specs[i].is_default) default_launcher = i + 1;
-                }
-                launcher_combo = new OptionListRow ();
-                launcher_combo.title = _("Launcher");
-                launcher_combo.model = launcher_model;
-                launcher_combo.selected = default_launcher;
-                launcher_group.add (launcher_combo);
-                game_content.append (launcher_group);
-            }
-
-            var region_group = SettingsShared.build_group (_("Region"), 12, 12);
-            var region_model = new Gtk.StringList (null);
-            region_model.append (_("US (North America)"));
-            region_model.append (_("EU (Europe)"));
-            region_model.append (_("JP (Japan)"));
-            region_combo = new OptionListRow ();
-            region_combo.title = _("Region");
-            region_combo.model = region_model;
-            region_combo.selected = 0;
-            region_group.add (region_combo);
-            game_content.append (region_group);
-
             var component_specs = Models.ComponentSpec.load_all_from_resource ();
             if (component_specs.size > 0) {
                 var components_group = SettingsShared.build_group (_("Runtime Components"), 12, 12);
+                components_group.add (SettingsShared.build_warning_card (
+                    _("Changing runtime components can alter the default prefix behavior."),
+                    8,
+                    8,
+                    8,
+                    8
+                ));
                 foreach (var spec in component_specs) {
                     var default_label = Utils.Preferences.instance ().default_component_enabled (spec.id)
                         ? _("enabled")
@@ -199,25 +208,20 @@ namespace Lumoria.Widgets.Dialogs {
                     component_mode_rows[spec.id] = mode_row;
                     components_group.add (mode_row);
                 }
-                game_content.append (components_group);
+                runner_content.append (components_group);
             }
 
-            if (Utils.Preferences.instance ().experimental_features) {
-                var patches_group = SettingsShared.build_group (_("Patches"), 12, 12);
-                var laa_default = Utils.Preferences.instance ().large_address_aware ? _("enabled") : _("disabled");
-                laa_combo = SettingsShared.build_toggle_override_combo (
-                    _("Large Address Aware"),
-                    null,
-                    laa_default
-                );
-                patches_group.add (laa_combo);
-                game_content.append (patches_group);
-            }
-
-            SettingsShared.add_scrolled_settings_page (stack, game_content, SettingsShared.PAGE_LAUNCH, _("Game"));
+            SettingsShared.add_scrolled_settings_page (stack, runner_content, SettingsShared.PAGE_RUNNERS, _("Runner"));
 
             var advanced_content = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
             var post_install_group = SettingsShared.build_group (_("Post Install"), 12);
+            post_install_group.add (SettingsShared.build_warning_card (
+                _("Post-install specs can make changes to the prefix before first launch."),
+                8,
+                8,
+                8,
+                8
+            ));
 
             post_install_row = new Adw.ActionRow ();
             post_install_row.title = _("Post Install Spec");
@@ -240,6 +244,18 @@ namespace Lumoria.Widgets.Dialogs {
             post_install_row.activatable_widget = browse_post_install_btn;
             post_install_group.add (post_install_row);
             advanced_content.append (post_install_group);
+
+            if (Utils.Preferences.instance ().experimental_features) {
+                var patches_group = SettingsShared.build_group (_("Patches"), 12, 12);
+                var laa_default = Utils.Preferences.instance ().large_address_aware ? _("enabled") : _("disabled");
+                laa_combo = SettingsShared.build_toggle_override_combo (
+                    _("Large Address Aware"),
+                    null,
+                    laa_default
+                );
+                patches_group.add (laa_combo);
+                advanced_content.append (patches_group);
+            }
 
             SettingsShared.add_scrolled_settings_page (stack, advanced_content, SettingsShared.PAGE_ADVANCED, _("Advanced"));
 
@@ -323,11 +339,20 @@ namespace Lumoria.Widgets.Dialogs {
         private void update_version_row () {
             if (selected_runner_version_label != "") {
                 version_row.subtitle = selected_runner_version_label;
+                update_latest_runner_warning ();
                 return;
             }
             version_row.subtitle = RunnerSettingsShared.version_label_for_value (
                 selected_runner (),
                 selected_runner_version
+            );
+            update_latest_runner_warning ();
+        }
+
+        private void update_latest_runner_warning () {
+            if (latest_runner_warning == null) return;
+            latest_runner_warning.visible = RunnerSettingsShared.is_effective_latest (
+                selected_runner (), selected_runner_version
             );
         }
 

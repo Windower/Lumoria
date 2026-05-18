@@ -1,5 +1,10 @@
 {
   "id": "cjkfonts",
   "name": "CJK Fonts",
-  "redists": ["fakechinese", "fakejapanese", "fakekorean", "unifont"]
+  "redists": [
+    "fakechinese",
+    "fakejapanese",
+    "fakekorean",
+    "unifont"
+  ]
 }

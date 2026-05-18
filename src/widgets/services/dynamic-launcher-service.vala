@@ -19,12 +19,22 @@ namespace Lumoria.Widgets.Services {
                 (msg.contains ("error removing file") && msg.contains ("no such file or directory"));
         }
 
+        private static string failure_context (Models.PrefixEntry entry, string entrypoint_id, string desktop_id) {
+            return "prefix_id='%s' entrypoint_id='%s' desktop_id='%s' flatpak=%s".printf (
+                entry.id,
+                entrypoint_id,
+                desktop_id,
+                Utils.EnvironmentInfo.is_flatpak () ? "yes" : "no"
+            );
+        }
+
         public async bool install_menu_shortcut (
             Gtk.Window parent,
             Models.PrefixEntry entry,
             Gee.ArrayList<Models.LauncherSpec> launcher_specs,
             Runtime.LaunchTarget target
         ) throws GLib.Error {
+            var desktop_id = build_desktop_id (entry, target.id);
             try {
                 var portal = new Xdp.Portal.initable_new ();
                 var p = Xdp.parent_new_gtk (parent);
@@ -48,8 +58,7 @@ namespace Lumoria.Widgets.Services {
                 }
                 string token_str = tok.get_string ();
 
-                var desktop_id = build_desktop_id (entry, target.id);
-                var desktop_entry = build_desktop_entry (label, entry, target.id);
+                var desktop_entry = build_desktop_entry (entry, target.id);
 
                 if (!portal.dynamic_launcher_install (token_str, desktop_id, desktop_entry)) {
                     throw new IOError.FAILED (_("Menu shortcut install did not complete."));
@@ -57,7 +66,9 @@ namespace Lumoria.Widgets.Services {
                 entry.dynamic_launcher_desktop_ids[target.id] = desktop_id;
                 return true;
             } catch (Error e) {
-                warning ("%s", e.message);
+                warning ("Dynamic launcher install failed: %s (domain=%s code=%d); %s",
+                    e.message, e.domain.to_string (), e.code,
+                    failure_context (entry, target.id, desktop_id));
                 throw new IOError.FAILED (portal_error_message (e));
             }
         }
@@ -75,7 +86,9 @@ namespace Lumoria.Widgets.Services {
                     entry.dynamic_launcher_desktop_ids.unset (entrypoint_id);
                     return true;
                 }
-                warning ("%s", e.message);
+                warning ("Dynamic launcher remove failed: %s (domain=%s code=%d); %s",
+                    e.message, e.domain.to_string (), e.code,
+                    failure_context (entry, entrypoint_id, desktop_id));
                 throw new IOError.FAILED (portal_error_message (e));
             }
             entry.dynamic_launcher_desktop_ids.unset (entrypoint_id);
@@ -99,29 +112,6 @@ namespace Lumoria.Widgets.Services {
             return "%s - %s".printf (prefix_label, target.selector_label);
         }
 
-        private string build_desktop_entry (
-            string label,
-            Models.PrefixEntry entry,
-            string entrypoint_id
-        ) throws Error {
-            var key_file = new KeyFile ();
-            key_file.set_string ("Desktop Entry", "Type", "Application");
-            key_file.set_string ("Desktop Entry", "Name", label);
-            key_file.set_string ("Desktop Entry", "Comment", _("Final Fantasy XI Launcher for Linux"));
-            key_file.set_boolean ("Desktop Entry", "Terminal", false);
-            key_file.set_string ("Desktop Entry", "Categories", "Game;");
-            key_file.set_boolean ("Desktop Entry", "StartupNotify", true);
-            key_file.set_string ("Desktop Entry", "Exec", build_cli_exec (entry, entrypoint_id));
-            key_file.set_string ("Desktop Entry", "TryExec", build_try_exec ());
-
-            size_t length;
-            var data = key_file.to_data (out length);
-            if (length == 0) {
-                throw new IOError.FAILED ("Dynamic launcher: empty desktop entry");
-            }
-            return data;
-        }
-
         private string build_desktop_id (Models.PrefixEntry entry, string entrypoint_id) {
             var id_seed = "%s:%s".printf (entry.id, entrypoint_id);
             var slug = sanitize_flatpak_segment (Utils.slugify (id_seed));
@@ -137,6 +127,24 @@ namespace Lumoria.Widgets.Services {
             if (raw == "") return "l0";
             if (raw[0].isalpha () || raw[0] == '_' || raw[0] == '-') return raw;
             return "l" + raw;
+        }
+
+        private string build_desktop_entry (Models.PrefixEntry entry, string entrypoint_id) throws Error {
+            var key_file = new KeyFile ();
+            key_file.set_string ("Desktop Entry", "Type", "Application");
+            key_file.set_string ("Desktop Entry", "Comment", _("Final Fantasy XI Launcher for Linux"));
+            key_file.set_boolean ("Desktop Entry", "Terminal", false);
+            key_file.set_string_list ("Desktop Entry", "Categories", { "Game" });
+            key_file.set_boolean ("Desktop Entry", "StartupNotify", true);
+            key_file.set_string ("Desktop Entry", "Exec", build_cli_exec (entry, entrypoint_id));
+            key_file.set_string ("Desktop Entry", "TryExec", build_try_exec ());
+
+            size_t length;
+            var data = key_file.to_data (out length);
+            if (length == 0) {
+                throw new IOError.FAILED ("Dynamic launcher: empty desktop entry");
+            }
+            return data;
         }
 
         private string build_try_exec () {

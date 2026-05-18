@@ -1,0 +1,70 @@
+{
+  "id": "dotnetdesktop9",
+  "name": ".NET Desktop Runtime 9.0",
+  "variables": {
+    "DOTNET_X86_ROOT": {
+      "default": "drive_c/Program Files/dotnet",
+      "rules": [
+        {
+          "value": "drive_c/Program Files (x86)/dotnet",
+          "when": {
+            "var": {
+              "ARCH": "win64"
+            }
+          }
+        }
+      ]
+    },
+    "DOTNET_X64_ROOT": "drive_c/Program Files/dotnet"
+  },
+  "downloads": [
+    {
+      "id": "dotnetdesktop9_x86",
+      "url": "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/9.0.7/windowsdesktop-runtime-9.0.7-win-x86.exe",
+      "dest": "${var.CACHE_REDIST}/dotnetdesktop9/windowsdesktop-runtime-9.0.7-win-x86.exe",
+      "sha256": "3e5c3181836cc55e7fc4feb6378bba3d7ed11a322e22e8b4ad91bf9ba7a1a63a"
+    },
+    {
+      "id": "dotnetdesktop9_x64",
+      "url": "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/9.0.7/windowsdesktop-runtime-9.0.7-win-x64.exe",
+      "dest": "${var.CACHE_REDIST}/dotnetdesktop9/windowsdesktop-runtime-9.0.7-win-x64.exe",
+      "sha256": "508e14881c88eb98d224fe9438e7f1ff39fb4b45ada7cd4bffc27b41c35d46d5",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    }
+  ],
+  "steps": [
+    {
+      "type": "wineexec",
+      "description": "Install .NET Desktop Runtime 9.0 (x86)",
+      "command": "${var.CACHE_REDIST}/dotnetdesktop9/windowsdesktop-runtime-9.0.7-win-x86.exe",
+      "args": [
+        "/quiet"
+      ],
+      "working_dir": "${var.CACHE_REDIST}/dotnetdesktop9",
+      "verify_paths": [
+        "${var.PREFIX}/${var.DOTNET_X86_ROOT}/dotnet.exe"
+      ]
+    },
+    {
+      "type": "wineexec",
+      "description": "Install .NET Desktop Runtime 9.0 (x64)",
+      "command": "${var.CACHE_REDIST}/dotnetdesktop9/windowsdesktop-runtime-9.0.7-win-x64.exe",
+      "args": [
+        "/quiet"
+      ],
+      "working_dir": "${var.CACHE_REDIST}/dotnetdesktop9",
+      "verify_paths": [
+        "${var.PREFIX}/${var.DOTNET_X64_ROOT}/dotnet.exe"
+      ],
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    }
+  ]
+}

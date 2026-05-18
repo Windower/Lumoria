@@ -1,0 +1,70 @@
+{
+  "id": "dotnet8",
+  "name": ".NET Runtime 8.0",
+  "variables": {
+    "DOTNET_X86_ROOT": {
+      "default": "drive_c/Program Files/dotnet",
+      "rules": [
+        {
+          "value": "drive_c/Program Files (x86)/dotnet",
+          "when": {
+            "var": {
+              "ARCH": "win64"
+            }
+          }
+        }
+      ]
+    },
+    "DOTNET_X64_ROOT": "drive_c/Program Files/dotnet"
+  },
+  "downloads": [
+    {
+      "id": "dotnet8_x86",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/3210417e-ab32-4d14-a152-1ad9a2fcfdd2/da097cee5aa85bd79b6d593e3866fb7f/dotnet-runtime-8.0.12-win-x86.exe",
+      "dest": "${var.CACHE_REDIST}/dotnet8/dotnet-runtime-8.0.12-win-x86.exe",
+      "sha256": "eb0d8f39fa2dbb4ff3ff72ad325b6030773df875ab509824ea18c87a368985fa"
+    },
+    {
+      "id": "dotnet8_x64",
+      "url": "https://download.visualstudio.microsoft.com/download/pr/136f4593-e3cd-4d52-bc25-579cdf46e80c/8b98c1347293b48c56c3a68d72f586a1/dotnet-runtime-8.0.12-win-x64.exe",
+      "dest": "${var.CACHE_REDIST}/dotnet8/dotnet-runtime-8.0.12-win-x64.exe",
+      "sha256": "a7c394e6ee4e8104d7a01f78103700052cc504370941b7f620e3aa5afbbc61df",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    }
+  ],
+  "steps": [
+    {
+      "type": "wineexec",
+      "description": "Install .NET Runtime 8.0 (x86)",
+      "command": "${var.CACHE_REDIST}/dotnet8/dotnet-runtime-8.0.12-win-x86.exe",
+      "args": [
+        "/quiet"
+      ],
+      "working_dir": "${var.CACHE_REDIST}/dotnet8",
+      "verify_paths": [
+        "${var.PREFIX}/${var.DOTNET_X86_ROOT}/dotnet.exe"
+      ]
+    },
+    {
+      "type": "wineexec",
+      "description": "Install .NET Runtime 8.0 (x64)",
+      "command": "${var.CACHE_REDIST}/dotnet8/dotnet-runtime-8.0.12-win-x64.exe",
+      "args": [
+        "/quiet"
+      ],
+      "working_dir": "${var.CACHE_REDIST}/dotnet8",
+      "verify_paths": [
+        "${var.PREFIX}/${var.DOTNET_X64_ROOT}/dotnet.exe"
+      ],
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    }
+  ]
+}

@@ -5,6 +5,9 @@ namespace Lumoria.Widgets.Dialogs {
         private Models.PrefixRegistry registry;
         private Adw.ToastOverlay toast_overlay;
         private Adw.ViewStack stack;
+        private Gtk.Window host_window;
+        private ulong host_width_handler = 0;
+        private ulong host_height_handler = 0;
 
         public PreferencesDialog (
             Gtk.Window parent,
@@ -16,9 +19,41 @@ namespace Lumoria.Widgets.Dialogs {
                 content_width: 650,
                 content_height: 700
             );
+            this.host_window = parent;
             this.runner_specs = Models.RunnerSpec.filter_for_environment (runner_specs, Utils.is_sandboxed ());
             this.registry = registry;
+            update_dialog_size ();
+            bind_host_size ();
             build_ui ();
+        }
+
+        ~PreferencesDialog () {
+            unbind_host_size ();
+        }
+
+        private void bind_host_size () {
+            host_width_handler = host_window.notify["width"].connect (() => update_dialog_size ());
+            host_height_handler = host_window.notify["height"].connect (() => update_dialog_size ());
+            closed.connect (() => unbind_host_size ());
+        }
+
+        private void unbind_host_size () {
+            if (host_width_handler != 0) {
+                host_window.disconnect (host_width_handler);
+                host_width_handler = 0;
+            }
+            if (host_height_handler != 0) {
+                host_window.disconnect (host_height_handler);
+                host_height_handler = 0;
+            }
+        }
+
+        private void update_dialog_size () {
+            var pw = host_window.get_width ();
+            var ph = host_window.get_height ();
+            if (pw <= 0 || ph <= 0) return;
+            content_width = (int) (pw * 0.9).clamp (650, 1200);
+            content_height = (int) (ph * 0.92).clamp (700, 1100);
         }
 
         private void build_ui () {

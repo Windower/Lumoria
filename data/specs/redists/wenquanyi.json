@@ -5,7 +5,7 @@
     {
       "id": "wenquanyi_archive",
       "url": "https://downloads.sourceforge.net/wqy/wqy-microhei-0.2.0-beta.tar.gz",
-      "dest": "${CACHE_REDIST}/wenquanyi/wqy-microhei-0.2.0-beta.tar.gz",
+      "dest": "${var.CACHE_REDIST}/wenquanyi/wqy-microhei-0.2.0-beta.tar.gz",
       "sha256": "2802ac8023aa36a66ea6e7445854e3a078d377ffff42169341bd237871f7213e"
     }
   ],
@@ -13,12 +13,18 @@
     {
       "type": "fonts",
       "description": "Install WenQuanYi Micro Hei",
-      "dst": "${FONTS}",
-      "args": ["${CACHE_REDIST}/wenquanyi/wqy-microhei-0.2.0-beta.tar.gz"],
+      "dst": "${var.FONTS}",
+      "args": [
+        "${var.CACHE_REDIST}/wenquanyi/wqy-microhei-0.2.0-beta.tar.gz"
+      ],
       "font_registrations": [
         "wqy-microhei.ttc|WenQuanYi Micro Hei"
       ],
-      "when": { "not": { "file_exists": "${FONTS}/wqy-microhei.ttc" } }
+      "when": {
+        "not": {
+          "file_exists": "${var.FONTS}/wqy-microhei.ttc"
+        }
+      }
     }
   ]
 }

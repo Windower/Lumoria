@@ -36,6 +36,8 @@ namespace Lumoria.Utils {
         private int _freeze_count = 0;
         private bool _dirty = false;
 
+        public signal void gamepad_navigation_changed (bool enabled);
+
         public string runner_id { get; private set; default = ""; }
         public string runner_version { get; private set; default = "latest"; }
 
@@ -135,8 +137,10 @@ namespace Lumoria.Utils {
         }
 
         public void set_gamepad_navigation (bool enabled) {
+            if (_gamepad_navigation == enabled) return;
             _gamepad_navigation = enabled;
             save ();
+            gamepad_navigation_changed (enabled);
         }
 
         public Gee.HashMap<string, string> get_runtime_env_vars () {
