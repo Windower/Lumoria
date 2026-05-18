@@ -35,4 +35,4 @@ We are not affiliated with SQUARE ENIX CO., LTD. in any way.
 ## Special Thanks
 - Lutris, Winetricks, and ProtonPlus for inspiration. Learned a lot from tinkering with their projects.
 - Thorny for the original Large Address Aware patch.
-- taru and Arieh from the Windower Discord server for extensive beta testing.
+- taru, Arieh, and Surik from the Windower Discord server for extensive beta testing.
