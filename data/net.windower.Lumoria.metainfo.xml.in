@@ -68,6 +68,14 @@
   </screenshots>
 
   <releases>
+    <release version="0.1.15" date="2026-05-18">
+      <description>
+        <ul>
+          <li>Logging causing game not to launch when ran from XDG Portal Directory.</li>
+          <li>Add more debug information to the runtime log.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.14" date="2026-05-17">
       <description>
         <ul>

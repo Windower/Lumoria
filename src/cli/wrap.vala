@@ -27,6 +27,7 @@ namespace Lumoria.Cli {
 
     private int wrap_signal_state = 0;
     private int wrap_signal_number = 0;
+    private Thread<void>? log_relay_thread = null;
 
     public int cmd_wrap (string[] args) {
         string log_path = "";
@@ -79,12 +80,24 @@ namespace Lumoria.Cli {
 
         var mode = Environment.get_variable ("LUMORIA_WRAP_MODE") ?? "";
         var poll_ms = wrap_poll_interval_ms ();
+        int initial_signal = 0;
         var initial_code = mode == WRAP_MODE_LEGACY
-            ? legacy_loop (child_pid)
-            : watcher_loop (child_pid, poll_ms);
+            ? legacy_loop (child_pid, out initial_signal)
+            : watcher_loop (child_pid, poll_ms, out initial_signal);
 
         if (log_path != "") {
-            stdout.printf ("\n[exit] code=%d\n", initial_code);
+            if (initial_signal > 0) {
+                stdout.printf ("\n[exit] code=%d signal=%d\n", initial_code, initial_signal);
+            } else {
+                stdout.printf ("\n[exit] code=%d\n", initial_code);
+            }
+            stdout.flush ();
+        }
+
+        Posix.close (Posix.STDOUT_FILENO);
+        Posix.close (Posix.STDERR_FILENO);
+        if (log_relay_thread != null) {
+            log_relay_thread.join ();
         }
 
         return initial_code >= 0 ? initial_code : 1;
@@ -95,20 +108,59 @@ namespace Lumoria.Cli {
         var flags = log_path != ""
             ? Posix.O_WRONLY | Posix.O_CREAT | Posix.O_APPEND
             : Posix.O_WRONLY;
-        var fd = Posix.open (target_path, flags, 0644);
-        if (fd < 0) {
+        var log_fd = Posix.open (target_path, flags, 0644);
+        if (log_fd < 0) {
             if (log_path != "") {
                 stderr.printf ("warn: could not open log %s, inheriting caller fds\n", log_path);
             }
             return;
         }
-        Posix.dup2 (fd, Posix.STDOUT_FILENO);
-        Posix.dup2 (fd, Posix.STDERR_FILENO);
-        Posix.close (fd);
+
+        if (log_path == "") {
+            Posix.dup2 (log_fd, Posix.STDOUT_FILENO);
+            Posix.dup2 (log_fd, Posix.STDERR_FILENO);
+            Posix.close (log_fd);
+            return;
+        }
+
+        // Relay through a pipe so wine never directly inherits the log fd.
+        // Wine segfaults inside the flatpak sandbox when it inherits an fd that
+        // points to an xdg-document-portal FUSE file.
+        var pipe_fds = new int[2];
+        if (Posix.pipe (pipe_fds) != 0) {
+            Posix.dup2 (log_fd, Posix.STDOUT_FILENO);
+            Posix.dup2 (log_fd, Posix.STDERR_FILENO);
+            Posix.close (log_fd);
+            return;
+        }
+
+        var relay_read = pipe_fds[0];
+        log_relay_thread = new Thread<void> ("log-relay", () => {
+            relay_pipe_to_fd (relay_read, log_fd);
+        });
+        Posix.dup2 (pipe_fds[1], Posix.STDOUT_FILENO);
+        Posix.dup2 (pipe_fds[1], Posix.STDERR_FILENO);
+        Posix.close (pipe_fds[1]);
     }
 
-    private int legacy_loop (int child_pid) {
+    private void relay_pipe_to_fd (int read_fd, int write_fd) {
+        var buf = new uint8[65536];
+        ssize_t n;
+        while ((n = Posix.read (read_fd, buf, buf.length)) > 0) {
+            ssize_t offset = 0;
+            while (offset < n) {
+                var w = Posix.write (write_fd, (uint8[]) buf[offset:n], (size_t) (n - offset));
+                if (w <= 0) break;
+                offset += w;
+            }
+        }
+        Posix.close (read_fd);
+        Posix.close (write_fd);
+    }
+
+    private int legacy_loop (int child_pid, out int initial_signal) {
         int initial_code = -1;
+        initial_signal = 0;
         bool initial_reaped = false;
 
         while (true) {
@@ -117,17 +169,20 @@ namespace Lumoria.Cli {
             if (pid < 0) break;
             if (pid == child_pid && !initial_reaped) {
                 initial_reaped = true;
-                initial_code = Process.if_exited (status)
-                    ? Process.exit_status (status)
-                    : -1;
+                if (Process.if_exited (status)) {
+                    initial_code = Process.exit_status (status);
+                } else if (Process.if_signaled (status)) {
+                    initial_signal = Process.term_sig (status);
+                }
             }
         }
 
         return initial_code;
     }
 
-    private int watcher_loop (int child_pid, int poll_ms) {
+    private int watcher_loop (int child_pid, int poll_ms, out int initial_signal) {
         int initial_code = -1;
+        initial_signal = 0;
         bool initial_reaped = false;
         bool no_more_children = false;
         bool soft_signal_processed = false;
@@ -140,7 +195,7 @@ namespace Lumoria.Cli {
                 stdout.printf ("[wrap] waiting for monitored process to start\n");
                 while (!has_monitored_descendants ()) {
                     reap_children_nonblocking (
-                        child_pid, ref initial_code, ref initial_reaped, out no_more_children
+                        child_pid, ref initial_code, ref initial_signal, ref initial_reaped, out no_more_children
                     );
                     process_pending_wrap_signal (ref soft_signal_processed, ref hard_signal_processed);
                     if (no_more_children) return initial_code;
@@ -150,7 +205,7 @@ namespace Lumoria.Cli {
 
             while (has_monitored_descendants ()) {
                 reap_children_nonblocking (
-                    child_pid, ref initial_code, ref initial_reaped, out no_more_children
+                    child_pid, ref initial_code, ref initial_signal, ref initial_reaped, out no_more_children
                 );
                 process_pending_wrap_signal (ref soft_signal_processed, ref hard_signal_processed);
                 if (no_more_children) return initial_code;
@@ -158,7 +213,7 @@ namespace Lumoria.Cli {
             }
 
             reap_children_nonblocking (
-                child_pid, ref initial_code, ref initial_reaped, out no_more_children
+                child_pid, ref initial_code, ref initial_signal, ref initial_reaped, out no_more_children
             );
         } finally {
             restore_default_wrap_signal_handlers ();
@@ -183,6 +238,7 @@ namespace Lumoria.Cli {
     private void reap_children_nonblocking (
         int child_pid,
         ref int initial_code,
+        ref int initial_signal,
         ref bool initial_reaped,
         out bool no_more_children
     ) {
@@ -197,9 +253,11 @@ namespace Lumoria.Cli {
             }
             if (pid == child_pid && !initial_reaped) {
                 initial_reaped = true;
-                initial_code = Process.if_exited (status)
-                    ? Process.exit_status (status)
-                    : -1;
+                if (Process.if_exited (status)) {
+                    initial_code = Process.exit_status (status);
+                } else if (Process.if_signaled (status)) {
+                    initial_signal = Process.term_sig (status);
+                }
             }
         }
     }

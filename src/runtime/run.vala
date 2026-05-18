@@ -286,6 +286,16 @@ namespace Lumoria.Runtime {
         var now = new DateTime.now_local ();
         var sandbox_kind = Utils.EnvironmentInfo.is_flatpak () ? "flatpak" : "none";
         logger.banner ("Lumoria Run Log", false);
+        logger.emit_line ("Version: %s\n".printf (Config.APP_VERSION));
+        var uts = Posix.utsname ();
+        var os_name = os_release_value ("PRETTY_NAME")
+            ?? os_release_value ("NAME")
+            ?? lsb_release_value ("DISTRIB_DESCRIPTION")
+            ?? uts.sysname;
+        var os_build = os_release_value ("BUILD_ID");
+        var os_line = os_build != null ? "%s (build: %s)".printf (os_name, os_build) : os_name;
+        logger.emit_line ("OS: %s\n".printf (os_line));
+        logger.emit_line ("Kernel: %s %s (%s)\n".printf (uts.sysname, uts.release, uts.machine));
         logger.emit_line ("Started: %s\n".printf (now.format ("%F %T")));
         logger.emit_line ("Prefix: %s\n".printf (entry.path));
         logger.emit_line ("Context: gamescope=%s sandbox=%s\n".printf (
@@ -303,6 +313,60 @@ namespace Lumoria.Runtime {
         logger.typed (LogType.CMD, cmd_line);
         env.log_wine_vars (logger);
         logger.emit_line ("\n");
+    }
+
+    private string? os_release_value (string key) {
+        var path = Utils.EnvironmentInfo.is_flatpak () && FileUtils.test ("/run/host/etc/os-release", FileTest.EXISTS)
+            ? "/run/host/etc/os-release"
+            : "/etc/os-release";
+        string content;
+        try {
+            FileUtils.get_contents (path, out content);
+        } catch (Error e) {
+            return null;
+        }
+        foreach (var line in content.split ("\n")) {
+            var trimmed = line.strip ();
+            if (trimmed == "" || trimmed.has_prefix ("#")) continue;
+            var eq = trimmed.index_of_char ('=');
+            if (eq <= 0) continue;
+            if (trimmed.substring (0, eq) != key) continue;
+            return unquote_os_release_value (trimmed.substring (eq + 1));
+        }
+        return null;
+    }
+
+    private string? lsb_release_value (string key) {
+        var path = Utils.EnvironmentInfo.is_flatpak () && FileUtils.test ("/run/host/etc/lsb-release", FileTest.EXISTS)
+            ? "/run/host/etc/lsb-release"
+            : "/etc/lsb-release";
+        string content;
+        try {
+            FileUtils.get_contents (path, out content);
+        } catch (Error e) {
+            return null;
+        }
+        foreach (var line in content.split ("\n")) {
+            var trimmed = line.strip ();
+            if (trimmed == "" || trimmed.has_prefix ("#")) continue;
+            var eq = trimmed.index_of_char ('=');
+            if (eq <= 0) continue;
+            if (trimmed.substring (0, eq) != key) continue;
+            return unquote_os_release_value (trimmed.substring (eq + 1));
+        }
+        return null;
+    }
+
+    private string unquote_os_release_value (string value) {
+        var trimmed = value.strip ();
+        if (trimmed.length >= 2) {
+            var first = trimmed[0];
+            var last = trimmed[trimmed.length - 1];
+            if ((first == '"' && last == '"') || (first == '\'' && last == '\'')) {
+                return trimmed.substring (1, trimmed.length - 2);
+            }
+        }
+        return trimmed;
     }
 
     private void write_run_log_header (
@@ -376,9 +440,7 @@ namespace Lumoria.Runtime {
 
         if (child_pid == 0) {
             Posix.close (env_pipe[1]);
-            if (work_dir != "" && Posix.chdir (work_dir) != 0) {
-                Posix._exit (127);
-            }
+            if (work_dir != "") Posix.chdir (work_dir);
             if (env_pipe[0] != WRAP_ENV_FD) {
                 Posix.dup2 (env_pipe[0], WRAP_ENV_FD);
             }
