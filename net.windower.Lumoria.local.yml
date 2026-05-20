@@ -20,6 +20,23 @@ finish-args:
   - --share=network
   - --share=ipc
 
+  # Borrowing from XIVLauncher/Lutris after all these recent headaches. Desktop portals are
+  # causing some really weird issues with Wine. Losing cwd (sometimes, maybe version dependant? idk)
+  # tanking Steam Deck hardware and other low end systems by using 100+% of CPU. Most of our users are coming 
+  # from Lutris and already use extensive permissions.
+  - --filesystem=home
+  # Required for Steamdeck SD cards and users who install
+  # the game to an external drive.
+  - --filesystem=/media
+  - --filesystem=/run/media
+  - --filesystem=/mnt
+  # Certain WinAPIs fail in Wine without this.
+  - --system-talk-name=org.freedesktop.UDisks2
+  # Used for upcoming virtual input helper in Lumoria. If XI loses controller connection you have to
+  # restart the game which is a pain. Will be providing a virtual device to map their controller to in an upcoming
+  # release, similar to Steam Virtual Input.
+  - --filesystem=/run/udev:ro
+
 cleanup:
   - /include
   - /lib/pkgconfig

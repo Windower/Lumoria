@@ -66,13 +66,13 @@ namespace Lumoria.Runtime {
         var wine_path = to_wine_path (ctx.prefix_path, host_exe);
         var wine_argv = new Gee.ArrayList<string> ();
         wine_argv.add (ctx.paths.wine);
-        wine_argv.add (wine_path);
-        foreach (var arg in wine_args) wine_argv.add (arg);
 
         var work_dir = Path.get_dirname (host_exe);
         if (!FileUtils.test (work_dir, FileTest.IS_DIR)) {
             work_dir = ctx.prefix_path;
         }
+        wine_argv.add (host_exe);
+        foreach (var arg in wine_args) wine_argv.add (arg);
 
         write_run_log_header (logger, entry, host_exe, wine_path, work_dir, wine_argv, ctx.env);
 
@@ -428,6 +428,10 @@ namespace Lumoria.Runtime {
         wrapped.add (log_path);
         wrapped.add ("--env-fd");
         wrapped.add (WRAP_ENV_FD.to_string ());
+        if (work_dir != "") {
+            wrapped.add ("--cwd");
+            wrapped.add (work_dir);
+        }
         wrapped.add ("--");
         wrapped.add_all (argv);
 
@@ -440,9 +444,11 @@ namespace Lumoria.Runtime {
 
         if (child_pid == 0) {
             Posix.close (env_pipe[1]);
-            if (work_dir != "") Posix.chdir (work_dir);
             if (env_pipe[0] != WRAP_ENV_FD) {
                 Posix.dup2 (env_pipe[0], WRAP_ENV_FD);
+            }
+            if (work_dir != "") {
+                Posix.chdir (work_dir);
             }
             close_unrelated_fds (WRAP_ENV_FD);
             Posix.execvp (wrapped[0], Utils.arraylist_to_strv (wrapped));

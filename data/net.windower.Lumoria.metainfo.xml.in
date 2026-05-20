@@ -68,6 +68,14 @@
   </screenshots>
 
   <releases>
+    <release version="0.1.16" date="2026-05-19">
+      <description>
+        <ul>
+          <li>More tweaks for cwd issues with Windower "losing" settings.</li>
+          <li>Adjustment to requested Flatpak permissions to address Wine runner problems and slowdowns when ran from XDG Portal Directory.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.15" date="2026-05-18">
       <description>
         <ul>

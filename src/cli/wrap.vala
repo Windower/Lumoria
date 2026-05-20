@@ -31,6 +31,7 @@ namespace Lumoria.Cli {
 
     public int cmd_wrap (string[] args) {
         string log_path = "";
+        string cwd = "";
         int env_fd = -1;
         int cmd_start = -1;
 
@@ -39,6 +40,8 @@ namespace Lumoria.Cli {
                 log_path = args[++i];
             } else if (args[i] == "--env-fd" && i + 1 < args.length) {
                 env_fd = int.parse (args[++i]);
+            } else if (args[i] == "--cwd" && i + 1 < args.length) {
+                cwd = args[++i];
             } else if (args[i] == "--") {
                 cmd_start = i + 1;
                 break;
@@ -46,7 +49,7 @@ namespace Lumoria.Cli {
         }
 
         if (cmd_start < 0 || cmd_start >= args.length) {
-            stderr.printf ("Usage: lumoria wrap --log <path> [--env-fd <fd>] -- <command...>\n");
+            stderr.printf ("Usage: lumoria wrap --log <path> [--env-fd <fd>] [--cwd <path>] -- <command...>\n");
             return 1;
         }
 
@@ -56,6 +59,7 @@ namespace Lumoria.Cli {
         }
 
         redirect_stdio (log_path);
+        apply_working_directory (cwd);
 
         var cmd = new string[args.length - cmd_start + 1];
         for (int i = cmd_start; i < args.length; i++) {
@@ -141,6 +145,17 @@ namespace Lumoria.Cli {
         Posix.dup2 (pipe_fds[1], Posix.STDOUT_FILENO);
         Posix.dup2 (pipe_fds[1], Posix.STDERR_FILENO);
         Posix.close (pipe_fds[1]);
+    }
+
+    private void apply_working_directory (string cwd) {
+        if (cwd == "") return;
+        if (Posix.chdir (cwd) == 0) {
+            stdout.printf ("[wrap] cwd=%s\n", cwd);
+            stdout.flush ();
+            return;
+        }
+        stdout.printf ("[wrap] cwd failed: %s: %s\n", cwd, Posix.strerror (Posix.errno));
+        stdout.flush ();
     }
 
     private void relay_pipe_to_fd (int read_fd, int write_fd) {
