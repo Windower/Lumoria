@@ -50,6 +50,7 @@ namespace Lumoria.Utils {
         private string _wine_debug = "";
         private bool _large_address_aware = false;
         private bool _experimental_features = false;
+        private bool _session_manager = false;
         private bool _gamepad_navigation = false;
 
         public bool updates_lumoria { get { return _updates_lumoria; } }
@@ -61,6 +62,7 @@ namespace Lumoria.Utils {
         public string wine_debug { get { return _wine_debug; } }
         public bool large_address_aware { get { return _large_address_aware; } }
         public bool experimental_features { get { return _experimental_features; } }
+        public bool session_manager { get { return _session_manager; } }
         public bool gamepad_navigation { get { return _gamepad_navigation; } }
 
         private Gee.HashMap<string, string> component_versions;
@@ -133,6 +135,11 @@ namespace Lumoria.Utils {
 
         public void set_experimental_features (bool enabled) {
             _experimental_features = enabled;
+            save ();
+        }
+
+        public void set_session_manager (bool enabled) {
+            _session_manager = enabled;
             save ();
         }
 
@@ -256,6 +263,7 @@ namespace Lumoria.Utils {
             _large_address_aware = defaults.large_address_aware;
             _logging_mode = defaults.logging_mode;
             _experimental_features = false;
+            _session_manager = false;
             _gamepad_navigation = false;
 
             component_versions.clear ();
@@ -324,6 +332,8 @@ namespace Lumoria.Utils {
                 }
                 if (obj.has_member ("experimental_features"))
                     _experimental_features = obj.get_boolean_member ("experimental_features");
+                if (obj.has_member ("session_manager"))
+                    _session_manager = obj.get_boolean_member ("session_manager");
 
                 load_updates (obj);
                 load_logging (obj);
@@ -481,6 +491,7 @@ namespace Lumoria.Utils {
             obj.set_string_member ("runner_id", runner_id);
             obj.set_string_member ("runner_version", runner_version);
             obj.set_boolean_member ("experimental_features", _experimental_features);
+            obj.set_boolean_member ("session_manager", _session_manager);
 
             var upd = new Json.Object ();
             upd.set_boolean_member ("lumoria", _updates_lumoria);

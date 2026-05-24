@@ -24,6 +24,20 @@ namespace Lumoria.Widgets.Preferences {
                 }
             });
             experimental_group.add (experimental_row);
+
+            if (prefs.experimental_features) {
+                var session_manager_row = new Adw.SwitchRow ();
+                session_manager_row.title = _("Session Manager");
+                session_manager_row.subtitle = _("Keep game processes running after the app is closed. Uses D-Bus for process management.");
+                session_manager_row.active = prefs.session_manager;
+                session_manager_row.notify["active"].connect (() => {
+                    if (prefs.session_manager != session_manager_row.active) {
+                        prefs.set_session_manager (session_manager_row.active);
+                    }
+                });
+                experimental_group.add (session_manager_row);
+            }
+
             append (experimental_group);
 
             var input_group = SettingsShared.build_group (_("Input"));

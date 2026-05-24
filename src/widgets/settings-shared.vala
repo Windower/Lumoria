@@ -197,6 +197,136 @@ namespace Lumoria.Widgets {
                 || lower.has_suffix (".com");
         }
 
+        public static string resolve_folder_granted_executable (string folder, string selected_path) {
+            if (!is_windows_executable_path (selected_path)) return "";
+
+            var folder_path = Utils.normalize_dir_path (folder);
+            var selected_dir = Utils.normalize_dir_path (Path.get_dirname (selected_path));
+            if (selected_dir == folder_path) {
+                return selected_path;
+            }
+
+            return Path.build_filename (folder, Path.get_basename (selected_path));
+        }
+
+        public static void present_sandbox_executable_browse_dialog (
+            Gtk.Window parent,
+            string? initial_folder,
+            owned PathSelectedCallback on_selected,
+            owned ErrorMessageCallback? on_error = null
+        ) {
+            var dialog = new Adw.Dialog () {
+                title = _("Select Executable"),
+                content_width = 440
+            };
+
+            var toolbar = new Adw.ToolbarView ();
+            var header = new Adw.HeaderBar ();
+            header.show_start_title_buttons = false;
+            header.show_end_title_buttons = true;
+            toolbar.add_top_bar (header);
+
+            var content = new Gtk.Box (Gtk.Orientation.VERTICAL, 12);
+            content.margin_start = 16;
+            content.margin_end = 16;
+            content.margin_top = 12;
+            content.margin_bottom = 12;
+
+            content.append (build_warning_card (
+                _("Sandboxed apps can only use files you grant access to. Many Windows programs need DLLs, configuration, or data beside the EXE, so choose the containing folder first, then choose the EXE inside it."),
+                0,
+                0,
+                0,
+                0
+            ));
+
+            string folder_path = "";
+            string executable_path = "";
+
+            var group = new Adw.PreferencesGroup ();
+            var folder_row = new Adw.ActionRow ();
+            folder_row.title = _("Containing Folder");
+            folder_row.subtitle = _("Choose the folder that contains the executable and its support files.");
+            folder_row.subtitle_lines = 2;
+
+            var folder_btn = new Gtk.Button.with_label (_("Browse…"));
+            folder_btn.valign = Gtk.Align.CENTER;
+            folder_row.add_suffix (folder_btn);
+            group.add (folder_row);
+
+            var executable_row = new Adw.ActionRow ();
+            executable_row.title = _("Executable");
+            executable_row.subtitle = _("Choose the EXE inside the selected folder.");
+            executable_row.subtitle_lines = 2;
+
+            var executable_btn = new Gtk.Button.with_label (_("Browse…"));
+            executable_btn.valign = Gtk.Align.CENTER;
+            executable_btn.sensitive = false;
+            executable_row.add_suffix (executable_btn);
+            group.add (executable_row);
+            content.append (group);
+
+            var actions = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8);
+            actions.homogeneous = true;
+
+            var cancel_btn = new Gtk.Button.with_label (_("Cancel"));
+            cancel_btn.clicked.connect (() => dialog.close ());
+            actions.append (cancel_btn);
+
+            var use_btn = new Gtk.Button.with_label (_("Use Executable"));
+            use_btn.add_css_class ("suggested-action");
+            use_btn.sensitive = false;
+            use_btn.clicked.connect (() => {
+                if (executable_path == "") return;
+                on_selected (executable_path);
+                dialog.close ();
+            });
+            actions.append (use_btn);
+            content.append (actions);
+
+            folder_btn.clicked.connect (() => {
+                var folder_dialog = new Gtk.FileDialog ();
+                folder_dialog.title = _("Select Folder Containing EXE");
+                folder_dialog.modal = true;
+                open_folder_dialog (parent, folder_dialog, initial_folder, (path) => {
+                    folder_path = path;
+                    executable_path = "";
+                    folder_row.subtitle = folder_path;
+                    executable_row.subtitle = _("Choose the EXE inside the selected folder.");
+                    executable_btn.sensitive = true;
+                    use_btn.sensitive = false;
+                }, (message) => {
+                    if (on_error != null) on_error (message);
+                });
+            });
+
+            executable_btn.clicked.connect (() => {
+                if (folder_path == "") return;
+                var file_dialog = build_file_dialog (
+                    _("Select EXE In Folder"),
+                    build_windows_executable_filter ()
+                );
+                open_file_dialog (parent, file_dialog, folder_path, (path) => {
+                    var resolved = resolve_folder_granted_executable (folder_path, path);
+                    if (resolved == "") {
+                        executable_path = "";
+                        executable_row.subtitle = _("Please choose a Windows executable in the selected folder.");
+                        use_btn.sensitive = false;
+                        return;
+                    }
+                    executable_path = resolved;
+                    executable_row.subtitle = executable_path;
+                    use_btn.sensitive = true;
+                }, (message) => {
+                    if (on_error != null) on_error (message);
+                });
+            });
+
+            toolbar.content = content;
+            dialog.child = toolbar;
+            dialog.present (parent);
+        }
+
         public static void open_file_dialog (
             Gtk.Window? parent,
             Gtk.FileDialog dialog,
@@ -211,6 +341,32 @@ namespace Lumoria.Widgets {
             dialog.open.begin (parent, null, (obj, res) => {
                 try {
                     var file = dialog.open.end (res);
+                    if (file == null) return;
+                    var path = file.get_path ();
+                    if (path == null || path == "") return;
+                    on_selected (path);
+                } catch (Error e) {
+                    if (on_error != null) {
+                        on_error (e.message);
+                    }
+                }
+            });
+        }
+
+        public static void open_folder_dialog (
+            Gtk.Window? parent,
+            Gtk.FileDialog dialog,
+            string? initial_folder,
+            owned PathSelectedCallback on_selected,
+            owned ErrorMessageCallback? on_error = null
+        ) {
+            if (initial_folder != null && FileUtils.test (initial_folder, FileTest.IS_DIR)) {
+                dialog.initial_folder = File.new_for_path (initial_folder);
+            }
+
+            dialog.select_folder.begin (parent, null, (obj, res) => {
+                try {
+                    var file = dialog.select_folder.end (res);
                     if (file == null) return;
                     var path = file.get_path ();
                     if (path == null || path == "") return;

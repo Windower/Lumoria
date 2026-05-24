@@ -83,7 +83,8 @@ modules:
       - -D_systemd=false
     sources:
       - type: git
-        url: https://gitlab.gnome.org/GNOME/vte.git
+        # url: https://gitlab.gnome.org/GNOME/vte.git
+        url: https://github.com/GNOME/vte.git
         tag: 0.84.0
         commit: 5da1ed34b210f2b000ef954c147f9a1391da363b
 
@@ -132,7 +133,7 @@ modules:
       - -Dssh=false
     sources:
       - type: git
-        url: https://gitlab.gnome.org/GNOME/libgit2-glib.git
+        url: https://github.com/GNOME/libgit2-glib.git
         tag: 1.2.1
         commit: 4684169522f31796e1d1daedd90aae35e89c4d86
 

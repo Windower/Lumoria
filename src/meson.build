@@ -2,6 +2,7 @@ lumoria_sources = files(
   'main.vala',
   'cli/cli.vala',
   'cli/wrap.vala',
+  'cli/session.vala',
 
   'models/base-spec.vala',
   'models/common.vala',
@@ -76,6 +77,7 @@ lumoria_deps = [
   config_dep,
   dependency('gtk4'),
   dependency('glib-2.0'),
+  dependency('gio-unix-2.0'),
   dependency('libadwaita-1', version: '>= 1.6'),
   dependency('json-glib-1.0'),
   dependency('libxml-2.0'),
@@ -97,6 +99,7 @@ mspack_shim = files('native/mspack-shim.c')
 lumoria_vala_args = [
   '--vapidir', vapi_dir,
   '--pkg', 'posix',
+  '--pkg', 'gio-unix-2.0',
   '--pkg', 'libarchive',
   '--pkg', 'libxml-2.0',
   '--pkg', 'mspack',

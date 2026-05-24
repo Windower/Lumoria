@@ -4,6 +4,8 @@ namespace Lumoria.Widgets.Dialogs {
         public signal void saved ();
         public signal void removed ();
 
+        private delegate void CustomExecutableSelectedCallback (string path);
+
         private Models.PrefixRegistry registry;
         private int prefix_index;
         private Gee.ArrayList<Models.RunnerSpec> runner_specs;
@@ -28,6 +30,7 @@ namespace Lumoria.Widgets.Dialogs {
         private Adw.PreferencesGroup custom_entries_group;
         private Gee.ArrayList<Gtk.Widget> custom_entry_rows;
         private Lumoria.Widgets.EnvVarsEditor prefix_env_editor;
+        private Adw.EntryRow prefix_dll_row;
         private Gtk.Label env_validation_label;
         private Adw.ToastOverlay toast_overlay;
         private Gtk.Window host_window;
@@ -316,6 +319,14 @@ namespace Lumoria.Widgets.Dialogs {
             env_validation_label.margin_bottom = 4;
             env_group.add (env_validation_label);
             advanced_content.append (env_group);
+
+            var dll_group = SettingsShared.build_group (_("DLL Overrides"), 12, 12, 0);
+            dll_group.description = _("Use dll=mode entries separated by semicolons.");
+            prefix_dll_row = new Adw.EntryRow ();
+            prefix_dll_row.title = _("DLL Overrides");
+            prefix_dll_row.text = stringify_dll_overrides (entry.runtime_dll_overrides);
+            dll_group.add (prefix_dll_row);
+            advanced_content.append (dll_group);
 
             var prelaunch_group = SettingsShared.build_group (_("Prelaunch"), 12, 12, 12);
             prelaunch_script_path = entry.prelaunch_script;
@@ -698,22 +709,43 @@ namespace Lumoria.Widgets.Dialogs {
         private void show_custom_entry_editor (int index) {
             if (index < 0) {
                 if (SettingsShared.file_browse_blocked (toast_overlay)) return;
-                var file_dialog = SettingsShared.build_file_dialog (
-                    _("Select Executable"),
-                    SettingsShared.build_windows_executable_filter ()
-                );
-                SettingsShared.open_file_dialog (null, file_dialog, null, (path) => {
-                    if (!SettingsShared.is_windows_executable_path (path)) {
-                        toast_overlay.add_toast (new Adw.Toast (_("Please choose a Windows executable file.")));
-                        return;
-                    }
+                browse_custom_entry_executable (registry.prefixes[prefix_index].resolved_path (), (path) => {
                     present_entry_editor (-1, path);
-                }, (message) => {
-                    toast_overlay.add_toast (new Adw.Toast (_("Browse failed: %s").printf (message)));
                 });
             } else {
                 present_entry_editor (index, null);
             }
+        }
+
+        private void browse_custom_entry_executable (
+            string? initial_folder,
+            owned CustomExecutableSelectedCallback on_selected
+        ) {
+            if (Utils.is_sandboxed ()) {
+                SettingsShared.present_sandbox_executable_browse_dialog (
+                    host_window,
+                    initial_folder,
+                    (path) => on_selected (path),
+                    (message) => {
+                        toast_overlay.add_toast (new Adw.Toast (_("Browse failed: %s").printf (message)));
+                    }
+                );
+                return;
+            }
+
+            var file_dialog = SettingsShared.build_file_dialog (
+                _("Select Executable"),
+                SettingsShared.build_windows_executable_filter ()
+            );
+            SettingsShared.open_file_dialog (host_window, file_dialog, initial_folder, (path) => {
+                if (!SettingsShared.is_windows_executable_path (path)) {
+                    toast_overlay.add_toast (new Adw.Toast (_("Please choose a Windows executable file.")));
+                    return;
+                }
+                on_selected (path);
+            }, (message) => {
+                toast_overlay.add_toast (new Adw.Toast (_("Browse failed: %s").printf (message)));
+            });
         }
 
         private void present_entry_editor (int index, string? initial_exe) {
@@ -755,22 +787,13 @@ namespace Lumoria.Widgets.Dialogs {
             browse_btn.valign = Gtk.Align.CENTER;
             browse_btn.clicked.connect (() => {
                 if (SettingsShared.file_browse_blocked (toast_overlay)) return;
-                var file_dialog = SettingsShared.build_file_dialog (
-                    _("Select Executable"),
-                    SettingsShared.build_windows_executable_filter ()
-                );
-                SettingsShared.open_file_dialog (null, file_dialog, null, (path) => {
-                    if (!SettingsShared.is_windows_executable_path (path)) {
-                        toast_overlay.add_toast (new Adw.Toast (_("Please choose a Windows executable file.")));
-                        return;
-                    }
+                var browse_start = exe_path != "" ? Path.get_dirname (exe_path) : registry.prefixes[prefix_index].resolved_path ();
+                browse_custom_entry_executable (browse_start, (path) => {
                     exe_path = path;
                     exe_row.subtitle = path;
                     if (name_row.text.strip () == "") {
                         name_row.text = Path.get_basename (path);
                     }
-                }, (message) => {
-                    toast_overlay.add_toast (new Adw.Toast (_("Browse failed: %s").printf (message)));
                 });
             });
             exe_row.add_suffix (browse_btn);
@@ -830,16 +853,6 @@ namespace Lumoria.Widgets.Dialogs {
                 12
             ));
 
-            var dll_group = SettingsShared.build_group (_("DLL Overrides"), 12, 12);
-            dll_group.description = _("Use dll=mode entries separated by semicolons.");
-            var dll_row = new Adw.EntryRow ();
-            dll_row.title = _("DLL Overrides");
-            dll_row.text = stringify_dll_overrides (
-                existing != null ? existing.runtime_dll_overrides : null
-            );
-            dll_group.add (dll_row);
-            editor_body.append (dll_group);
-
             var env_group = SettingsShared.build_group (_("Environment Variables"), 12, 12, 8);
             env_group.description = _("Applied to this custom entry. These override prefix and global variables.");
             var entry_env_editor = new Lumoria.Widgets.EnvVarsEditor (
@@ -851,6 +864,16 @@ namespace Lumoria.Widgets.Dialogs {
             entry_env_editor.margin_bottom = 8;
             env_group.add (entry_env_editor);
             editor_body.append (env_group);
+
+            var dll_group = SettingsShared.build_group (_("DLL Overrides"), 12, 12);
+            dll_group.description = _("Use dll=mode entries separated by semicolons.");
+            var dll_row = new Adw.EntryRow ();
+            dll_row.title = _("DLL Overrides");
+            dll_row.text = stringify_dll_overrides (
+                existing != null ? existing.runtime_dll_overrides : null
+            );
+            dll_group.add (dll_row);
+            editor_body.append (dll_group);
 
             var actions = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8);
             actions.margin_start = 16;
@@ -1014,6 +1037,12 @@ namespace Lumoria.Widgets.Dialogs {
                 SettingsShared.present_alert (this, _("Invalid Environment Variables"), env_error);
                 return;
             }
+            string dll_error;
+            var parsed_dll_overrides = parse_dll_overrides (prefix_dll_row.text, out dll_error);
+            if (parsed_dll_overrides == null) {
+                SettingsShared.present_alert (this, _("Invalid DLL Overrides"), dll_error);
+                return;
+            }
             if (runner_specs[sel].selectable_variants (Utils.is_sandboxed ()).size == 0) {
                 SettingsShared.present_alert (this,
                     _("Runner Not Supported"),
@@ -1045,6 +1074,8 @@ namespace Lumoria.Widgets.Dialogs {
             registry.prefixes[prefix_index].prelaunch_script = prelaunch_script_path;
             registry.prefixes[prefix_index].custom_entrypoints = custom_entries;
             registry.prefixes[prefix_index].runtime_env_vars = prefix_env_editor.values ();
+            registry.prefixes[prefix_index].runtime_dll_overrides =
+                (Gee.HashMap<string, string>) parsed_dll_overrides;
             var pfx = registry.prefixes[prefix_index];
             int ep_idx = (int) entrypoint_combo.selected;
             if (ep_idx < 0 || ep_idx >= entrypoint_values.size) ep_idx = 0;

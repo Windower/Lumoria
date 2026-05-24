@@ -376,6 +376,15 @@ namespace Lumoria.Widgets {
             var entry = require_runnable (index);
             if (entry == null) return;
 
+            if (Utils.is_sandboxed ()) {
+                SettingsShared.present_sandbox_executable_browse_dialog (this, entry.resolved_path (), (path) => {
+                    launch_prefix_exe (index, path);
+                }, (message) => {
+                    show_toast (_("Failed to select executable: %s").printf (message));
+                });
+                return;
+            }
+
             var dialog = SettingsShared.build_file_dialog (
                 _("Launch EXE In Prefix"),
                 SettingsShared.build_windows_executable_filter ()

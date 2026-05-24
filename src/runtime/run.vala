@@ -103,7 +103,8 @@ namespace Lumoria.Runtime {
         }
 
         return spawn_wrapped_process (
-            host_exe, work_dir, argv, ctx.env, logger
+            host_exe, work_dir, argv, ctx.env, logger,
+            entry.id, ctx.prefix_path, ctx.paths.wineserver
         );
     }
 
@@ -142,7 +143,8 @@ namespace Lumoria.Runtime {
         }
 
         return spawn_wrapped_process (
-            command_label, work_dir, argv, ctx.env, logger
+            command_label, work_dir, argv, ctx.env, logger,
+            entry.id, ctx.prefix_path, ctx.paths.wineserver
         );
     }
 
@@ -240,10 +242,27 @@ namespace Lumoria.Runtime {
         } catch (Error comp_err) {
             logger.typed (LogType.WARN, "Component application failed: %s".printf (comp_err.message));
         }
+        apply_prefix_runtime_dll_overrides (runtime.env, entry, logger);
         apply_env_overrides (runtime.env, Utils.Preferences.instance ().get_runtime_env_vars ());
         apply_env_overrides (runtime.env, entry.runtime_env_vars);
         apply_runtime_logging_policy (runtime.env);
         return runtime;
+    }
+
+    private void apply_prefix_runtime_dll_overrides (
+        WineEnv env,
+        Models.PrefixEntry entry,
+        RuntimeLog logger
+    ) {
+        foreach (var ov in entry.runtime_dll_overrides.entries) {
+            var dll = ov.key.strip ();
+            var mode = ov.value.strip ();
+            if (dll == "" || mode == "") continue;
+            env.set_dll_override (dll, mode);
+        }
+        if (entry.runtime_dll_overrides.size > 0) {
+            logger.typed (LogType.DEBUG, "applied prefix runtime dll overrides");
+        }
     }
 
     private void apply_entrypoint_runtime_overrides (
@@ -405,14 +424,139 @@ namespace Lumoria.Runtime {
         );
     }
 
+    private bool session_manager_responds () {
+        try {
+            var obj = new Json.Object ();
+            obj.set_string_member ("method", "ping");
+            return Cli.response_ok (Cli.session_send_request (json_object_to_string (obj)));
+        } catch (Error e) {
+            return false;
+        }
+    }
+
+    private bool ensure_session_manager () {
+        if (session_manager_responds ()) return true;
+
+        var socket_path = Cli.session_socket_path ();
+        Utils.ensure_dir (Path.get_dirname (socket_path));
+        FileUtils.unlink (socket_path);
+        try {
+            Pid session_pid;
+            Process.spawn_async (
+                null,
+                session_manager_spawn_argv (),
+                null,
+                SpawnFlags.SEARCH_PATH,
+                null,
+                out session_pid
+            );
+        } catch (Error e) {
+            warning ("Session manager self-spawn failed: %s", e.message);
+            return false;
+        }
+
+        for (int i = 0; i < 10; i++) {
+            Posix.usleep (100 * 1000);
+            if (session_manager_responds ()) return true;
+        }
+
+        warning ("Session manager did not respond after 1s");
+        return false;
+    }
+
+    private string[] session_manager_spawn_argv () throws Error {
+        var self_exe = Utils.current_executable_path ();
+        if (self_exe == null)
+            throw new IOError.FAILED ("could not resolve self executable path");
+
+        return { self_exe, "session-manager" };
+    }
+
+    private int session_launch (
+        string prefix_id,
+        string prefix_path,
+        string wineserver_path,
+        string log_path,
+        string[] env,
+        string work_dir,
+        string[] argv
+    ) throws Error {
+        var obj = new Json.Object ();
+        obj.set_string_member ("method", "launch");
+        obj.set_string_member ("prefix_id", prefix_id);
+        obj.set_string_member ("prefix_path", prefix_path);
+        obj.set_string_member ("wineserver", wineserver_path);
+        obj.set_string_member ("log_path", log_path);
+        obj.set_string_member ("cwd", work_dir);
+        obj.set_array_member ("env", strv_to_json_array (env));
+        obj.set_array_member ("argv", strv_to_json_array (argv));
+
+        var response = Cli.session_send_request (json_object_to_string (obj));
+        if (!Cli.response_ok (response))
+            throw new IOError.FAILED ("%s", Cli.response_error (response));
+
+        var parser = new Json.Parser ();
+        parser.load_from_data (response);
+        return (int) parser.get_root ().get_object ().get_int_member ("pid");
+    }
+
+    private Json.Array strv_to_json_array (string[] values) {
+        var array = new Json.Array ();
+        foreach (var value in values) {
+            array.add_string_element (value);
+        }
+        return array;
+    }
+
+    private string json_object_to_string (Json.Object obj) {
+        var node = new Json.Node (Json.NodeType.OBJECT);
+        node.set_object (obj);
+        var generator = new Json.Generator ();
+        generator.root = node;
+        return generator.to_data (null);
+    }
+
+    private string[] wine_env_to_strv (WineEnv env) {
+        var lines = new Gee.ArrayList<string> ();
+        foreach (var e in env.snapshot_vars ().entries) {
+            lines.add ("%s=%s".printf (e.key, e.value));
+        }
+        return Utils.arraylist_to_strv (lines);
+    }
+
     private RunResult spawn_wrapped_process (
         string executable_label,
         string work_dir,
         Gee.ArrayList<string> argv,
         WineEnv env,
-        RuntimeLog logger
+        RuntimeLog logger,
+        string prefix_id = "",
+        string prefix_path = "",
+        string wineserver_path = ""
     ) throws Error {
         var log_path = logger.log_path;
+
+        if (Utils.Preferences.instance ().session_manager) {
+            if (ensure_session_manager ()) {
+                logger.close ();
+                try {
+                    var pid = session_launch (
+                        prefix_id, prefix_path, wineserver_path,
+                        log_path, wine_env_to_strv (env), work_dir,
+                        Utils.arraylist_to_strv (argv)
+                    );
+                    var run_result = new RunResult ();
+                    run_result.pid = pid;
+                    run_result.executable = executable_label;
+                    run_result.log_path = log_path;
+                    return run_result;
+                } catch (Error e) {
+                    warning ("Session manager launch failed, falling back to direct fork: %s", e.message);
+                }
+            } else {
+                warning ("Session manager unavailable, falling back to direct fork");
+            }
+        }
         var env_pipe = new int[2];
         if (Posix.pipe (env_pipe) != 0) {
             throw new IOError.FAILED ("Failed to create wrapper environment pipe: %s", Posix.strerror (Posix.errno));

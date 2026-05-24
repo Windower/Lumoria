@@ -136,6 +136,9 @@ namespace Lumoria.Models {
         public Gee.HashMap<string, string> runtime_env_vars {
             get; owned set; default = new Gee.HashMap<string, string> ();
         }
+        public Gee.HashMap<string, string> runtime_dll_overrides {
+            get; owned set; default = new Gee.HashMap<string, string> ();
+        }
         public Gee.HashMap<string, RuntimeComponentOverride> runtime_component_overrides {
             get; owned set; default = new Gee.HashMap<string, RuntimeComponentOverride> ();
         }
@@ -285,6 +288,13 @@ namespace Lumoria.Models {
                 }
                 obj.set_object_member ("runtime_env_vars", env_obj);
             }
+            if (runtime_dll_overrides.size > 0) {
+                var dll_obj = new Json.Object ();
+                foreach (var dll in runtime_dll_overrides.entries) {
+                    dll_obj.set_string_member (dll.key, dll.value);
+                }
+                obj.set_object_member ("runtime_dll_overrides", dll_obj);
+            }
             if (dynamic_launcher_desktop_ids.size > 0) {
                 var shortcuts_obj = new Json.Object ();
                 foreach (var entry in dynamic_launcher_desktop_ids.entries) {
@@ -352,6 +362,7 @@ namespace Lumoria.Models {
             }
 
             e.runtime_env_vars = json_string_map (obj, "runtime_env_vars");
+            e.runtime_dll_overrides = json_string_map (obj, "runtime_dll_overrides");
             e.dynamic_launcher_desktop_ids = json_string_map (obj, "dynamic_launcher_desktop_ids");
             e.installed_redists = json_string_array (obj, "installed_redists");
 
