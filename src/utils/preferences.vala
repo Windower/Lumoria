@@ -50,7 +50,7 @@ namespace Lumoria.Utils {
         private string _wine_debug = "";
         private bool _large_address_aware = false;
         private bool _experimental_features = false;
-        private bool _gamepad_navigation = true;
+        private bool _gamepad_navigation = false;
 
         public bool updates_lumoria { get { return _updates_lumoria; } }
         public bool updates_runners { get { return _updates_runners; } }
@@ -256,7 +256,7 @@ namespace Lumoria.Utils {
             _large_address_aware = defaults.large_address_aware;
             _logging_mode = defaults.logging_mode;
             _experimental_features = false;
-            _gamepad_navigation = true;
+            _gamepad_navigation = false;
 
             component_versions.clear ();
             component_enabled.clear ();
@@ -459,8 +459,8 @@ namespace Lumoria.Utils {
         private void load_input (Json.Object obj) {
             if (!obj.has_member ("input")) return;
             var input_obj = obj.get_object_member ("input");
-            if (input_obj.has_member ("gamepad_navigation"))
-                _gamepad_navigation = input_obj.get_boolean_member ("gamepad_navigation");
+            if (input_obj.has_member ("gamepad_nav"))
+                _gamepad_navigation = input_obj.get_boolean_member ("gamepad_nav");
         }
 
         private void load_runtime (Json.Object obj) {
@@ -503,7 +503,7 @@ namespace Lumoria.Utils {
             obj.set_object_member ("patches", patches_obj);
 
             var input_obj = new Json.Object ();
-            input_obj.set_boolean_member ("gamepad_navigation", _gamepad_navigation);
+            input_obj.set_boolean_member ("gamepad_nav", _gamepad_navigation);
             obj.set_object_member ("input", input_obj);
 
             var runtime_obj = new Json.Object ();

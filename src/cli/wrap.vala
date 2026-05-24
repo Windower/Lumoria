@@ -59,7 +59,7 @@ namespace Lumoria.Cli {
         }
 
         redirect_stdio (log_path);
-        apply_working_directory (cwd);
+        var child_pwd = apply_working_directory (cwd);
 
         var cmd = new string[args.length - cmd_start + 1];
         for (int i = cmd_start; i < args.length; i++) {
@@ -75,6 +75,9 @@ namespace Lumoria.Cli {
 
         if (child_pid == 0) {
             apply_child_env (env_fd);
+            if (child_pwd != "") {
+                Environment.set_variable ("PWD", child_pwd, true);
+            }
             Posix.execvp (cmd[0], cmd);
             stdout.printf ("[lumoria-internal] exec failed: %s\n", Posix.strerror (Posix.errno));
             Posix._exit (127);
@@ -147,15 +150,16 @@ namespace Lumoria.Cli {
         Posix.close (pipe_fds[1]);
     }
 
-    private void apply_working_directory (string cwd) {
-        if (cwd == "") return;
+    private string apply_working_directory (string cwd) {
+        if (cwd == "") return "";
         if (Posix.chdir (cwd) == 0) {
             stdout.printf ("[wrap] cwd=%s\n", cwd);
             stdout.flush ();
-            return;
+            return Environment.get_current_dir ();
         }
         stdout.printf ("[wrap] cwd failed: %s: %s\n", cwd, Posix.strerror (Posix.errno));
         stdout.flush ();
+        return "";
     }
 
     private void relay_pipe_to_fd (int read_fd, int write_fd) {

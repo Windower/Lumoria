@@ -39,18 +39,31 @@ namespace Lumoria.Widgets.Services {
         private GamepadService () {
             devices = new Gee.ArrayList<Manette.Device> ();
             monitor = new Manette.Monitor ();
+            monitor.device_disconnected.connect (unbind_device);
 
+            Utils.Preferences.instance ().gamepad_navigation_changed.connect ((enabled) => {
+                if (enabled) connect_manette ();
+                else disconnect_manette ();
+            });
+
+            if (navigation_enabled ()) connect_manette ();
+        }
+
+        private void connect_manette () {
+            monitor.device_connected.connect (bind_device);
             var iter = monitor.iterate ();
             Manette.Device? dev;
             while (iter.next (out dev)) {
                 if (dev != null) bind_device (dev);
             }
+        }
 
-            monitor.device_connected.connect (bind_device);
-            monitor.device_disconnected.connect (unbind_device);
-            Utils.Preferences.instance ().gamepad_navigation_changed.connect ((enabled) => {
-                if (!enabled) reset_input_state ();
-            });
+        private void disconnect_manette () {
+            monitor.device_connected.disconnect (bind_device);
+            foreach (var device in devices.to_array ()) {
+                unbind_device (device);
+            }
+            reset_input_state ();
         }
 
         public static GamepadService instance () {
@@ -76,11 +89,6 @@ namespace Lumoria.Widgets.Services {
         }
 
         private void on_button_press (Manette.Event event) {
-            if (!navigation_enabled ()) {
-                reset_input_state ();
-                return;
-            }
-
             uint16 button;
             if (!event.get_button (out button)) return;
 
@@ -91,11 +99,6 @@ namespace Lumoria.Widgets.Services {
         }
 
         private void on_hat_axis (Manette.Event event) {
-            if (!navigation_enabled ()) {
-                reset_input_state ();
-                return;
-            }
-
             uint16 axis;
             int8 value;
             if (!event.get_hat (out axis, out value)) return;
@@ -123,11 +126,6 @@ namespace Lumoria.Widgets.Services {
         }
 
         private void on_absolute_axis (Manette.Event event) {
-            if (!navigation_enabled ()) {
-                reset_input_state ();
-                return;
-            }
-
             uint16 axis;
             double value;
             if (!event.get_absolute (out axis, out value)) return;

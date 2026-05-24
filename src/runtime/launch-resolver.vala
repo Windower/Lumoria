@@ -64,6 +64,28 @@ namespace Lumoria.Runtime {
         return "win64";
     }
 
+    private class LaunchContext : Object {
+        public string pfx_path = "";
+        public Models.InstallerSpec installer_spec;
+        public Models.LauncherSpec? launcher;
+        public Models.PostInstallSpec? post_install;
+        public Gee.HashMap<string, string> vars;
+    }
+
+    private LaunchContext make_launch_context (
+        Models.PrefixEntry entry,
+        Gee.ArrayList<Models.LauncherSpec>? launcher_specs
+    ) {
+        var ctx = new LaunchContext ();
+        ctx.pfx_path = install_prefix_path (entry.path);
+        ctx.installer_spec = Models.InstallerSpec.load_from_resource ();
+        var specs = launcher_specs ?? Models.LauncherSpec.load_all_from_resource ();
+        ctx.launcher = entry.launcher_id != "" ? find_launcher_by_id (specs, entry.launcher_id) : null;
+        ctx.post_install = load_prefix_post_install_spec (entry);
+        ctx.vars = build_launch_vars (ctx.pfx_path, entry, ctx.installer_spec, ctx.launcher, ctx.post_install);
+        return ctx;
+    }
+
     public void resolve_launcher_exe (
         Models.PrefixEntry entry,
         Gee.ArrayList<Models.LauncherSpec> launcher_specs,
@@ -74,11 +96,7 @@ namespace Lumoria.Runtime {
         exe = DEFAULT_EXE;
         args = {};
 
-        var pfx_path = install_prefix_path (entry.path);
-        var installer_spec = Models.InstallerSpec.load_from_resource ();
-        var launcher = entry.launcher_id != ""
-            ? find_launcher_by_id (launcher_specs, entry.launcher_id) : null;
-        var installer_vars = build_launch_vars (pfx_path, entry, installer_spec, launcher, null);
+        var ctx = make_launch_context (entry, launcher_specs);
 
         if (entrypoint_id != "") {
             foreach (var custom_ep in entry.custom_entrypoints) {
@@ -93,7 +111,7 @@ namespace Lumoria.Runtime {
             if (wname != null && entry.launcher_id == "windower4") {
                 var wlauncher = find_launcher_by_id (launcher_specs, "windower4");
                 if (wlauncher != null) {
-                    var wvars = build_launch_vars (pfx_path, entry, installer_spec, wlauncher, null);
+                    var wvars = build_launch_vars (ctx.pfx_path, entry, ctx.installer_spec, wlauncher, null);
                     var wep = find_entrypoint (wlauncher.entrypoints, "");
                     if (wep != null) {
                         apply_entrypoint (wep, wvars, out exe, out args);
@@ -107,43 +125,19 @@ namespace Lumoria.Runtime {
                 }
             }
 
-            Models.Entrypoint? installer_ep = null;
-            foreach (var ep in installer_spec.entrypoints) {
-                if (ep.id == entrypoint_id) { installer_ep = ep; break; }
-            }
-            if (installer_ep != null) {
-                apply_entrypoint (installer_ep, installer_vars, out exe, out args);
+            var ep = find_launch_entrypoint (entry, ctx, entrypoint_id);
+            if (ep != null) {
+                apply_entrypoint (ep, ctx.vars, out exe, out args);
                 return;
             }
-
-            var post_install = load_prefix_post_install_spec (entry);
-            if (post_install != null) {
-                foreach (var ep in post_install.entrypoints) {
-                    if (ep.id == entrypoint_id) {
-                        var pvars = build_launch_vars (pfx_path, entry, installer_spec, launcher, post_install);
-                        apply_entrypoint (ep, pvars, out exe, out args);
-                        return;
-                    }
-                }
-            }
         }
 
-        if (launcher == null) return;
+        if (ctx.launcher == null) return;
 
-        var vars = build_launch_vars (pfx_path, entry, installer_spec, launcher, null);
-
-        Models.Entrypoint? ep = null;
-        if (entrypoint_id != "") {
-            foreach (var candidate in launcher.entrypoints) {
-                if (candidate.id == entrypoint_id) { ep = candidate; break; }
-            }
-        }
-        if (ep == null) {
-            ep = find_entrypoint (launcher.entrypoints, "");
-        }
+        var ep = find_entrypoint (ctx.launcher.entrypoints, "");
         if (ep == null) return;
 
-        apply_entrypoint (ep, vars, out exe, out args);
+        apply_entrypoint (ep, ctx.vars, out exe, out args);
     }
 
     public void apply_launch_env (
@@ -152,21 +146,15 @@ namespace Lumoria.Runtime {
         string entrypoint_id,
         WineEnv env
     ) {
-        var pfx_path = install_prefix_path (entry.path);
-        var installer_spec = Models.InstallerSpec.load_from_resource ();
-        var specs = launcher_specs ?? Models.LauncherSpec.load_all_from_resource ();
-        var launcher = entry.launcher_id != ""
-            ? find_launcher_by_id (specs, entry.launcher_id) : null;
-        var post_install = load_prefix_post_install_spec (entry);
-        var vars = build_launch_vars (pfx_path, entry, installer_spec, launcher, post_install);
+        var ctx = make_launch_context (entry, launcher_specs);
 
-        apply_env_rules (env, installer_spec.env, vars);
-        if (launcher != null) apply_env_rules (env, launcher.env, vars);
-        if (post_install != null) apply_env_rules (env, post_install.env, vars);
+        apply_env_rules (env, ctx.installer_spec.env, ctx.vars);
+        if (ctx.launcher != null) apply_env_rules (env, ctx.launcher.env, ctx.vars);
+        if (ctx.post_install != null) apply_env_rules (env, ctx.post_install.env, ctx.vars);
 
         if (entrypoint_id == "") return;
-        var ep = find_launch_entrypoint (entry, installer_spec, launcher, post_install, entrypoint_id);
-        if (ep != null) apply_env_rules (env, ep.env, vars);
+        var ep = find_launch_entrypoint (entry, ctx, entrypoint_id);
+        if (ep != null) apply_env_rules (env, ep.env, ctx.vars);
     }
 
     public Models.Entrypoint? resolve_launch_entrypoint (
@@ -175,35 +163,29 @@ namespace Lumoria.Runtime {
         string entrypoint_id
     ) {
         if (entrypoint_id == "") return null;
-        var installer_spec = Models.InstallerSpec.load_from_resource ();
-        var specs = launcher_specs ?? Models.LauncherSpec.load_all_from_resource ();
-        var launcher = entry.launcher_id != ""
-            ? find_launcher_by_id (specs, entry.launcher_id) : null;
-        var post_install = load_prefix_post_install_spec (entry);
-        return find_launch_entrypoint (entry, installer_spec, launcher, post_install, entrypoint_id);
+        var ctx = make_launch_context (entry, launcher_specs);
+        return find_launch_entrypoint (entry, ctx, entrypoint_id);
     }
 
     private Models.Entrypoint? find_launch_entrypoint (
         Models.PrefixEntry entry,
-        Models.InstallerSpec installer_spec,
-        Models.LauncherSpec? launcher,
-        Models.PostInstallSpec? post_install,
+        LaunchContext ctx,
         string entrypoint_id
     ) {
         foreach (var ep in entry.custom_entrypoints) {
             if (ep.id == entrypoint_id) return ep;
         }
-        foreach (var ep in installer_spec.entrypoints) {
-            if (ep.id == entrypoint_id) return ep;
+        foreach (var ep in ctx.installer_spec.entrypoints) {
+            if (ep.id == entrypoint_id && (ep.when == null || ep.when.evaluate (ctx.vars))) return ep;
         }
-        if (launcher != null) {
-            foreach (var ep in launcher.entrypoints) {
-                if (ep.id == entrypoint_id) return ep;
+        if (ctx.launcher != null) {
+            foreach (var ep in ctx.launcher.entrypoints) {
+                if (ep.id == entrypoint_id && (ep.when == null || ep.when.evaluate (ctx.vars))) return ep;
             }
         }
-        if (post_install != null) {
-            foreach (var ep in post_install.entrypoints) {
-                if (ep.id == entrypoint_id) return ep;
+        if (ctx.post_install != null) {
+            foreach (var ep in ctx.post_install.entrypoints) {
+                if (ep.id == entrypoint_id && (ep.when == null || ep.when.evaluate (ctx.vars))) return ep;
             }
         }
         return null;
@@ -222,27 +204,14 @@ namespace Lumoria.Runtime {
         Gee.ArrayList<Models.Entrypoint> custom_list
     ) {
         var all = new Gee.ArrayList<Models.Entrypoint> ();
-        var pfx_path = install_prefix_path (entry.path);
+        var ctx = make_launch_context (entry, launcher_specs);
+        var base_vars = build_launch_vars (ctx.pfx_path, entry, ctx.installer_spec, ctx.launcher, null);
 
-        var installer_spec = Models.InstallerSpec.load_from_resource ();
-        var launcher = entry.launcher_id != ""
-            ? find_launcher_by_id (launcher_specs, entry.launcher_id) : null;
-        var base_vars = build_launch_vars (pfx_path, entry, installer_spec, launcher, null);
-        expand_entrypoints (all, installer_spec.entrypoints, base_vars);
+        expand_entrypoints (all, ctx.installer_spec.entrypoints, base_vars);
+        if (ctx.launcher != null) expand_entrypoints (all, ctx.launcher.entrypoints, base_vars);
+        if (ctx.post_install != null) expand_entrypoints (all, ctx.post_install.entrypoints, ctx.vars);
 
-        if (launcher != null) {
-            expand_entrypoints (all, launcher.entrypoints, base_vars);
-        }
-
-        var post_install = load_prefix_post_install_spec (entry);
-        if (post_install != null) {
-            var pvars = build_launch_vars (pfx_path, entry, installer_spec, launcher, post_install);
-            expand_entrypoints (all, post_install.entrypoints, pvars);
-        }
-
-        foreach (var ep in custom_list) {
-            all.add (ep);
-        }
+        foreach (var ep in custom_list) all.add (ep);
 
         return all;
     }
