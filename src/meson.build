@@ -28,6 +28,7 @@ lumoria_sources = files(
   'utils/archive.vala',
   'utils/disk-usage.vala',
   'utils/storage-cache.vala',
+  'utils/process-tree.vala',
 
   'runtime/runner-download.vala',
   'runtime/logging.vala',
@@ -39,6 +40,7 @@ lumoria_sources = files(
   'runtime/launch-resolver.vala',
   'runtime/windower4-settings.vala',
   'runtime/components.vala',
+  'runtime/dxvk-config.vala',
 
   'widgets/application.vala',
   'widgets/prefix-row-widget.vala',
@@ -47,6 +49,8 @@ lumoria_sources = files(
   'widgets/services/dynamic-launcher-service.vala',
   'widgets/services/gamepad-service.vala',
   'widgets/services/gamepad-list-navigator.vala',
+  'widgets/services/monitor-service.vala',
+  'widgets/services/session-manager-service.vala',
   'widgets/icon-registry.vala',
   'widgets/settings-shared.vala',
   'widgets/window.vala',
@@ -58,6 +62,7 @@ lumoria_sources = files(
   'widgets/dialogs/preferences-dialog.vala',
   'widgets/dialogs/install-dialog.vala',
   'widgets/dialogs/terminal-dialog.vala',
+  'widgets/dialogs/session-manager-dialog.vala',
 
   'widgets/preferences/general-page.vala',
   'widgets/preferences/runtime-page.vala',

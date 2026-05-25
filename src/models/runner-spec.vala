@@ -154,6 +154,7 @@ namespace Lumoria.Models {
                 base_variant.binary_kind = "wow64";
                 base_variant.sandbox_supported = sandbox_supported;
                 base_variant.paths = paths;
+                copy_unique_strings (features, base_variant.features);
                 if (!sandboxed || variant_supported_in_sandbox (base_variant)) {
                     result.add (base_variant);
                 }
@@ -236,12 +237,29 @@ namespace Lumoria.Models {
             m.binary_kind = v.binary_kind;
             m.sandbox_supported = sandbox_supported && v.sandbox_supported;
             m.paths = v.paths.is_empty () ? paths : v.paths;
+            copy_unique_strings (features, m.features);
+            copy_unique_strings (v.features, m.features);
             return m;
         }
 
         private static void copy_strings (Gee.ArrayList<string> source, Gee.ArrayList<string> target) {
             foreach (var value in source) {
                 target.add (value);
+            }
+        }
+
+        private static void copy_unique_strings (Gee.ArrayList<string> source, Gee.ArrayList<string> target) {
+            foreach (var value in source) {
+                var normalized = value.strip ();
+                if (normalized == "") continue;
+                bool exists = false;
+                foreach (var current in target) {
+                    if (current.strip () == normalized) {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (!exists) target.add (normalized);
             }
         }
 

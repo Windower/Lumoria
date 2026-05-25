@@ -77,7 +77,7 @@ namespace Lumoria.Runtime {
         Gee.ArrayList<Models.LauncherSpec>? launcher_specs
     ) {
         var ctx = new LaunchContext ();
-        ctx.pfx_path = install_prefix_path (entry.path);
+        ctx.pfx_path = install_prefix_path (entry.resolved_path ());
         ctx.installer_spec = Models.InstallerSpec.load_from_resource ();
         var specs = launcher_specs ?? Models.LauncherSpec.load_all_from_resource ();
         ctx.launcher = entry.launcher_id != "" ? find_launcher_by_id (specs, entry.launcher_id) : null;

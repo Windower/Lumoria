@@ -37,6 +37,7 @@ namespace Lumoria.Utils {
         private bool _dirty = false;
 
         public signal void gamepad_navigation_changed (bool enabled);
+        public signal void session_manager_changed (bool enabled);
 
         public string runner_id { get; private set; default = ""; }
         public string runner_version { get; private set; default = "latest"; }
@@ -139,8 +140,10 @@ namespace Lumoria.Utils {
         }
 
         public void set_session_manager (bool enabled) {
+            if (_session_manager == enabled) return;
             _session_manager = enabled;
             save ();
+            session_manager_changed (enabled);
         }
 
         public void set_gamepad_navigation (bool enabled) {
@@ -274,6 +277,8 @@ namespace Lumoria.Utils {
             }
 
             save ();
+            session_manager_changed (false);
+            gamepad_navigation_changed (false);
         }
 
         public static string resolve_version (string prefix_runner_id, string version) {

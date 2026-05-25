@@ -140,6 +140,7 @@ namespace Lumoria.Models {
         public string name { get; set; default = ""; }
         public string label { get; set; default = ""; }
         public Gee.ArrayList<string> skip_versions { get; owned set; default = new Gee.ArrayList<string> (); }
+        public Gee.ArrayList<string> features { get; owned set; default = new Gee.ArrayList<string> (); }
 
         public string display_label () {
             if (label != "") return label;
@@ -156,11 +157,21 @@ namespace Lumoria.Models {
             return false;
         }
 
+        public bool supports_feature (string feature) {
+            var normalized = feature.strip ();
+            if (normalized == "") return false;
+            foreach (var f in features) {
+                if (f.strip () == normalized) return true;
+            }
+            return false;
+        }
+
         protected void parse_base (Json.Object obj) {
             id = json_string (obj, "id");
             name = json_string (obj, "name");
             label = json_string (obj, "label");
             skip_versions = json_string_array (obj, "skip_versions");
+            features = json_string_array (obj, "features");
         }
     }
 

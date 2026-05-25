@@ -501,7 +501,9 @@ namespace Lumoria.Widgets {
             bool deleted_files,
             owned PrefixRemoveCallback on_confirm
         ) {
-            Utils.StorageCache.instance ().invalidate (Utils.StorageCategory.PREFIXES);
+            var cache = Utils.StorageCache.instance ();
+            cache.invalidate (Utils.StorageCategory.PREFIXES);
+            cache.invalidate (Utils.StorageCategory.APP_DATA);
             on_confirm (deleted_files);
             removing_dialog.can_close = true;
             removing_dialog.close ();

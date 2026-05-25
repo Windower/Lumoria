@@ -3,6 +3,9 @@
   "name": "Proton-CachyOS",
   "wine_arch": "win64",
   "sandbox_supported": false,
+  "features": [
+    "wayland-primary-monitor"
+  ],
   "github_repo": "CachyOS/proton-cachyos",
   "version_dir": "cachyos-(.+)",
   "asset_regex": "proton-cachyos-.*-x86_64\\.tar\\.xz$",

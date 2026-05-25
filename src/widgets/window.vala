@@ -10,6 +10,7 @@ namespace Lumoria.Widgets {
         private Adw.StatusPage empty_page;
         private Gtk.Button add_prefix_btn;
         private Gtk.Button preferences_btn;
+        private Gtk.Button session_manager_btn;
         private Gtk.Button close_btn;
         private Gtk.Button global_play_btn;
 
@@ -51,9 +52,11 @@ namespace Lumoria.Widgets {
             gamepad = Services.GamepadService.instance ();
             gamepad.action_pressed.connect (on_gamepad_action);
             Utils.Preferences.instance ().gamepad_navigation_changed.connect (on_gamepad_navigation_changed);
+            Utils.Preferences.instance ().session_manager_changed.connect (on_session_manager_changed);
             close_request.connect (() => on_close_request ());
 
             build_ui ();
+            update_session_manager_btn_visibility ();
             refresh_list ();
             Idle.add (() => {
                 if (Utils.Preferences.instance ().gamepad_navigation) {
@@ -66,7 +69,8 @@ namespace Lumoria.Widgets {
         private Adw.ToolbarView build_window_toolbar (
             out Adw.HeaderBar header,
             out Gtk.Button out_close_btn,
-            out Gtk.Button out_prefs_btn
+            out Gtk.Button out_prefs_btn,
+            out Gtk.Button out_session_manager_btn
         ) {
             var toolbar = new Adw.ToolbarView ();
             header = new Adw.HeaderBar ();
@@ -86,6 +90,12 @@ namespace Lumoria.Widgets {
             out_prefs_btn.clicked.connect (() => show_preferences ());
             header.pack_end (out_prefs_btn);
 
+            out_session_manager_btn = new Gtk.Button.from_icon_name (IconRegistry.SESSIONS);
+            out_session_manager_btn.tooltip_text = _("Session Manager");
+            out_session_manager_btn.focusable = true;
+            out_session_manager_btn.clicked.connect (() => show_session_manager ());
+            header.pack_end (out_session_manager_btn);
+
             toolbar.add_top_bar (header);
             return toolbar;
         }
@@ -94,9 +104,16 @@ namespace Lumoria.Widgets {
             Adw.HeaderBar main_header;
             Gtk.Button _close_btn;
             Gtk.Button _prefs_btn;
-            var main_toolbar = build_window_toolbar (out main_header, out _close_btn, out _prefs_btn);
+            Gtk.Button _session_manager_btn;
+            var main_toolbar = build_window_toolbar (
+                out main_header,
+                out _close_btn,
+                out _prefs_btn,
+                out _session_manager_btn
+            );
             close_btn = _close_btn;
             preferences_btn = _prefs_btn;
+            session_manager_btn = _session_manager_btn;
 
             add_prefix_btn = new Gtk.Button.from_icon_name (IconRegistry.ADD);
             add_prefix_btn.tooltip_text = _("Add new prefix");
@@ -149,7 +166,13 @@ namespace Lumoria.Widgets {
             Adw.HeaderBar empty_header;
             Gtk.Button empty_close;
             Gtk.Button empty_prefs;
-            var empty_toolbar = build_window_toolbar (out empty_header, out empty_close, out empty_prefs);
+            Gtk.Button empty_session_manager;
+            var empty_toolbar = build_window_toolbar (
+                out empty_header,
+                out empty_close,
+                out empty_prefs,
+                out empty_session_manager
+            );
             empty_toolbar.content = empty_page;
 
             root_stack = new Gtk.Stack ();
@@ -294,7 +317,9 @@ namespace Lumoria.Widgets {
             track_dialog (dialog);
             dialog.prefix_created.connect ((prefix_id) => {
                 expand_prefix_id_on_refresh = prefix_id;
-                Utils.StorageCache.instance ().invalidate (Utils.StorageCategory.PREFIXES);
+                var cache = Utils.StorageCache.instance ();
+                cache.invalidate (Utils.StorageCategory.PREFIXES);
+                cache.invalidate (Utils.StorageCategory.APP_DATA);
                 save_and_refresh ();
             });
             dialog.present (this);
@@ -561,6 +586,22 @@ namespace Lumoria.Widgets {
             var dialog = new Dialogs.PreferencesDialog (this, runner_specs, registry);
             track_dialog (dialog);
             dialog.present (this);
+        }
+
+        public void show_session_manager () {
+            if (!Utils.Preferences.instance ().session_manager) return;
+            var dialog = new Dialogs.SessionManagerDialog (registry);
+            track_dialog (dialog);
+            dialog.present (this);
+        }
+
+        private void update_session_manager_btn_visibility () {
+            if (session_manager_btn == null) return;
+            session_manager_btn.visible = Utils.Preferences.instance ().session_manager;
+        }
+
+        private void on_session_manager_changed (bool enabled) {
+            update_session_manager_btn_visibility ();
         }
 
         private void on_gamepad_action (Services.GamepadAction action) {
@@ -856,6 +897,11 @@ namespace Lumoria.Widgets {
                 }
                 if (preferences_btn != null && preferences_btn.get_visible () && preferences_btn.sensitive) {
                     add_target_if_missing (targets, preferences_btn);
+                }
+                if (session_manager_btn != null
+                    && session_manager_btn.get_visible ()
+                    && session_manager_btn.sensitive) {
+                    add_target_if_missing (targets, session_manager_btn);
                 }
             }
 

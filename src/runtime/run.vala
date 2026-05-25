@@ -1,6 +1,7 @@
 namespace Lumoria.Runtime {
     private const int WRAP_ENV_FD = 3;
     private const int WRAP_FD_SCAN_LIMIT = 1024;
+    private const string FEATURE_WAYLAND_PRIMARY_MONITOR = "wayland-primary-monitor";
 
     public class RunResult : Object {
         public int pid { get; set; default = 0; }
@@ -10,7 +11,7 @@ namespace Lumoria.Runtime {
     }
 
     private void require_prefix_path (Models.PrefixEntry entry) throws Error {
-        if (entry.path == "")
+        if (entry.resolved_path () == "")
             throw new IOError.FAILED ("Prefix path is required");
     }
 
@@ -27,7 +28,7 @@ namespace Lumoria.Runtime {
         require_prefix_path (entry);
 
         var session_id = generate_session_id ();
-        var logger = RuntimeLog.for_run (entry.path, session_id);
+        var logger = RuntimeLog.for_run (entry.resolved_path (), session_id);
 
         var active_entrypoint_id = entrypoint_id;
         if (active_entrypoint_id == "") {
@@ -60,7 +61,9 @@ namespace Lumoria.Runtime {
         );
         apply_launch_env (entry, launcher_specs, custom_exe != "" ? "" : active_entrypoint_id, ctx.env);
         apply_entrypoint_runtime_overrides (active_entrypoint, ctx.env, logger);
+        apply_wayland_primary_monitor (entry, runner_specs, ctx.env, logger);
         apply_runtime_logging_policy (ctx.env);
+        apply_dxvk_config (entry.resolved_path (), entry, active_entrypoint, ctx.env, logger);
 
         var host_exe = resolve_host_path (exe, ctx.prefix_path);
         var wine_path = to_wine_path (ctx.prefix_path, host_exe);
@@ -119,7 +122,7 @@ namespace Lumoria.Runtime {
         require_prefix_path (entry);
 
         var session_id = generate_session_id ();
-        var logger = RuntimeLog.for_run (entry.path, session_id);
+        var logger = RuntimeLog.for_run (entry.resolved_path (), session_id);
         var ctx = prepare_runtime_context (
             entry,
             runner_specs,
@@ -139,7 +142,7 @@ namespace Lumoria.Runtime {
 
         var work_dir = ctx.prefix_path;
         if (!FileUtils.test (work_dir, FileTest.IS_DIR)) {
-            work_dir = entry.path;
+            work_dir = entry.resolved_path ();
         }
 
         return spawn_wrapped_process (
@@ -160,7 +163,7 @@ namespace Lumoria.Runtime {
         require_prefix_path (entry);
 
         var session_id = generate_session_id ();
-        var logger = RuntimeLog.for_run (entry.path, session_id);
+        var logger = RuntimeLog.for_run (entry.resolved_path (), session_id);
         var ctx = prepare_runtime_context (entry, runner_specs, false, logger, null);
         apply_launch_env (entry, null, "", ctx.env);
         apply_runtime_logging_policy (ctx.env);
@@ -178,7 +181,7 @@ namespace Lumoria.Runtime {
         require_prefix_path (entry);
 
         var session_id = generate_session_id ();
-        var logger = RuntimeLog.for_run (entry.path, session_id);
+        var logger = RuntimeLog.for_run (entry.resolved_path (), session_id);
         var ctx = prepare_runtime_context (entry, runner_specs, true, logger, null);
         shutdown_wineserver (ctx.paths, ctx.env, logger);
     }
@@ -215,7 +218,7 @@ namespace Lumoria.Runtime {
         var runner_spec = resolve_runner_spec_for_entry (entry, runner_specs);
         var runtime = prepare_wine_runtime (
             runner_spec, entry.variant_id, entry.runner_version,
-            entry.path, entry.wine_arch,
+            entry.resolved_path (), entry.wine_arch,
             entry.sync_mode, entry.wine_debug, entry.wine_wayland,
             entry.large_address_aware,
             null, null, logger,
@@ -247,6 +250,27 @@ namespace Lumoria.Runtime {
         apply_env_overrides (runtime.env, entry.runtime_env_vars);
         apply_runtime_logging_policy (runtime.env);
         return runtime;
+    }
+
+    private void apply_wayland_primary_monitor (
+        Models.PrefixEntry entry,
+        Gee.ArrayList<Models.RunnerSpec> runner_specs,
+        WineEnv env,
+        RuntimeLog logger
+    ) {
+        var connector = entry.wayland_primary_monitor.strip ();
+        if (connector == "") return;
+
+        try {
+            var runner = resolve_runner_spec_for_entry (entry, runner_specs);
+            var variant = runner.effective_variant (entry.variant_id);
+            if (!variant.supports_feature (FEATURE_WAYLAND_PRIMARY_MONITOR)) return;
+
+            env.set_var ("WAYLANDDRV_PRIMARY_MONITOR", connector);
+            logger.typed (LogType.DEBUG, "applied Wayland primary monitor: %s".printf (connector));
+        } catch (Error e) {
+            logger.typed (LogType.WARN, "Failed to resolve Wayland primary monitor support: %s".printf (e.message));
+        }
     }
 
     private void apply_prefix_runtime_dll_overrides (
@@ -316,7 +340,7 @@ namespace Lumoria.Runtime {
         logger.emit_line ("OS: %s\n".printf (os_line));
         logger.emit_line ("Kernel: %s %s (%s)\n".printf (uts.sysname, uts.release, uts.machine));
         logger.emit_line ("Started: %s\n".printf (now.format ("%F %T")));
-        logger.emit_line ("Prefix: %s\n".printf (entry.path));
+        logger.emit_line ("Prefix: %s\n".printf (entry.resolved_path ()));
         logger.emit_line ("Context: gamescope=%s sandbox=%s\n".printf (
             Utils.EnvironmentInfo.is_gamescope () ? "yes" : "no",
             sandbox_kind

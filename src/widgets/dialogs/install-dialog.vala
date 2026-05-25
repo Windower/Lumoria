@@ -342,7 +342,9 @@ namespace Lumoria.Widgets.Dialogs {
                 cache_dialog.response.connect ((response) => {
                     if (response == "remove") {
                         Utils.remove_recursive (Utils.cache_dir ());
-                        Utils.StorageCache.instance ().invalidate_all_cache ();
+                        var cache = Utils.StorageCache.instance ();
+                        cache.invalidate_all_cache ();
+                        cache.invalidate (Utils.StorageCategory.APP_DATA);
                     }
                     close ();
                 });

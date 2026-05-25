@@ -12,6 +12,7 @@ namespace Lumoria.Widgets {
         public const string PASTE = "edit-paste-symbolic";
         public const string REFRESH = "view-refresh-symbolic";
         public const string CLOSE = "window-close-symbolic";
+        public const string SESSIONS = "view-list-symbolic";
         public const string MANAGE = "preferences-system-symbolic";
         public const string TOOLS = "applications-engineering-symbolic";
         public const string INFO = "dialog-information-symbolic";

@@ -18,9 +18,18 @@ namespace Lumoria.Widgets.Dialogs {
         private OptionListRow sync_combo;
         private OptionListRow debug_combo;
         private OptionListRow wayland_combo;
+        private OptionListRow wayland_monitor_combo;
         private OptionListRow laa_combo;
+        private Adw.SwitchRow advanced_dxvk_row;
+        private Gtk.Box dxvk_config_box;
+        private Adw.SwitchRow dxvk_show_fps_row;
+        private Adw.EntryRow dxvk_anisotropy_row;
+        private Adw.EntryRow dxvk_max_frame_rate_row;
+        private Adw.EntryRow dxvk_sync_interval_row;
+        private Gtk.TextBuffer dxvk_custom_buffer;
 
         private Gee.ArrayList<Models.RunnerVariant> visible_variants;
+        private Gee.ArrayList<string> wayland_monitor_values;
         private Gee.HashMap<string, OptionListRow> component_mode_rows;
         private OptionListRow entrypoint_combo;
         private Gee.ArrayList<string> entrypoint_values;
@@ -80,6 +89,7 @@ namespace Lumoria.Widgets.Dialogs {
                 ? registry.prefixes[prefix_index].runner_version
                 : "default";
             visible_variants = new Gee.ArrayList<Models.RunnerVariant> ();
+            wayland_monitor_values = new Gee.ArrayList<string> ();
             component_mode_rows = new Gee.HashMap<string, OptionListRow> ();
             entrypoint_values = new Gee.ArrayList<string> ();
             shortcut_service = new Services.DynamicLauncherService ();
@@ -258,6 +268,11 @@ namespace Lumoria.Widgets.Dialogs {
             wayland_combo = RunnerSettingsShared.build_wayland_combo (entry.wine_wayland);
             runner_opts_group.add (wayland_combo);
 
+            wayland_monitor_combo = new OptionListRow ();
+            wayland_monitor_combo.title = _("Primary Wayland Monitor");
+            runner_opts_group.add (wayland_monitor_combo);
+            rebuild_wayland_monitor_combo (entry.wayland_primary_monitor);
+
             runner_content.append (runner_opts_group);
 
             var component_specs = Models.ComponentSpec.load_all_from_resource ();
@@ -269,17 +284,109 @@ namespace Lumoria.Widgets.Dialogs {
                         ? entry.runtime_component_overrides[spec.id]
                         : new Models.RuntimeComponentOverride ();
 
-                    var default_label = Utils.Preferences.instance ().default_component_enabled (spec.id) ? _("enabled") : _("disabled");
+                    var default_label = Utils.Preferences.instance ().is_component_enabled (spec.id) ? _("enabled") : _("disabled");
                     var mode_row = SettingsShared.build_toggle_override_combo (
                         spec.display_label (),
                         override_entry.enabled,
                         default_label
                     );
+                    if (spec.id == "dxvk") {
+                        mode_row.notify["selected"].connect (() => {
+                            update_dxvk_config_visibility ();
+                        });
+                    }
                     component_mode_rows[spec.id] = mode_row;
                     comp_group.add (mode_row);
                 }
                 runner_content.append (comp_group);
             }
+
+            var dxvk_group = SettingsShared.build_group (_("DXVK Configuration"), 12, 12, 12);
+            dxvk_group.description = _("Leave fields blank to use DXVK defaults. Custom text is appended to the generated dxvk.conf.");
+
+            advanced_dxvk_row = new Adw.SwitchRow ();
+            advanced_dxvk_row.title = _("Advanced DXVK");
+            advanced_dxvk_row.subtitle = _("Write a managed dxvk.conf for this prefix when DXVK is active.");
+            advanced_dxvk_row.active = entry.advanced_dxvk;
+            advanced_dxvk_row.notify["active"].connect (() => {
+                update_dxvk_config_visibility ();
+            });
+            dxvk_group.add (advanced_dxvk_row);
+
+            dxvk_config_box = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
+            dxvk_config_box.margin_top = 6;
+
+            dxvk_show_fps_row = new Adw.SwitchRow ();
+            dxvk_show_fps_row.title = _("Show FPS");
+            dxvk_show_fps_row.active = entry.dxvk_show_fps;
+            dxvk_config_box.append (dxvk_show_fps_row);
+
+            var anisotropy_info_row = new Adw.ActionRow ();
+            anisotropy_info_row.title = _("Anisotropic Filtering");
+            anisotropy_info_row.subtitle = _("Overrides texture filtering for D3D9. Use 0 to disable forced filtering, or 1-16 to force that anisotropy level.");
+            anisotropy_info_row.activatable = false;
+            dxvk_config_box.append (anisotropy_info_row);
+
+            dxvk_anisotropy_row = new Adw.EntryRow ();
+            dxvk_anisotropy_row.title = _("d3d9.samplerAnisotropy");
+            dxvk_anisotropy_row.text = entry.dxvk_sampler_anisotropy;
+            dxvk_anisotropy_row.input_purpose = Gtk.InputPurpose.NUMBER;
+            dxvk_config_box.append (dxvk_anisotropy_row);
+
+            var max_frame_rate_info_row = new Adw.ActionRow ();
+            max_frame_rate_info_row.title = _("Frame Rate Limit");
+            max_frame_rate_info_row.subtitle = _("Limits presentation frame rate for D3D9. Use any integer; -1 disables DXVK's limiter.");
+            max_frame_rate_info_row.activatable = false;
+            dxvk_config_box.append (max_frame_rate_info_row);
+
+            dxvk_max_frame_rate_row = new Adw.EntryRow ();
+            dxvk_max_frame_rate_row.title = _("d3d9.maxFrameRate");
+            dxvk_max_frame_rate_row.text = entry.dxvk_max_frame_rate;
+            dxvk_max_frame_rate_row.input_purpose = Gtk.InputPurpose.NUMBER;
+            dxvk_config_box.append (dxvk_max_frame_rate_row);
+
+            var sync_interval_info_row = new Adw.ActionRow ();
+            sync_interval_info_row.title = _("Vsync Interval");
+            sync_interval_info_row.subtitle = _("Overrides presentation sync interval for D3D9. Use 0 to disable Vsync, or a positive number to repeat frames.");
+            sync_interval_info_row.activatable = false;
+            dxvk_config_box.append (sync_interval_info_row);
+
+            dxvk_sync_interval_row = new Adw.EntryRow ();
+            dxvk_sync_interval_row.title = _("d3d9.presentInterval");
+            dxvk_sync_interval_row.text = entry.dxvk_sync_interval;
+            dxvk_sync_interval_row.input_purpose = Gtk.InputPurpose.NUMBER;
+            dxvk_config_box.append (dxvk_sync_interval_row);
+
+            var custom_label = new Gtk.Label (_("Custom"));
+            custom_label.xalign = 0f;
+            custom_label.add_css_class ("heading");
+            custom_label.margin_top = 12;
+            custom_label.margin_start = 12;
+            custom_label.margin_end = 12;
+            dxvk_config_box.append (custom_label);
+
+            dxvk_custom_buffer = new Gtk.TextBuffer (null);
+            dxvk_custom_buffer.set_text (entry.dxvk_config_custom, -1);
+            var dxvk_custom_view = new Gtk.TextView.with_buffer (dxvk_custom_buffer);
+            dxvk_custom_view.monospace = true;
+            dxvk_custom_view.wrap_mode = Gtk.WrapMode.WORD_CHAR;
+            dxvk_custom_view.top_margin = 8;
+            dxvk_custom_view.bottom_margin = 8;
+            dxvk_custom_view.left_margin = 8;
+            dxvk_custom_view.right_margin = 8;
+
+            var dxvk_custom_scroll = new Gtk.ScrolledWindow ();
+            dxvk_custom_scroll.child = dxvk_custom_view;
+            dxvk_custom_scroll.min_content_height = 120;
+            dxvk_custom_scroll.margin_start = 12;
+            dxvk_custom_scroll.margin_end = 12;
+            dxvk_custom_scroll.margin_bottom = 8;
+            dxvk_custom_scroll.add_css_class ("card");
+            dxvk_config_box.append (dxvk_custom_scroll);
+
+            dxvk_group.add (dxvk_config_box);
+            update_dxvk_config_visibility ();
+            runner_content.append (dxvk_group);
 
             SettingsShared.add_scrolled_settings_page (stack, runner_content, SettingsShared.PAGE_RUNNERS, _("Runner"));
 
@@ -449,12 +556,14 @@ namespace Lumoria.Widgets.Dialogs {
             selected_runner_version = "default";
             selected_runner_version_label = "";
             rebuild_variant_combo ();
+            rebuild_wayland_monitor_combo ();
             update_version_row ();
         }
 
         private void on_variant_changed () {
             selected_runner_version = "default";
             selected_runner_version_label = "";
+            rebuild_wayland_monitor_combo ();
             update_version_row ();
         }
 
@@ -504,6 +613,133 @@ namespace Lumoria.Widgets.Dialogs {
             latest_runner_warning.visible = RunnerSettingsShared.is_effective_latest (
                 selected_runner (), selected_runner_version
             );
+        }
+
+        private bool selected_runner_supports_feature (string feature) {
+            var variant = selected_variant ();
+            return variant != null && variant.supports_feature (feature);
+        }
+
+        private void rebuild_wayland_monitor_combo (string preselect = "") {
+            if (wayland_monitor_combo == null) return;
+
+            var supported = selected_runner_supports_feature ("wayland-primary-monitor");
+            wayland_monitor_combo.visible = supported;
+            wayland_monitor_combo.sensitive = supported;
+            wayland_monitor_values.clear ();
+
+            var model = new Gtk.StringList (null);
+            model.append (_("Default"));
+            wayland_monitor_values.add ("");
+
+            var monitors = Services.list_monitors ();
+            bool selected_found = preselect == "";
+            int selected_idx = 0;
+            var normalized_preselect = preselect.strip ();
+            foreach (var monitor in monitors) {
+                model.append (monitor.label);
+                wayland_monitor_values.add (monitor.connector);
+                if (normalized_preselect != "" && monitor.connector == normalized_preselect) {
+                    selected_found = true;
+                    selected_idx = wayland_monitor_values.size - 1;
+                }
+            }
+
+            if (!selected_found && normalized_preselect != "") {
+                model.append (_("%s (saved)").printf (normalized_preselect));
+                wayland_monitor_values.add (normalized_preselect);
+                selected_idx = wayland_monitor_values.size - 1;
+            }
+
+            wayland_monitor_combo.model = model;
+            wayland_monitor_combo.selected = (uint) selected_idx;
+        }
+
+        private string selected_wayland_monitor () {
+            if (wayland_monitor_combo == null || !wayland_monitor_combo.visible) return "";
+            var idx = (int) wayland_monitor_combo.selected;
+            if (idx < 0 || idx >= wayland_monitor_values.size) return "";
+            return wayland_monitor_values[idx].strip ();
+        }
+
+        private string dxvk_custom_text () {
+            Gtk.TextIter start;
+            Gtk.TextIter end;
+            dxvk_custom_buffer.get_bounds (out start, out end);
+            return dxvk_custom_buffer.get_text (start, end, false).strip ();
+        }
+
+        private void update_dxvk_config_visibility () {
+            if (advanced_dxvk_row == null) return;
+
+            var active = is_dxvk_active_in_dialog ();
+            advanced_dxvk_row.sensitive = active;
+            advanced_dxvk_row.subtitle = active
+                ? _("Write a managed dxvk.conf for this prefix when DXVK is active.")
+                : _("Enable DXVK in Runtime Components to configure dxvk.conf.");
+            if (!active && advanced_dxvk_row.active) {
+                advanced_dxvk_row.active = false;
+            }
+            if (dxvk_config_box != null) {
+                dxvk_config_box.visible = active && advanced_dxvk_row.active;
+            }
+        }
+
+        private bool is_dxvk_active_in_dialog () {
+            if (!component_mode_rows.has_key ("dxvk")) {
+                return Utils.Preferences.instance ().is_component_enabled ("dxvk");
+            }
+
+            var state = (ToggleOverrideState) component_mode_rows["dxvk"].selected;
+            switch (state) {
+                case ToggleOverrideState.ENABLED:
+                    return true;
+                case ToggleOverrideState.DISABLED:
+                    return false;
+                default:
+                    return Utils.Preferences.instance ().is_component_enabled ("dxvk");
+            }
+        }
+
+        private bool validate_dxvk_integer (
+            string value,
+            bool allow_negative,
+            string title,
+            out string message
+        ) {
+            var trimmed = value.strip ();
+            message = "";
+            if (trimmed == "") return true;
+
+            int parsed;
+            if (!int.try_parse (trimmed, out parsed)) {
+                message = _("%s must be Default or a whole number.").printf (title);
+                return false;
+            }
+            if (!allow_negative && parsed < 0) {
+                message = _("%s must be Default or a non-negative whole number.").printf (title);
+                return false;
+            }
+            return true;
+        }
+
+        private bool validate_dxvk_range (
+            string value,
+            int min,
+            int max,
+            string title,
+            out string message
+        ) {
+            var trimmed = value.strip ();
+            message = "";
+            if (trimmed == "") return true;
+
+            int parsed;
+            if (!int.try_parse (trimmed, out parsed) || parsed < min || parsed > max) {
+                message = _("%s must be Default or a whole number from %d to %d.").printf (title, min, max);
+                return false;
+            }
+            return true;
         }
 
         private void rebuild_custom_entries_ui () {
@@ -1037,6 +1273,19 @@ namespace Lumoria.Widgets.Dialogs {
                 SettingsShared.present_alert (this, _("Invalid Environment Variables"), env_error);
                 return;
             }
+            string dxvk_error;
+            if (!validate_dxvk_range (dxvk_anisotropy_row.text, 0, 16, _("Anisotropic Filtering"), out dxvk_error)) {
+                SettingsShared.present_alert (this, _("Invalid DXVK Configuration"), dxvk_error);
+                return;
+            }
+            if (!validate_dxvk_integer (dxvk_max_frame_rate_row.text, true, _("Frame Rate Limit"), out dxvk_error)) {
+                SettingsShared.present_alert (this, _("Invalid DXVK Configuration"), dxvk_error);
+                return;
+            }
+            if (!validate_dxvk_integer (dxvk_sync_interval_row.text, false, _("Vsync Interval"), out dxvk_error)) {
+                SettingsShared.present_alert (this, _("Invalid DXVK Configuration"), dxvk_error);
+                return;
+            }
             string dll_error;
             var parsed_dll_overrides = parse_dll_overrides (prefix_dll_row.text, out dll_error);
             if (parsed_dll_overrides == null) {
@@ -1067,6 +1316,9 @@ namespace Lumoria.Widgets.Dialogs {
 
             var wayland_override = RunnerSettingsShared.wayland_value_for_index (wayland_combo.selected);
             registry.prefixes[prefix_index].wine_wayland = wayland_override;
+            registry.prefixes[prefix_index].wayland_primary_monitor = selected_runner_supports_feature ("wayland-primary-monitor")
+                ? selected_wayland_monitor ()
+                : "";
             if (laa_combo != null) {
                 registry.prefixes[prefix_index].large_address_aware =
                     ((ToggleOverrideState) laa_combo.selected).to_nullable_bool ();
@@ -1077,6 +1329,16 @@ namespace Lumoria.Widgets.Dialogs {
             registry.prefixes[prefix_index].runtime_dll_overrides =
                 (Gee.HashMap<string, string>) parsed_dll_overrides;
             var pfx = registry.prefixes[prefix_index];
+            var dxvk_active = is_dxvk_active_in_dialog ();
+            pfx.advanced_dxvk = dxvk_active && advanced_dxvk_row.active;
+            pfx.dxvk_show_fps = dxvk_show_fps_row.active;
+            pfx.dxvk_sampler_anisotropy = dxvk_anisotropy_row.text.strip ();
+            pfx.dxvk_max_frame_rate = dxvk_max_frame_rate_row.text.strip ();
+            pfx.dxvk_sync_interval = dxvk_sync_interval_row.text.strip ();
+            pfx.dxvk_config_custom = dxvk_custom_text ();
+            if (!pfx.advanced_dxvk) {
+                Runtime.cleanup_managed_dxvk_config (pfx.resolved_path ());
+            }
             int ep_idx = (int) entrypoint_combo.selected;
             if (ep_idx < 0 || ep_idx >= entrypoint_values.size) ep_idx = 0;
             pfx.launch_entrypoint_id = entrypoint_values[ep_idx];
@@ -1127,9 +1389,17 @@ namespace Lumoria.Widgets.Dialogs {
                 entry.sync_mode = "";
                 entry.wine_debug = "";
                 entry.wine_wayland = null;
+                entry.wayland_primary_monitor = "";
                 entry.large_address_aware = null;
+                entry.advanced_dxvk = false;
+                entry.dxvk_show_fps = false;
+                entry.dxvk_sampler_anisotropy = "";
+                entry.dxvk_max_frame_rate = "";
+                entry.dxvk_sync_interval = "";
+                entry.dxvk_config_custom = "";
                 entry.runtime_env_vars.clear ();
                 entry.runtime_component_overrides.clear ();
+                Runtime.cleanup_managed_dxvk_config (entry.resolved_path ());
                 saved ();
                 close ();
             });

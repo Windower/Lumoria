@@ -167,12 +167,24 @@ namespace Lumoria.Widgets.Preferences {
                 case Utils.ToolKind.RUNNER:
                     cache.invalidate (Utils.StorageCategory.RUNNERS);
                     cache.invalidate (Utils.StorageCategory.CACHE_RUNNERS);
+                    if (is_inside_data_dir (Utils.runner_dir ())) {
+                        cache.invalidate (Utils.StorageCategory.APP_DATA);
+                    }
                     break;
                 case Utils.ToolKind.COMPONENT:
                     cache.invalidate (Utils.StorageCategory.COMPONENTS);
                     cache.invalidate (Utils.StorageCategory.CACHE_COMPONENTS);
+                    if (is_inside_data_dir (Utils.component_dir ())) {
+                        cache.invalidate (Utils.StorageCategory.APP_DATA);
+                    }
                     break;
             }
+        }
+
+        private static bool is_inside_data_dir (string path) {
+            var data_dir = Utils.normalize_dir_path (Utils.data_dir ());
+            var normalized = Utils.normalize_dir_path (path);
+            return normalized == data_dir || normalized.has_prefix (data_dir + "/");
         }
     }
 }

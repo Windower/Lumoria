@@ -10,6 +10,7 @@ int main (string[] args) {
             return Lumoria.Cli.cmd_wrap (args);
         }
         if (c == "session-manager") {
+            Lumoria.Utils.register_resources ();
             return Lumoria.Cli.cmd_session_manager (args);
         }
         if (c == "version" || c == "help" || c == "--help" || c == "-h" || c == "list" || c == "launch") {

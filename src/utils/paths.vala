@@ -19,6 +19,14 @@ namespace Lumoria.Utils {
         return Path.build_filename (Environment.get_user_data_dir (), "lumoria");
     }
 
+    public static string session_manager_log_dir () {
+        return Path.build_filename (data_dir (), "session", "logs");
+    }
+
+    public static string session_manager_log_path () {
+        return Path.build_filename (session_manager_log_dir (), "session-manager.log");
+    }
+
     public static string cache_dir () {
         return Path.build_filename (Environment.get_user_cache_dir (), "lumoria");
     }
@@ -58,7 +66,13 @@ namespace Lumoria.Utils {
 
     public static string? current_executable_path () {
         try {
-            return FileUtils.read_link ("/proc/self/exe");
+            var path = FileUtils.read_link ("/proc/self/exe");
+            var deleted_suffix = " (deleted)";
+            if (path.has_suffix (deleted_suffix)) {
+                var live_path = path.substring (0, path.length - deleted_suffix.length);
+                if (FileUtils.test (live_path, FileTest.EXISTS)) return live_path;
+            }
+            return path;
         } catch (FileError e) {
             warning ("Failed to resolve current executable path: %s", e.message);
             return null;

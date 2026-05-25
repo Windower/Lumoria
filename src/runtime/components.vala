@@ -127,6 +127,23 @@ namespace Lumoria.Runtime {
         return result;
     }
 
+    public bool is_dxvk_active (
+        Models.PrefixEntry? entry,
+        Models.Entrypoint? entrypoint = null
+    ) {
+        var defaults = Utils.Preferences.instance ();
+        foreach (var spec in Models.ComponentSpec.load_all_from_resource ()) {
+            if (spec.id != "dxvk") continue;
+            return is_component_active (
+                spec,
+                entry,
+                defaults,
+                entrypoint != null ? entrypoint.component_overrides : null
+            );
+        }
+        return false;
+    }
+
     private bool component_record_matches_arch (
         Models.ComponentSpec spec,
         Models.AppliedComponentRecord record,

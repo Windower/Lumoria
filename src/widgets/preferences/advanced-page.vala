@@ -28,7 +28,7 @@ namespace Lumoria.Widgets.Preferences {
             if (prefs.experimental_features) {
                 var session_manager_row = new Adw.SwitchRow ();
                 session_manager_row.title = _("Session Manager");
-                session_manager_row.subtitle = _("Keep game processes running after the app is closed. Uses D-Bus for process management.");
+                session_manager_row.subtitle = _("Keep game processes running after the app is closed. Uses a background service.");
                 session_manager_row.active = prefs.session_manager;
                 session_manager_row.notify["active"].connect (() => {
                     if (prefs.session_manager != session_manager_row.active) {

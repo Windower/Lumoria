@@ -126,10 +126,17 @@ namespace Lumoria.Models {
         public string wine_arch { get; set; default = ""; }
         public string wine_debug { get; set; default = ""; }
         public bool? wine_wayland = null;
+        public string wayland_primary_monitor { get; set; default = ""; }
         public bool? large_address_aware = null;
         public string sync_mode { get; set; default = ""; }
         public string region { get; set; default = "us"; }
         public string prelaunch_script { get; set; default = ""; }
+        public bool advanced_dxvk { get; set; default = false; }
+        public bool dxvk_show_fps { get; set; default = false; }
+        public string dxvk_sampler_anisotropy { get; set; default = ""; }
+        public string dxvk_max_frame_rate { get; set; default = ""; }
+        public string dxvk_sync_interval { get; set; default = ""; }
+        public string dxvk_config_custom { get; set; default = ""; }
         public Gee.ArrayList<Entrypoint> custom_entrypoints {
             get; owned set; default = new Gee.ArrayList<Entrypoint> ();
         }
@@ -237,10 +244,17 @@ namespace Lumoria.Models {
             if (wine_arch != "") obj.set_string_member ("wine_arch", wine_arch);
             if (wine_debug != "") obj.set_string_member ("wine_debug", wine_debug);
             if (wine_wayland != null) obj.set_boolean_member ("wine_wayland", (bool) wine_wayland);
+            if (wayland_primary_monitor != "") obj.set_string_member ("wayland_primary_monitor", wayland_primary_monitor);
             if (large_address_aware != null) obj.set_boolean_member ("large_address_aware", (bool) large_address_aware);
             if (sync_mode != "") obj.set_string_member ("sync_mode", sync_mode);
             if (region != "" && region != "us") obj.set_string_member ("region", region);
             if (prelaunch_script != "") obj.set_string_member ("prelaunch_script", prelaunch_script);
+            if (advanced_dxvk) obj.set_boolean_member ("advanced_dxvk", true);
+            if (dxvk_show_fps) obj.set_boolean_member ("dxvk_show_fps", true);
+            if (dxvk_sampler_anisotropy != "") obj.set_string_member ("dxvk_sampler_anisotropy", dxvk_sampler_anisotropy);
+            if (dxvk_max_frame_rate != "") obj.set_string_member ("dxvk_max_frame_rate", dxvk_max_frame_rate);
+            if (dxvk_sync_interval != "") obj.set_string_member ("dxvk_sync_interval", dxvk_sync_interval);
+            if (dxvk_config_custom != "") obj.set_string_member ("dxvk_config_custom", dxvk_config_custom);
             if (custom_entrypoints.size > 0) {
                 var ep_arr = new Json.Array ();
                 foreach (var ep in custom_entrypoints) {
@@ -349,10 +363,17 @@ namespace Lumoria.Models {
             e.wine_arch = json_string (obj, "wine_arch");
             e.wine_debug = json_string (obj, "wine_debug");
             e.wine_wayland = json_bool_nullable (obj, "wine_wayland");
+            e.wayland_primary_monitor = json_string (obj, "wayland_primary_monitor");
             e.large_address_aware = json_bool_nullable (obj, "large_address_aware");
             e.sync_mode = json_string (obj, "sync_mode");
             e.region = json_string (obj, "region", "us");
             e.prelaunch_script = json_string (obj, "prelaunch_script");
+            e.advanced_dxvk = json_bool (obj, "advanced_dxvk");
+            e.dxvk_show_fps = json_bool (obj, "dxvk_show_fps");
+            e.dxvk_sampler_anisotropy = json_string (obj, "dxvk_sampler_anisotropy");
+            e.dxvk_max_frame_rate = json_string (obj, "dxvk_max_frame_rate");
+            e.dxvk_sync_interval = json_string (obj, "dxvk_sync_interval");
+            e.dxvk_config_custom = json_string_or_lines (obj, "dxvk_config_custom");
 
             if (obj.has_member ("custom_entrypoints")) {
                 var ep_arr = obj.get_array_member ("custom_entrypoints");

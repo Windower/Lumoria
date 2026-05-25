@@ -8,15 +8,18 @@ namespace Lumoria.Widgets.Preferences {
 
         private SizeRow runners_row;
         private SizeRow components_row;
+        private SizeRow app_data_row;
         private SizeRow prefixes_row;
         private SizeRow total_row;
 
         private Gee.HashMap<Utils.StorageCategory, CacheClearRow> cache_rows;
+        private Gee.HashMap<string, SizeRow> prefix_rows;
 
         public StoragePage (Models.PrefixRegistry registry) {
             Object (orientation: Gtk.Orientation.VERTICAL, spacing: 0);
             this.registry = registry;
             cache_rows = new Gee.HashMap<Utils.StorageCategory, CacheClearRow> ();
+            prefix_rows = new Gee.HashMap<string, SizeRow> ();
             build_ui ();
 
             map.connect (on_mapped);
@@ -24,8 +27,17 @@ namespace Lumoria.Widgets.Preferences {
         }
 
         private void build_ui () {
-            var usage_group = SettingsShared.build_group (_("Disk Usage"));
-            usage_group.description = _("Storage used by Lumoria data and caches.");
+            var summary_group = SettingsShared.build_group (_("Storage Summary"));
+            summary_group.description = _("Total storage used by Lumoria data and caches.");
+
+            total_row = new SizeRow (_("Total Storage"));
+            total_row.add_css_class ("property");
+            summary_group.add (total_row);
+
+            append (summary_group);
+
+            var usage_group = SettingsShared.build_group (_("Installed Data"), 24, 12, 12);
+            usage_group.description = _("Storage used by installed runners, components, and Lumoria data.");
 
             runners_row = new SizeRow (_("Installed Runners"));
             usage_group.add (runners_row);
@@ -33,14 +45,26 @@ namespace Lumoria.Widgets.Preferences {
             components_row = new SizeRow (_("Installed Components"));
             usage_group.add (components_row);
 
-            prefixes_row = new SizeRow (_("Wine Prefixes"));
-            usage_group.add (prefixes_row);
-
-            total_row = new SizeRow (_("Total"));
-            total_row.add_css_class ("property");
-            usage_group.add (total_row);
+            app_data_row = new SizeRow (_("Other Lumoria Data"));
+            app_data_row.visible = false;
+            usage_group.add (app_data_row);
 
             append (usage_group);
+
+            var prefix_group = SettingsShared.build_group (_("Wine Prefixes"), 24, 12, 12);
+            prefix_group.description = _("Storage used by each registered Wine prefix.");
+
+            prefixes_row = new SizeRow (_("Total Prefix Storage"));
+            prefix_group.add (prefixes_row);
+
+            foreach (var entry in registry.prefixes) {
+                var row = new SizeRow (entry.display_name ());
+                row.subtitle = entry.resolved_path ();
+                prefix_rows[entry.id] = row;
+                prefix_group.add (row);
+            }
+
+            append (prefix_group);
 
             var cache_group = SettingsShared.build_group (_("Cache"), 24, 12, 12);
             cache_group.description = _("Clear cached metadata and downloaded archives.");
@@ -62,7 +86,9 @@ namespace Lumoria.Widgets.Preferences {
             clear_all.add_css_class ("error");
             clear_all.activated.connect (() => {
                 if (Utils.remove_recursive (Utils.cache_dir ())) {
-                    Utils.StorageCache.instance ().invalidate_all_cache ();
+                    var cache = Utils.StorageCache.instance ();
+                    cache.invalidate_all_cache ();
+                    cache.invalidate (Utils.StorageCategory.APP_DATA);
                     refresh ();
                     toast_message (_("All cache cleared."));
                 } else {
@@ -98,11 +124,13 @@ namespace Lumoria.Widgets.Preferences {
 
         private void on_mapped () {
             Utils.StorageCache.instance ().size_updated.connect (on_size_updated);
+            Utils.StorageCache.instance ().prefix_size_updated.connect (on_prefix_size_updated);
             refresh ();
         }
 
         private void on_unmapped () {
             Utils.StorageCache.instance ().size_updated.disconnect (on_size_updated);
+            Utils.StorageCache.instance ().prefix_size_updated.disconnect (on_prefix_size_updated);
             if (cancellable != null) {
                 cancellable.cancel ();
                 cancellable = null;
@@ -117,7 +145,9 @@ namespace Lumoria.Widgets.Preferences {
 
             sync_size_row (runners_row, Utils.StorageCategory.RUNNERS);
             sync_size_row (components_row, Utils.StorageCategory.COMPONENTS);
+            sync_app_data_row ();
             sync_size_row (prefixes_row, Utils.StorageCategory.PREFIXES);
+            sync_prefix_rows ();
             update_total ();
 
             foreach (var entry in cache_rows.entries) {
@@ -148,6 +178,9 @@ namespace Lumoria.Widgets.Preferences {
                 case Utils.StorageCategory.COMPONENTS:
                     components_row.set_size (bytes);
                     break;
+                case Utils.StorageCategory.APP_DATA:
+                    set_app_data_size (bytes);
+                    break;
                 case Utils.StorageCategory.PREFIXES:
                     prefixes_row.set_size (bytes);
                     break;
@@ -160,6 +193,39 @@ namespace Lumoria.Widgets.Preferences {
             }
 
             update_total ();
+        }
+
+        private void sync_app_data_row () {
+            var cache = Utils.StorageCache.instance ();
+            if (cache.is_valid (Utils.StorageCategory.APP_DATA)) {
+                set_app_data_size (cache.get_size (Utils.StorageCategory.APP_DATA));
+            } else {
+                app_data_row.visible = true;
+                app_data_row.set_loading ();
+            }
+        }
+
+        private void set_app_data_size (int64 bytes) {
+            app_data_row.visible = bytes > 0;
+            app_data_row.set_size (bytes);
+        }
+
+        private void sync_prefix_rows () {
+            var cache = Utils.StorageCache.instance ();
+            foreach (var entry in registry.prefixes) {
+                if (!prefix_rows.has_key (entry.id)) continue;
+                var row = prefix_rows[entry.id];
+                if (cache.is_prefix_valid (entry.id)) {
+                    row.set_size (cache.get_prefix_size (entry.id));
+                } else {
+                    row.set_loading ();
+                }
+            }
+        }
+
+        private void on_prefix_size_updated (string prefix_id, int64 bytes) {
+            if (!prefix_rows.has_key (prefix_id)) return;
+            prefix_rows[prefix_id].set_size (bytes);
         }
 
         private void update_total () {

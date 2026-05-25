@@ -7,27 +7,16 @@ namespace Lumoria.Cli {
     private const int DEFAULT_WRAP_POLL_MS = 100;
     private const int MIN_WRAP_POLL_MS = 10;
     private const int MAX_WRAP_POLL_MS = 5000;
+    private const int WRAP_CLEANUP_TERM_WAIT_MS = 1000;
+    private const int WRAP_CLEANUP_KILL_WAIT_MS = 1000;
+    private const int WRAP_REAP_WAIT_MS = 1000;
+    private const int WRAP_LOG_RELAY_JOIN_WAIT_MS = 1000;
     private const string WRAP_MODE_LEGACY = "legacy";
-    private const string[] SYSTEM_PROCESSES = {
-        "wineserver",
-        "services.exe",
-        "winedevice.exe",
-        "plugplay.exe",
-        "explorer.exe",
-        "wineconsole",
-        "svchost.exe",
-        "rpcss.exe",
-        "rundll32.exe",
-        "mscorsvw.exe",
-        "iexplore.exe",
-        "winedbg.exe",
-        "tabtip.exe",
-        "conhost.exe"
-    };
 
     private int wrap_signal_state = 0;
     private int wrap_signal_number = 0;
     private Thread<void>? log_relay_thread = null;
+    private bool log_relay_done = false;
 
     public int cmd_wrap (string[] args) {
         string log_path = "";
@@ -91,6 +80,7 @@ namespace Lumoria.Cli {
         var initial_code = mode == WRAP_MODE_LEGACY
             ? legacy_loop (child_pid, out initial_signal)
             : watcher_loop (child_pid, poll_ms, out initial_signal);
+        cleanup_remaining_descendants ();
 
         if (log_path != "") {
             if (initial_signal > 0) {
@@ -103,9 +93,7 @@ namespace Lumoria.Cli {
 
         Posix.close (Posix.STDOUT_FILENO);
         Posix.close (Posix.STDERR_FILENO);
-        if (log_relay_thread != null) {
-            log_relay_thread.join ();
-        }
+        finish_log_relay ();
 
         return initial_code >= 0 ? initial_code : 1;
     }
@@ -142,12 +130,27 @@ namespace Lumoria.Cli {
         }
 
         var relay_read = pipe_fds[0];
+        log_relay_done = false;
         log_relay_thread = new Thread<void> ("log-relay", () => {
             relay_pipe_to_fd (relay_read, log_fd);
+            log_relay_done = true;
         });
         Posix.dup2 (pipe_fds[1], Posix.STDOUT_FILENO);
         Posix.dup2 (pipe_fds[1], Posix.STDERR_FILENO);
         Posix.close (pipe_fds[1]);
+    }
+
+    private void finish_log_relay () {
+        if (log_relay_thread == null) return;
+
+        var deadline = GLib.get_monotonic_time () + (int64) WRAP_LOG_RELAY_JOIN_WAIT_MS * 1000;
+        while (!log_relay_done && GLib.get_monotonic_time () < deadline) {
+            Thread.usleep (100000);
+        }
+
+        if (log_relay_done) {
+            log_relay_thread.join ();
+        }
     }
 
     private string apply_working_directory (string cwd) {
@@ -282,94 +285,46 @@ namespace Lumoria.Cli {
     }
 
     private bool has_monitored_descendants () {
-        return monitored_descendants ().size > 0;
+        return Utils.ProcessTree.has_monitored_descendants ((int) Posix.getpid ());
     }
 
-    private Gee.ArrayList<int> monitored_descendants () {
-        var descendants = new Gee.ArrayList<int> ();
-        var seen = new Gee.HashSet<int> ();
-        collect_descendants ((int) Posix.getpid (), descendants, seen);
+    private void signal_monitored_descendants (int signum) {
+        Utils.ProcessTree.signal_monitored_descendants ((int) Posix.getpid (), signum);
+    }
 
-        var monitored = new Gee.ArrayList<int> ();
-        foreach (var pid in descendants) {
-            string name;
-            char state;
-            if (!read_process_stat (pid, out name, out state)) continue;
-            if (state == 'Z') continue;
-            if (is_system_process (name)) continue;
-            monitored.add (pid);
+    private void cleanup_remaining_descendants () {
+        signal_monitored_descendants (Posix.Signal.TERM);
+        if (Utils.ProcessTree.wait_for_monitored_descendants ((int) Posix.getpid (), WRAP_CLEANUP_TERM_WAIT_MS)) {
+            drain_remaining_children ();
+            return;
         }
-        return monitored;
+
+        for (var i = 0; i < 3; i++) {
+            signal_monitored_descendants (Posix.Signal.KILL);
+        }
+        Utils.ProcessTree.wait_for_monitored_descendants ((int) Posix.getpid (), WRAP_CLEANUP_KILL_WAIT_MS);
+        drain_remaining_children ();
     }
 
-    private void collect_descendants (
-        int parent_pid,
-        Gee.ArrayList<int> descendants,
-        Gee.HashSet<int> seen
-    ) {
-        try {
-            var task_dir = Dir.open ("/proc/%d/task".printf (parent_pid));
-            string? tid;
-            while ((tid = task_dir.read_name ()) != null) {
-                foreach (var child_pid in read_thread_children (parent_pid, tid)) {
-                    if (seen.contains (child_pid)) continue;
-                    seen.add (child_pid);
-                    descendants.add (child_pid);
-                    collect_descendants (child_pid, descendants, seen);
-                }
+    private bool reap_remaining_children () {
+        bool reaped = false;
+        while (true) {
+            int status;
+            var pid = Posix.waitpid (-1, out status, Posix.WNOHANG);
+            if (pid > 0) {
+                reaped = true;
+                continue;
             }
-        } catch (Error e) {
+            return reaped || (pid < 0 && Posix.errno == Posix.ECHILD);
         }
     }
 
-    private Gee.ArrayList<int> read_thread_children (int pid, string tid) {
-        var children = new Gee.ArrayList<int> ();
-        string content;
-        try {
-            FileUtils.get_contents ("/proc/%d/task/%s/children".printf (pid, tid), out content);
-        } catch (Error e) {
-            return children;
+    private void drain_remaining_children () {
+        var deadline = GLib.get_monotonic_time () + (int64) WRAP_REAP_WAIT_MS * 1000;
+        while (GLib.get_monotonic_time () < deadline) {
+            if (reap_remaining_children ()) return;
+            Thread.usleep (100000);
         }
-
-        foreach (var token in content.strip ().split (" ")) {
-            if (token == "") continue;
-            int64 parsed;
-            if (!int64.try_parse (token, out parsed) || parsed <= 0 || parsed > int.MAX) continue;
-            children.add ((int) parsed);
-        }
-        return children;
-    }
-
-    private bool read_process_stat (int pid, out string name, out char state) {
-        name = "";
-        state = '\0';
-
-        string stat;
-        try {
-            FileUtils.get_contents ("/proc/%d/stat".printf (pid), out stat);
-        } catch (Error e) {
-            return false;
-        }
-
-        var open = stat.index_of_char ('(');
-        var close = stat.last_index_of_char (')');
-        if (open < 0 || close <= open || close + 2 >= stat.length) return false;
-
-        name = stat.substring (open + 1, close - open - 1);
-        state = stat[close + 2];
-        return true;
-    }
-
-    private bool is_system_process (string name) {
-        var comm = truncate_comm (name);
-        foreach (var process in SYSTEM_PROCESSES) {
-            if (comm == truncate_comm (process)) return true;
-        }
-        return false;
-    }
-
-    private string truncate_comm (string name) {
-        return name.length > 15 ? name.substring (0, 15) : name;
     }
 
     private void install_wrap_signal_handlers () {
@@ -411,12 +366,6 @@ namespace Lumoria.Cli {
                 signal_monitored_descendants (Posix.Signal.KILL);
             }
             hard_signal_processed = true;
-        }
-    }
-
-    private void signal_monitored_descendants (int signum) {
-        foreach (var pid in monitored_descendants ()) {
-            Posix.kill ((Posix.pid_t) pid, signum);
         }
     }
 

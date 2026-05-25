@@ -3,6 +3,9 @@
   "name": "GE-Proton",
   "wine_arch": "win64",
   "default": true,
+  "features": [
+    "wayland-primary-monitor"
+  ],
   "github_repo": "GloriousEggroll/proton-ge-custom",
   "version_dir": "GE-Proton(.+)",
   "asset_regex": "GE-Proton.*\\.tar\\.(gz|zst)$",
