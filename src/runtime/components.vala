@@ -51,70 +51,129 @@ namespace Lumoria.Runtime {
         bool dirty = false;
 
         foreach (var spec in specs) {
-            var prefix_active = is_component_active (spec, entry, defaults, null);
-            var runtime_active = is_component_active (
-                spec,
-                entry,
-                defaults,
-                entrypoint != null ? entrypoint.component_overrides : null
-            );
-            Models.AppliedComponentRecord? applied = null;
-            if (entry != null && entry.applied_components.has_key (spec.id)) {
-                applied = entry.applied_components[spec.id];
-            }
-            var desired_version = resolve_component_version_for_policy (
-                spec,
-                entry,
-                defaults,
-                applied,
-                launch_policy
-            );
-
-            if (runtime_active) {
-                foreach (var ov in spec.overrides.entries) {
-                    result.dll_overrides[ov.key] = ov.value;
+            try {
+                var prefix_active = is_component_active (spec, entry, defaults, null);
+                var runtime_active = is_component_active (
+                    spec,
+                    entry,
+                    defaults,
+                    entrypoint != null ? entrypoint.component_overrides : null
+                );
+                Models.AppliedComponentRecord? applied = null;
+                if (entry != null && entry.applied_components.has_key (spec.id)) {
+                    applied = entry.applied_components[spec.id];
                 }
-            }
 
-            if (prefix_active) {
+                var component_ready = spec.steps.size == 0;
 
-                if (applied != null && applied.version == desired_version) {
-                    if (component_record_matches_arch (spec, applied, arch)) {
-                        logger.typed (LogType.COMPONENT, "%s: %s already applied".printf (spec.id, desired_version));
-                        continue;
+                if (prefix_active) {
+                    var component_policy = launch_policy;
+                    if (
+                        launch_policy == LaunchPolicy.OFFLINE_FAST_START &&
+                        (applied == null || is_deferred_component_version (applied.version))
+                    ) {
+                        component_policy = LaunchPolicy.INTERACTIVE;
                     }
-                    logger.typed (LogType.COMPONENT, "%s: reapplying %s for %s prefix".printf (
-                        spec.id,
-                        desired_version,
-                        arch
-                    ));
-                }
+                    var desired_version = resolve_component_version_for_policy (
+                        spec,
+                        entry,
+                        defaults,
+                        applied,
+                        component_policy
+                    );
 
-                if (applied != null) {
-                    if (applied.version != desired_version) {
-                        logger.typed (LogType.COMPONENT, "%s: replacing %s with %s".printf (
-                            spec.id, applied.version, desired_version
-                        ));
+                    if (applied != null && applied.version == desired_version) {
+                        if (component_record_matches_arch (spec, applied, pfx_path, entry, arch)) {
+                            logger.typed (LogType.COMPONENT, "%s: %s already applied".printf (spec.id, desired_version));
+                            component_ready = true;
+                        } else {
+                            logger.typed (LogType.COMPONENT, "%s: reapplying %s for %s prefix".printf (
+                                spec.id,
+                                desired_version,
+                                arch
+                            ));
+                            var record = run_component_install (
+                                spec,
+                                desired_version,
+                                wine_paths,
+                                pfx_path,
+                                entry,
+                                logger,
+                                component_policy
+                            );
+                            if (record != null) {
+                                if (entry != null) {
+                                    component_ready = store_applied_component_record (
+                                        entry,
+                                        spec,
+                                        record,
+                                        pfx_path,
+                                        arch,
+                                        logger
+                                    );
+                                    dirty = dirty || component_ready;
+                                } else {
+                                    component_ready = component_record_matches_arch (spec, record, pfx_path, null, arch);
+                                }
+                            }
+                        }
+                    } else {
+                        if (applied != null) {
+                            if (is_deferred_component_version (applied.version)) {
+                                logger.typed (LogType.COMPONENT, "%s: preparing %s".printf (
+                                    spec.id, desired_version
+                                ));
+                            } else {
+                                logger.typed (LogType.COMPONENT, "%s: replacing %s with %s".printf (
+                                    spec.id, applied.version, desired_version
+                                ));
+                                sweep_component_files (applied, wine_paths, arch, logger, false);
+                                if (entry != null) {
+                                    entry.applied_components.unset (spec.id);
+                                    dirty = true;
+                                }
+                            }
+                        }
+
+                        var record = run_component_install (
+                            spec,
+                            desired_version,
+                            wine_paths,
+                            pfx_path,
+                            entry,
+                            logger,
+                            component_policy
+                        );
+                        if (record != null) {
+                            if (entry != null) {
+                                component_ready = store_applied_component_record (
+                                    entry,
+                                    spec,
+                                    record,
+                                    pfx_path,
+                                    arch,
+                                    logger
+                                );
+                                dirty = dirty || component_ready;
+                            } else {
+                                component_ready = component_record_matches_arch (spec, record, pfx_path, null, arch);
+                            }
+                        }
                     }
-                    sweep_component_files (applied, wine_paths, arch, logger, false);
-                    if (entry != null) entry.applied_components.unset (spec.id);
+                } else if (applied != null) {
+                    logger.typed (LogType.COMPONENT, "%s: disabled, removing %s".printf (spec.id, applied.version));
+                    sweep_component_files (applied, wine_paths, arch, logger, true);
+                    if (entry != null) {
+                        entry.applied_components.unset (spec.id);
+                        dirty = true;
+                    }
                 }
 
-                var record = run_component_install (spec, desired_version, pfx_path, entry, logger, launch_policy);
-                if (record != null && entry != null) {
-                    entry.applied_components[spec.id] = record;
-                    dirty = true;
+                if (runtime_active && component_ready) {
+                    add_component_overrides (result, spec);
                 }
-                continue;
-            }
-
-            if (applied != null) {
-                logger.typed (LogType.COMPONENT, "%s: disabled, removing %s".printf (spec.id, applied.version));
-                sweep_component_files (applied, wine_paths, arch, logger, true);
-                if (entry != null) {
-                    entry.applied_components.unset (spec.id);
-                    dirty = true;
-                }
+            } catch (Error e) {
+                logger.typed (LogType.WARN, "Component %s failed: %s".printf (spec.id, e.message));
             }
         }
 
@@ -125,6 +184,23 @@ namespace Lumoria.Runtime {
         }
 
         return result;
+    }
+
+    private bool store_applied_component_record (
+        Models.PrefixEntry entry,
+        Models.ComponentSpec spec,
+        Models.AppliedComponentRecord record,
+        string pfx_path,
+        string arch,
+        RuntimeLog logger
+    ) {
+        if (!component_record_matches_arch (spec, record, pfx_path, entry, arch)) {
+            logger.typed (LogType.COMPONENT, "%s: apply did not produce expected files".printf (spec.id));
+            return false;
+        }
+
+        entry.applied_components[spec.id] = record;
+        return true;
     }
 
     public bool is_dxvk_active (
@@ -147,6 +223,8 @@ namespace Lumoria.Runtime {
     private bool component_record_matches_arch (
         Models.ComponentSpec spec,
         Models.AppliedComponentRecord record,
+        string pfx_path,
+        Models.PrefixEntry? entry,
         string arch
     ) {
         if (spec.steps.size > 0 && record.installed_files.size == 0) return false;
@@ -157,6 +235,78 @@ namespace Lumoria.Runtime {
                 return false;
             }
         }
+        return component_expected_outputs_exist (spec, record, pfx_path, entry, arch);
+    }
+
+    private void add_component_overrides (ComponentResult result, Models.ComponentSpec spec) {
+        foreach (var ov in spec.overrides.entries) {
+            result.dll_overrides[ov.key] = ov.value;
+        }
+    }
+
+    private bool component_expected_outputs_exist (
+        Models.ComponentSpec spec,
+        Models.AppliedComponentRecord record,
+        string pfx_path,
+        Models.PrefixEntry? entry,
+        string arch
+    ) {
+        var vars = new Gee.HashMap<string, string> ();
+        vars["COMPONENT"] = "";
+        vars["PREFIX"] = pfx_path;
+        vars["ARCH"] = arch;
+        set_game_install_vars (vars, arch);
+        vars["REGION"] = entry != null ? entry.region : "us";
+
+        if (record.version != "" && record.version != "latest") {
+            var adapter = new Models.ComponentToolAdapter (spec);
+            vars["COMPONENT"] = adapter.installed_path (new Models.ToolVersion (record.version));
+        }
+
+        foreach (var step in spec.steps) {
+            if (step.step_type != "copy") continue;
+            if (step.when != null && !step.when.evaluate (vars)) continue;
+            if (step.src.strip ().has_suffix ("/")) continue;
+
+            var src = Utils.expand_vars (step.src, vars);
+            var dst = Utils.expand_vars (step.dst, vars);
+            var expected = Utils.resolve_copy_file_destination (src, dst);
+            if (expected == "") continue;
+            if (!FileUtils.test (expected, FileTest.EXISTS)) return false;
+        }
+
+        if (!component_backup_outputs_are_valid (spec, vars)) return false;
+
+        return true;
+    }
+
+    private bool component_backup_outputs_are_valid (
+        Models.ComponentSpec spec,
+        Gee.HashMap<string, string> vars
+    ) {
+        foreach (var rename_step in spec.steps) {
+            if (rename_step.step_type != "rename" || !rename_step.idempotent) continue;
+            if (rename_step.when != null && !rename_step.when.evaluate (vars)) continue;
+
+            var backup = Utils.expand_vars (rename_step.dst, vars);
+            if (!FileUtils.test (backup, FileTest.EXISTS)) continue;
+
+            foreach (var copy_step in spec.steps) {
+                if (copy_step.step_type != "copy") continue;
+                if (copy_step.when != null && !copy_step.when.evaluate (vars)) continue;
+                if (copy_step.src.strip ().has_suffix ("/")) continue;
+
+                string payload;
+                try {
+                    payload = resolve_component_src (copy_step.src, vars);
+                } catch (Error e) {
+                    continue;
+                }
+                if (!FileUtils.test (payload, FileTest.EXISTS)) continue;
+                if (Utils.files_have_same_contents (backup, payload)) return false;
+            }
+        }
+
         return true;
     }
 
@@ -239,15 +389,14 @@ namespace Lumoria.Runtime {
         Models.AppliedComponentRecord? applied,
         LaunchPolicy launch_policy
     ) throws Error {
+        var requested = resolve_component_version (spec, entry, defaults);
         if (launch_policy != LaunchPolicy.OFFLINE_FAST_START) {
-            return resolve_component_version (spec, entry, defaults);
+            return resolve_concrete_component_version (spec, requested);
         }
 
-        if (applied != null && applied.version != "") return applied.version;
+        if (applied != null && !is_deferred_component_version (applied.version)) return applied.version;
 
-        var requested = resolve_component_version (spec, entry, defaults);
-        var normalized = requested.strip ().down ();
-        if (normalized == "" || normalized == "default" || normalized == "latest") {
+        if (is_deferred_component_version (requested)) {
             throw new IOError.FAILED (
                 "Component %s has no applied version for offline launch. Open Lumoria to prepare this prefix.",
                 spec.id
@@ -256,9 +405,29 @@ namespace Lumoria.Runtime {
         return requested;
     }
 
+    private string resolve_concrete_component_version (
+        Models.ComponentSpec spec,
+        string requested
+    ) throws Error {
+        if (!is_deferred_component_version (requested)) return requested;
+
+        var adapter = new Models.ComponentToolAdapter (spec);
+        var resolved = adapter.resolve_latest_tag ();
+        if (resolved == "") {
+            throw new IOError.FAILED ("Failed to resolve latest version for component %s", spec.id);
+        }
+        return resolved;
+    }
+
+    private bool is_deferred_component_version (string version) {
+        var normalized = version.strip ().down ();
+        return normalized == "" || normalized == "default" || normalized == "latest";
+    }
+
     private Models.AppliedComponentRecord? run_component_install (
         Models.ComponentSpec spec,
         string version,
+        WinePaths wine_paths,
         string pfx_path,
         Models.PrefixEntry? entry,
         RuntimeLog logger,
@@ -291,12 +460,12 @@ namespace Lumoria.Runtime {
         record.version = version;
 
         var vars = new Gee.HashMap<string, string> ();
+        var arch = component_install_arch (entry);
         vars["COMPONENT"] = installed_path;
         vars["PREFIX"] = pfx_path;
-        if (entry != null) {
-            vars["ARCH"] = resolve_effective_wine_arch (entry);
-            vars["REGION"] = entry.region;
-        }
+        vars["ARCH"] = arch;
+        set_game_install_vars (vars, arch);
+        vars["REGION"] = entry != null ? entry.region : "us";
 
         foreach (var step in spec.steps) {
             if (step.when != null && !step.when.evaluate (vars)) continue;
@@ -316,12 +485,13 @@ namespace Lumoria.Runtime {
                     });
                     break;
                 case "rename":
+                    if (step.idempotent && FileUtils.test (dst, FileTest.EXISTS)) {
+                        repair_component_backup_if_needed (spec, step, vars, wine_paths, arch, logger);
+                        logger.typed (LogType.COMPONENT, "  rename target already present: %s".printf (dst));
+                        record.installed_files.add (dst);
+                        break;
+                    }
                     if (!FileUtils.test (src, FileTest.EXISTS)) {
-                        if (step.idempotent && FileUtils.test (dst, FileTest.EXISTS)) {
-                            logger.typed (LogType.COMPONENT, "  rename target already present: %s".printf (dst));
-                            record.installed_files.add (dst);
-                            break;
-                        }
                         logger.typed (LogType.COMPONENT, "  source missing: %s".printf (src));
                         break;
                     }
@@ -338,6 +508,55 @@ namespace Lumoria.Runtime {
             }
         }
         return record;
+    }
+
+    private void repair_component_backup_if_needed (
+        Models.ComponentSpec spec,
+        Models.InstallStep rename_step,
+        Gee.HashMap<string, string> vars,
+        WinePaths wine_paths,
+        string arch,
+        RuntimeLog logger
+    ) {
+        var backup = Utils.expand_vars (rename_step.dst, vars);
+        if (!FileUtils.test (backup, FileTest.EXISTS)) return;
+
+        foreach (var copy_step in spec.steps) {
+            if (copy_step.step_type != "copy") continue;
+            if (copy_step.when != null && !copy_step.when.evaluate (vars)) continue;
+            if (copy_step.src.strip ().has_suffix ("/")) continue;
+
+            string payload;
+            try {
+                payload = resolve_component_src (copy_step.src, vars);
+            } catch (Error e) {
+                continue;
+            }
+            if (!FileUtils.test (payload, FileTest.EXISTS)) continue;
+            if (!Utils.files_have_same_contents (backup, payload)) continue;
+
+            var original_dst = Utils.expand_vars (rename_step.src, vars);
+            var builtin = runner_builtin_for_dst (wine_paths, original_dst, arch);
+            if (builtin == "") {
+                logger.typed (LogType.COMPONENT, "  backup repair skipped, runner builtin missing: %s".printf (backup));
+                return;
+            }
+
+            try {
+                Utils.copy_path (builtin, backup);
+                logger.typed (LogType.COMPONENT, "  repaired backup %s from runner".printf (Path.get_basename (backup)));
+            } catch (Error e) {
+                logger.typed (LogType.COMPONENT, "  failed to repair backup %s: %s".printf (
+                    Path.get_basename (backup),
+                    e.message
+                ));
+            }
+            return;
+        }
+    }
+
+    private string component_install_arch (Models.PrefixEntry? entry) {
+        return entry != null ? resolve_effective_wine_arch (entry) : "win64";
     }
 
     private void sweep_component_files (

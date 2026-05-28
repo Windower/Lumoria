@@ -7,7 +7,7 @@ namespace Lumoria.Models {
         public string sync_mode { get; set; default = "ntsync"; }
         public string wine_debug { get; set; default = ""; }
         public bool large_address_aware { get; set; default = false; }
-        public string logging_mode { get; set; default = "keep"; }
+        public bool keep_runtime_logs { get; set; default = true; }
         public Gee.HashMap<string, bool> component_enabled {
             get; owned set; default = new Gee.HashMap<string, bool> ();
         }
@@ -22,7 +22,7 @@ namespace Lumoria.Models {
         public string sync_mode { get; set; default = "ntsync"; }
         public string wine_debug { get; set; default = ""; }
         public bool large_address_aware { get; set; default = false; }
-        public string logging_mode { get; set; default = "keep"; }
+        public bool keep_runtime_logs { get; set; default = true; }
         public Gee.HashMap<string, bool> component_enabled {
             get; owned set; default = new Gee.HashMap<string, bool> ();
         }
@@ -49,7 +49,7 @@ namespace Lumoria.Models {
                 }
                 if (default_obj.has_member ("logging")) {
                     var logging_obj = default_obj.get_object_member ("logging");
-                    spec.logging_mode = json_string (logging_obj, "mode", "keep");
+                    spec.keep_runtime_logs = parse_keep_runtime_logs (logging_obj, true);
                 }
                 if (default_obj.has_member ("components")) {
                     var comps_obj = default_obj.get_object_member ("components");
@@ -105,11 +105,28 @@ namespace Lumoria.Models {
             resolved.sync_mode = sync_mode;
             resolved.wine_debug = wine_debug;
             resolved.large_address_aware = large_address_aware;
-            resolved.logging_mode = logging_mode;
+            resolved.keep_runtime_logs = keep_runtime_logs;
             foreach (var entry in component_enabled.entries) {
                 resolved.component_enabled[entry.key] = entry.value;
             }
             return resolved;
+        }
+
+        private static bool parse_keep_runtime_logs (Json.Object logging_obj, bool default_value) {
+            if (logging_obj.has_member ("keep_files")) {
+                return logging_obj.get_boolean_member ("keep_files");
+            }
+            if (!logging_obj.has_member ("mode")) {
+                return default_value;
+            }
+            switch (logging_obj.get_string_member ("mode")) {
+                case "off":
+                case "memory":
+                case "dont_keep":
+                    return false;
+                default:
+                    return true;
+            }
         }
     }
 }

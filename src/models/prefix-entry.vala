@@ -118,6 +118,7 @@ namespace Lumoria.Models {
     public class PrefixEntry : BaseSpec {
         public string path { get; set; default = ""; }
         public string uri { get; set; default = ""; }
+        public PortalPathRef? path_portal { get; set; default = null; }
         public string runner_id { get; set; default = ""; }
         public string runner_version { get; set; default = "latest"; }
         public string launcher_id { get; set; default = ""; }
@@ -131,8 +132,10 @@ namespace Lumoria.Models {
         public string sync_mode { get; set; default = ""; }
         public string region { get; set; default = "us"; }
         public string prelaunch_script { get; set; default = ""; }
+        public PortalPathRef? prelaunch_script_portal { get; set; default = null; }
         public bool advanced_dxvk { get; set; default = false; }
         public bool dxvk_show_fps { get; set; default = false; }
+        public bool dxvk_hide_integrated_graphics { get; set; default = false; }
         public string dxvk_sampler_anisotropy { get; set; default = ""; }
         public string dxvk_max_frame_rate { get; set; default = ""; }
         public string dxvk_sync_interval { get; set; default = ""; }
@@ -164,17 +167,20 @@ namespace Lumoria.Models {
         public PrefixRunnerState? runner_state { get; set; default = null; }
         public PrefixPostInstallSpec? post_install_spec { get; set; default = null; }
         public string resolved_path () {
+            if (FileUtils.test (path, FileTest.EXISTS)) return path;
             if (uri != "") {
                 try {
                     var u = Uri.parse (uri, UriFlags.NONE);
                     if (u.get_scheme () == "file") {
                         var p = u.get_path ();
-                        if (p != null && p != "") return p;
+                        if (p != null && p != "" && FileUtils.test (p, FileTest.EXISTS)) return p;
                     }
                 } catch (UriError e) {
                     warning ("Failed to parse URI for prefix path: %s", e.message);
                 }
             }
+            var portal_path = Utils.resolve_portal_path (path_portal);
+            if (portal_path != "") return portal_path;
             return path;
         }
 
@@ -236,6 +242,9 @@ namespace Lumoria.Models {
             obj.set_string_member ("name", name);
             obj.set_string_member ("path", path);
             if (uri != "") obj.set_string_member ("uri", uri);
+            if (path_portal != null && !path_portal.is_empty ()) {
+                obj.set_object_member ("path_portal", path_portal.to_json ());
+            }
             obj.set_string_member ("runner_id", runner_id);
             obj.set_string_member ("runner_version", runner_version);
             if (launcher_id != "") obj.set_string_member ("launcher_id", launcher_id);
@@ -249,8 +258,12 @@ namespace Lumoria.Models {
             if (sync_mode != "") obj.set_string_member ("sync_mode", sync_mode);
             if (region != "" && region != "us") obj.set_string_member ("region", region);
             if (prelaunch_script != "") obj.set_string_member ("prelaunch_script", prelaunch_script);
+            if (prelaunch_script_portal != null && !prelaunch_script_portal.is_empty ()) {
+                obj.set_object_member ("prelaunch_script_portal", prelaunch_script_portal.to_json ());
+            }
             if (advanced_dxvk) obj.set_boolean_member ("advanced_dxvk", true);
             if (dxvk_show_fps) obj.set_boolean_member ("dxvk_show_fps", true);
+            if (dxvk_hide_integrated_graphics) obj.set_boolean_member ("dxvk_hide_integrated_graphics", true);
             if (dxvk_sampler_anisotropy != "") obj.set_string_member ("dxvk_sampler_anisotropy", dxvk_sampler_anisotropy);
             if (dxvk_max_frame_rate != "") obj.set_string_member ("dxvk_max_frame_rate", dxvk_max_frame_rate);
             if (dxvk_sync_interval != "") obj.set_string_member ("dxvk_sync_interval", dxvk_sync_interval);
@@ -262,6 +275,9 @@ namespace Lumoria.Models {
                     ep_obj.set_string_member ("id", ep.id);
                     ep_obj.set_string_member ("name", ep.name);
                     ep_obj.set_string_member ("exe", ep.exe);
+                    if (ep.exe_portal != null && !ep.exe_portal.is_empty ()) {
+                        ep_obj.set_object_member ("exe_portal", ep.exe_portal.to_json ());
+                    }
                     if (ep.args.size > 0) {
                         var args_arr = new Json.Array ();
                         foreach (var arg in ep.args) args_arr.add_string_element (arg);
@@ -269,6 +285,9 @@ namespace Lumoria.Models {
                     }
                     if (ep.prelaunch_script != "") {
                         ep_obj.set_string_member ("prelaunch_script", ep.prelaunch_script);
+                    }
+                    if (ep.prelaunch_script_portal != null && !ep.prelaunch_script_portal.is_empty ()) {
+                        ep_obj.set_object_member ("prelaunch_script_portal", ep.prelaunch_script_portal.to_json ());
                     }
                     if (ep.component_overrides.size > 0) {
                         var ov_obj = new Json.Object ();
@@ -355,6 +374,9 @@ namespace Lumoria.Models {
             e.parse_base (obj);
             e.path = json_string (obj, "path");
             e.uri = json_string (obj, "uri");
+            if (obj.has_member ("path_portal")) {
+                e.path_portal = PortalPathRef.from_json (obj.get_object_member ("path_portal"));
+            }
             e.runner_id = json_string (obj, "runner_id");
             e.runner_version = json_string (obj, "runner_version", "latest");
             e.launcher_id = json_string (obj, "launcher_id");
@@ -368,8 +390,12 @@ namespace Lumoria.Models {
             e.sync_mode = json_string (obj, "sync_mode");
             e.region = json_string (obj, "region", "us");
             e.prelaunch_script = json_string (obj, "prelaunch_script");
+            if (obj.has_member ("prelaunch_script_portal")) {
+                e.prelaunch_script_portal = PortalPathRef.from_json (obj.get_object_member ("prelaunch_script_portal"));
+            }
             e.advanced_dxvk = json_bool (obj, "advanced_dxvk");
             e.dxvk_show_fps = json_bool (obj, "dxvk_show_fps");
+            e.dxvk_hide_integrated_graphics = json_bool (obj, "dxvk_hide_integrated_graphics");
             e.dxvk_sampler_anisotropy = json_string (obj, "dxvk_sampler_anisotropy");
             e.dxvk_max_frame_rate = json_string (obj, "dxvk_max_frame_rate");
             e.dxvk_sync_interval = json_string (obj, "dxvk_sync_interval");

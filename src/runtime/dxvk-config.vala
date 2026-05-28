@@ -55,6 +55,9 @@ namespace Lumoria.Runtime {
         if (entry.dxvk_show_fps) {
             lines.add ("dxvk.hud = fps");
         }
+        if (entry.dxvk_hide_integrated_graphics) {
+            lines.add ("dxvk.hideIntegratedGraphics = True");
+        }
         append_dxvk_int_line (
             lines,
             "d3d9.samplerAnisotropy",

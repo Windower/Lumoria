@@ -139,6 +139,16 @@ namespace Lumoria.Utils {
         }
     }
 
+    public static string resolve_copy_file_destination (string src, string dst) {
+        var src_basename = Path.get_basename (src);
+        if (src_basename == "" || src_basename == ".") return "";
+
+        var dst_base = Path.get_basename (dst);
+        var is_dir_dest = FileUtils.test (dst, FileTest.IS_DIR)
+            || (!dst_base.contains (".") && !FileUtils.test (dst, FileTest.EXISTS));
+        return is_dir_dest ? Path.build_filename (dst, src_basename) : dst;
+    }
+
     public static void copy_path (string src, string dst, CopyFileCallback? on_file = null) throws Error {
         if (FileUtils.test (src, FileTest.IS_DIR)) {
             var src_treated_as_contents = src.has_suffix ("/");
@@ -151,19 +161,13 @@ namespace Lumoria.Utils {
             return;
         }
 
-        var dst_base = Path.get_basename (dst);
-        var is_dir_dest = FileUtils.test (dst, FileTest.IS_DIR)
-            || (!dst_base.contains (".") && !FileUtils.test (dst, FileTest.EXISTS));
-        if (is_dir_dest) {
-            ensure_dir (dst);
-            var file_dst = Path.build_filename (dst, Path.get_basename (src));
-            copy_file (src, file_dst);
-            if (on_file != null) on_file (src, file_dst);
-        } else {
-            ensure_dir (Path.get_dirname (dst));
-            copy_file (src, dst);
-            if (on_file != null) on_file (src, dst);
+        var file_dst = resolve_copy_file_destination (src, dst);
+        if (file_dst == "") {
+            throw new IOError.FAILED ("copy source has no filename: %s", src);
         }
+        ensure_dir (Path.get_dirname (file_dst));
+        copy_file (src, file_dst);
+        if (on_file != null) on_file (src, file_dst);
     }
 
     private static string strip_trailing_slashes (string path) {

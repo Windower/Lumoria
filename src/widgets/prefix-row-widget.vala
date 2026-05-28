@@ -8,18 +8,20 @@ namespace Lumoria.Widgets {
         public signal void wine_tools_requested (int index);
         public signal void open_logs_requested (int index);
         public signal void set_default_requested (int index);
+        public signal void grant_access_requested (int index);
 
         private int prefix_index;
-        private Gtk.Button play_btn;
-        private Gtk.Button default_btn;
-        private Adw.ActionRow default_row;
-        private Adw.ActionRow wine_tools_row;
-        private Adw.ActionRow path_row;
-        private Adw.ActionRow browse_row;
+        private Gtk.Button? play_btn = null;
+        private Gtk.Button? default_btn = null;
+        private Adw.ActionRow? default_row = null;
+        private Adw.ActionRow? wine_tools_row = null;
+        private Adw.ActionRow? path_row = null;
+        private Adw.ActionRow? browse_row = null;
         private Gee.ArrayList<Gtk.Button> launch_buttons = new Gee.ArrayList<Gtk.Button> ();
         private bool has_runner = false;
         private bool launch_active = false;
         private string launch_status = "";
+        private bool needs_grant = false;
 
         public PrefixRowWidget (
             Models.PrefixEntry entry,
@@ -27,9 +29,11 @@ namespace Lumoria.Widgets {
             Gee.ArrayList<Models.RunnerSpec> runner_specs,
             Gee.ArrayList<Models.LauncherSpec> launcher_specs,
             bool is_gamescope,
-            bool is_default
+            bool is_default,
+            bool needs_grant = false
         ) {
             this.prefix_index = index;
+            this.needs_grant = needs_grant;
             build_ui (entry, runner_specs, launcher_specs, is_gamescope, is_default);
         }
 
@@ -59,6 +63,10 @@ namespace Lumoria.Widgets {
             bool is_default
         ) {
             title = entry.display_name ();
+            if (needs_grant) {
+                build_grant_access_ui ();
+                return;
+            }
             subtitle = collapsed_subtitle_text (entry, runner_specs, is_default);
             show_enable_switch = false;
 
@@ -132,6 +140,18 @@ namespace Lumoria.Widgets {
             add_row (browse_row);
         }
 
+        private void build_grant_access_ui () {
+            subtitle = _("Permission required to access this prefix");
+            show_enable_switch = false;
+
+            play_btn = new Gtk.Button.with_label (_("Grant Access"));
+            play_btn.add_css_class ("suggested-action");
+            play_btn.valign = Gtk.Align.CENTER;
+            play_btn.focusable = true;
+            play_btn.clicked.connect (() => grant_access_requested (prefix_index));
+            add_suffix (play_btn);
+        }
+
         private Gtk.Widget build_section_header (string label) {
             var header = new Gtk.Label (label);
             header.xalign = 0;
@@ -192,17 +212,25 @@ namespace Lumoria.Widgets {
             Models.PrefixEntry entry,
             Gee.ArrayList<Models.RunnerSpec> runner_specs,
             bool is_gamescope,
-            bool is_default
+            bool is_default,
+            bool needs_grant = false
         ) {
+            this.needs_grant = needs_grant;
             title = entry.display_name ();
+            if (needs_grant) {
+                subtitle = _("Permission required to access this prefix");
+                return;
+            }
             subtitle = collapsed_subtitle_text (entry, runner_specs, is_default);
-            path_row.subtitle = entry.resolved_path ();
-            default_row.subtitle = default_action_subtitle (is_default);
-            default_btn.label = is_default ? _("Quick Launch") : _("Set as Quick Launch");
-            default_btn.sensitive = !is_default;
+            if (path_row != null) path_row.subtitle = entry.resolved_path ();
+            if (default_row != null) default_row.subtitle = default_action_subtitle (is_default);
+            if (default_btn != null) {
+                default_btn.label = is_default ? _("Quick Launch") : _("Set as Quick Launch");
+                default_btn.sensitive = !is_default;
+            }
             has_runner = entry.runner_id != "";
-            wine_tools_row.sensitive = has_runner && !is_gamescope;
-            browse_row.sensitive = !is_gamescope;
+            if (wine_tools_row != null) wine_tools_row.sensitive = has_runner && !is_gamescope;
+            if (browse_row != null) browse_row.sensitive = !is_gamescope;
             update_launch_controls ();
         }
 
@@ -211,14 +239,14 @@ namespace Lumoria.Widgets {
                 button.sensitive = has_runner && !launch_active;
             }
             if (launch_active) {
-                play_btn.label = launch_status != "" ? _("Updating...") : _("Launching...");
+                if (play_btn != null) play_btn.label = launch_status != "" ? _("Updating...") : _("Launching...");
             } else {
-                play_btn.label = _("Play");
+                if (play_btn != null) play_btn.label = needs_grant ? _("Grant Access") : _("Play");
             }
         }
 
         public bool activate_primary_action () {
-            if (!play_btn.sensitive) return false;
+            if (play_btn == null || !play_btn.sensitive) return false;
             play_btn.activate ();
             return true;
         }

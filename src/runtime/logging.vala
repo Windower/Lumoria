@@ -33,6 +33,7 @@ namespace Lumoria.Runtime {
         public string log_path { get; private set; default = ""; }
         private LogFunc? sink;
         private FileOutputStream? stream;
+        private bool stream_failed = false;
 
         public RuntimeLog (string log_path = "", owned LogFunc? sink = null) {
             this.log_path = log_path;
@@ -111,7 +112,7 @@ namespace Lumoria.Runtime {
         }
 
         private void ensure_stream () {
-            if (stream != null || log_path == "") return;
+            if (stream != null || log_path == "" || stream_failed) return;
             try {
                 var file = File.new_for_path (log_path);
                 if (FileUtils.test (log_path, FileTest.EXISTS)) {
@@ -121,16 +122,26 @@ namespace Lumoria.Runtime {
                 }
             } catch (Error e) {
                 warning ("Could not open log file %s: %s", log_path, e.message);
+                stream_failed = true;
             }
         }
 
         private static string resolve_log_path (string prefix_path, string filename, bool force_disk = false) {
-            if (!force_disk && Utils.LoggingMode.from_settings () != Utils.LoggingMode.KEEP) {
+            if (!force_disk && !Utils.Preferences.instance ().keep_runtime_logs) {
                 return "";
             }
             var log_dir = Path.build_filename (prefix_path, "logs");
-            Utils.ensure_dir (log_dir);
-            return Path.build_filename (log_dir, filename);
+            if (Utils.ensure_dir (log_dir) && FileUtils.test (log_dir, FileTest.IS_DIR)) {
+                return Path.build_filename (log_dir, filename);
+            }
+
+            var fallback_dir = Path.build_filename (Utils.cache_dir (), "runtime-logs");
+            if (Utils.ensure_dir (fallback_dir) && FileUtils.test (fallback_dir, FileTest.IS_DIR)) {
+                warning ("Could not create prefix log directory %s; using %s", log_dir, fallback_dir);
+                return Path.build_filename (fallback_dir, filename);
+            }
+
+            return "";
         }
 
         private static string tag_name (LogType tag) {

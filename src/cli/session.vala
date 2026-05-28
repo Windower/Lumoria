@@ -437,7 +437,7 @@ namespace Lumoria.Cli {
     }
 
     private void session_redirect_stdio_to_log () {
-        if (Utils.LoggingMode.from_settings () != Utils.LoggingMode.KEEP) return;
+        if (!Utils.Preferences.instance ().keep_runtime_logs) return;
 
         var log_dir = Utils.session_manager_log_dir ();
         Utils.ensure_dir (log_dir);

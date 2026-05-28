@@ -13,6 +13,8 @@ namespace Lumoria.Runtime {
     public const string WINE_DEBUG_LABEL_DEFAULT = "Default";
     public const string WINE_DEBUG_LABEL_GENERAL = "General";
     public const string WINE_DEBUG_LABEL_FULL = "Full";
+    private const int WINE_COMMAND_TERM_WAIT_MS = 1000;
+    private const int WINE_COMMAND_KILL_WAIT_MS = 1000;
 
     public enum LaunchPolicy {
         INTERACTIVE,
@@ -37,8 +39,33 @@ namespace Lumoria.Runtime {
         }
     }
 
+    public string program_files_dir_for_arch (string arch) {
+        return Utils.normalize_wine_arch (arch) == "win32"
+            ? "drive_c/Program Files"
+            : "drive_c/Program Files (x86)";
+    }
+
+    public string square_enix_dir_for_arch (string arch) {
+        return Path.build_filename (program_files_dir_for_arch (arch), "PlayOnline", "SquareEnix");
+    }
+
+    public string playonline_dir_for_arch (string arch) {
+        return Path.build_filename (square_enix_dir_for_arch (arch), "PlayOnlineViewer");
+    }
+
+    public string ffxi_dir_for_arch (string arch) {
+        return Path.build_filename (square_enix_dir_for_arch (arch), "FINAL FANTASY XI");
+    }
+
+    public void set_game_install_vars (Gee.HashMap<string, string> vars, string arch) {
+        vars["PROGRAM_FILES"] = program_files_dir_for_arch (arch);
+        vars["SE_DIR"] = square_enix_dir_for_arch (arch);
+        vars["POL_DIR"] = playonline_dir_for_arch (arch);
+        vars["FFXI_DIR"] = ffxi_dir_for_arch (arch);
+    }
+
     public void apply_runtime_logging_policy (WineEnv env) {
-        if (Utils.LoggingMode.from_settings () == Utils.LoggingMode.DONT_KEEP) {
+        if (!Utils.Preferences.instance ().keep_runtime_logs) {
             env.set_var ("WINEDEBUG", WINE_DEBUG_OFF);
         }
     }
@@ -48,7 +75,8 @@ namespace Lumoria.Runtime {
         "WINE_LARGE_ADDRESS_AWARE",
         "WINEESYNC", "WINEFSYNC", "WINENTSYNC",
         "PATH", "LD_LIBRARY_PATH", "WINEDLLPATH",
-        "DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR"
+        "DISPLAY", "WAYLAND_DISPLAY", "WAYLANDDRV_PRIMARY_MONITOR", "XDG_RUNTIME_DIR",
+        "PWD"
     };
 
     public class WineEnv : Object {
@@ -811,13 +839,84 @@ namespace Lumoria.Runtime {
         return FileUtils.test (candidate, FileTest.EXISTS) ? candidate : "";
     }
 
+    private class WineCommandState {
+        private Mutex mutex;
+        private Cond cond;
+        private bool completed = false;
+        private bool terminating = false;
+        private bool cancelled = false;
+        private bool timed_out = false;
+
+        public bool request_cancel () {
+            mutex.lock ();
+            var should_signal = !completed && !terminating;
+            if (should_signal) {
+                cancelled = true;
+                terminating = true;
+            }
+            mutex.unlock ();
+            return should_signal;
+        }
+
+        public bool wait_until_timeout (int timeout_ms) {
+            var deadline = GLib.get_monotonic_time () + (int64) timeout_ms * 1000;
+            mutex.lock ();
+            while (!completed) {
+                if (!cond.wait_until (mutex, deadline)) break;
+            }
+
+            var should_signal = !completed && !terminating;
+            if (should_signal) {
+                timed_out = true;
+                terminating = true;
+            }
+            mutex.unlock ();
+            return should_signal;
+        }
+
+        public void mark_completed () {
+            mutex.lock ();
+            completed = true;
+            cond.broadcast ();
+            mutex.unlock ();
+        }
+
+        public bool was_cancelled () {
+            mutex.lock ();
+            var value = cancelled;
+            mutex.unlock ();
+            return value;
+        }
+
+        public bool was_timed_out () {
+            mutex.lock ();
+            var value = timed_out;
+            mutex.unlock ();
+            return value;
+        }
+    }
+
+    private void terminate_wine_command_tree (int child_pid) {
+        Utils.ProcessTree.signal_monitored_descendants (child_pid, Posix.Signal.TERM);
+        Posix.kill ((Posix.pid_t) child_pid, Posix.Signal.TERM);
+        if (!Utils.ProcessTree.wait_for_monitored_descendants (child_pid, WINE_COMMAND_TERM_WAIT_MS)) {
+            Utils.ProcessTree.signal_monitored_descendants (child_pid, Posix.Signal.KILL);
+            Utils.ProcessTree.wait_for_monitored_descendants (child_pid, WINE_COMMAND_KILL_WAIT_MS);
+        }
+
+        if (Utils.ProcessTree.process_alive (child_pid)) {
+            Posix.kill ((Posix.pid_t) child_pid, Posix.Signal.KILL);
+        }
+    }
+
     public void run_wine_command (
         string wine_bin,
         string[] wine_args,
         WineEnv wine_env,
         string? working_dir,
         RuntimeLog logger,
-        Cancellable? cancellable = null
+        Cancellable? cancellable = null,
+        int timeout_ms = 0
     ) throws Error {
         var argv = new Gee.ArrayList<string> ();
         argv.add (wine_bin);
@@ -858,15 +957,24 @@ namespace Lumoria.Runtime {
         var stdout_output = new StringBuilder ();
         var stderr_output = new StringBuilder ();
 
-        var child_killed = false;
+        var command_state = new WineCommandState ();
         var pid_copy = child_pid;
         ulong cancel_handler = 0;
         if (cancellable != null) {
             cancel_handler = cancellable.connect (() => {
-                child_killed = true;
-                Posix.kill (pid_copy, Posix.Signal.TERM);
-                Thread.usleep (200000);
-                Posix.kill (pid_copy, Posix.Signal.KILL);
+                if (command_state.request_cancel ()) {
+                    terminate_wine_command_tree (pid_copy);
+                }
+            });
+        }
+        Thread<bool>? timeout_thread = null;
+        if (timeout_ms > 0) {
+            timeout_thread = new Thread<bool> ("wine-timeout", () => {
+                if (command_state.wait_until_timeout (timeout_ms)) {
+                    logger.typed (LogType.WARN, "command timed out after %d seconds; terminating process tree".printf (timeout_ms / 1000));
+                    terminate_wine_command_tree (pid_copy);
+                }
+                return true;
             });
         }
 
@@ -879,12 +987,14 @@ namespace Lumoria.Runtime {
             emit_fn,
             logger.is_disk_enabled () ? 0 : LOG_OUTPUT_TAIL_BYTES
         );
+        command_state.mark_completed ();
+        if (timeout_thread != null) timeout_thread.join ();
 
         if (cancellable != null && cancel_handler != 0) {
             cancellable.disconnect (cancel_handler);
         }
 
-        if (child_killed || (cancellable != null && cancellable.is_cancelled ())) {
+        if (command_state.was_cancelled () || (cancellable != null && cancellable.is_cancelled ())) {
             throw new IOError.CANCELLED ("Cancelled");
         }
 

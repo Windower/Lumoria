@@ -76,6 +76,30 @@ namespace Lumoria.Utils {
         }
     }
 
+    public string file_checksum (string path, ChecksumType type) throws Error {
+        var checksum = new Checksum (type);
+        var input = File.new_for_path (path).read ();
+        var buf = new uint8[65536];
+        ssize_t n;
+        while ((n = input.read (buf)) > 0) {
+            checksum.update (buf, n);
+        }
+        input.close ();
+        return checksum.get_string ();
+    }
+
+    public bool files_have_same_contents (string a, string b) {
+        var a_size = file_size_or_zero (a);
+        var b_size = file_size_or_zero (b);
+        if (a_size <= 0 || a_size != b_size) return false;
+
+        try {
+            return file_checksum (a, ChecksumType.SHA256) == file_checksum (b, ChecksumType.SHA256);
+        } catch (Error e) {
+            return false;
+        }
+    }
+
     private string parse_checksum_for_asset (string checksum_path, string asset_name, string context) {
         string content;
         try {
@@ -117,15 +141,7 @@ namespace Lumoria.Utils {
         }
 
         try {
-            var checksum = new Checksum (type);
-            var input = File.new_for_path (path).read ();
-            var buf = new uint8[65536];
-            ssize_t n;
-            while ((n = input.read (buf)) > 0) {
-                checksum.update (buf, n);
-            }
-            input.close ();
-            return checksum.get_string ();
+            return file_checksum (path, type);
         } catch (Error e) {
             warning ("Failed to compute checksum for %s: %s", path, e.message);
             return "";

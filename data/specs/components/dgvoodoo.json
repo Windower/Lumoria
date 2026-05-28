@@ -1,0 +1,47 @@
+{
+  "id": "dgvoodoo",
+  "name": "dgVoodoo",
+  "github_repo": "rysas/lumoria-dgvoodoo",
+  "asset_regex": "",
+  "checksum_regex": "",
+  "default_version": "latest",
+  "source_archive": "zip",
+  "system_env_defaults": {},
+  "overrides": {
+    "d3d8": "n,b",
+    "d3dimm": "n,b",
+    "ddraw": "n,b"
+  },
+  "steps": [
+    {
+      "type": "copy",
+      "description": "Install dgVoodoo D3D8.dll",
+      "src": "${var.COMPONENT}/D3D8.dll",
+      "dst": "${var.PREFIX}/${var.POL_DIR}"
+    },
+    {
+      "type": "copy",
+      "description": "Install dgVoodoo D3DImm.dll",
+      "src": "${var.COMPONENT}/D3DImm.dll",
+      "dst": "${var.PREFIX}/${var.POL_DIR}"
+    },
+    {
+      "type": "copy",
+      "description": "Install dgVoodoo DDraw.dll",
+      "src": "${var.COMPONENT}/DDraw.dll",
+      "dst": "${var.PREFIX}/${var.POL_DIR}"
+    },
+    {
+      "type": "copy",
+      "description": "Install dgVoodoo configuration",
+      "src": "${var.COMPONENT}/dgVoodoo.conf",
+      "dst": "${var.PREFIX}/${var.POL_DIR}"
+    },
+    {
+      "type": "copy",
+      "description": "Install dgVoodoo control panel",
+      "src": "${var.COMPONENT}/dgVoodooCpl.exe",
+      "dst": "${var.PREFIX}/${var.POL_DIR}"
+    }
+  ]
+}

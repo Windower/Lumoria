@@ -137,13 +137,6 @@ namespace Lumoria.Widgets {
             return row;
         }
 
-        public static Gtk.StringList build_logging_mode_model () {
-            var model = new Gtk.StringList (null);
-            model.append (_("Don't Keep Files"));
-            model.append (_("Keep Files (prefix-path/logs)"));
-            return model;
-        }
-
         public static bool file_browse_blocked (Adw.ToastOverlay overlay) {
             if (!Utils.EnvironmentInfo.is_gamescope ()) return false;
             overlay.add_toast (new Adw.Toast (_("File browsing is not available in a gamescope session.")));

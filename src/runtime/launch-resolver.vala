@@ -1,7 +1,5 @@
 namespace Lumoria.Runtime {
 
-    private const string DEFAULT_EXE = "drive_c/Program Files (x86)/PlayOnline/SquareEnix/FINAL FANTASY XI/polboot.exe";
-
     public enum LaunchTargetSection {
         MAIN,
         WINDOWER_PROFILES,
@@ -93,7 +91,10 @@ namespace Lumoria.Runtime {
         out string exe,
         out string[] args
     ) {
-        exe = DEFAULT_EXE;
+        exe = Path.build_filename (
+            ffxi_dir_for_arch (resolve_effective_wine_arch (entry)),
+            "polboot.exe"
+        );
         args = {};
 
         var ctx = make_launch_context (entry, launcher_specs);
@@ -101,7 +102,7 @@ namespace Lumoria.Runtime {
         if (entrypoint_id != "") {
             foreach (var custom_ep in entry.custom_entrypoints) {
                 if (custom_ep.id == entrypoint_id) {
-                    exe = custom_ep.exe;
+                    exe = Utils.resolve_user_path (custom_ep.exe, custom_ep.exe_portal);
                     args = arraylist_to_strv (custom_ep.args);
                     return;
                 }
@@ -375,7 +376,9 @@ namespace Lumoria.Runtime {
         vars["SYSTEM32"] = Path.build_filename (pfx_path, "drive_c", "windows", "system32");
         vars["SYSWOW64"] = Path.build_filename (pfx_path, "drive_c", "windows", "syswow64");
         vars["FONTS"] = Path.build_filename (pfx_path, "drive_c", "windows", "Fonts");
-        vars["ARCH"] = resolve_effective_wine_arch (entry);
+        var arch = resolve_effective_wine_arch (entry);
+        vars["ARCH"] = arch;
+        set_game_install_vars (vars, arch);
         vars["REGION"] = entry.region;
         merge_vars (vars, installer_spec.variables);
         apply_launch_variable_rules (vars, installer_spec.variable_rules);
@@ -466,6 +469,8 @@ namespace Lumoria.Runtime {
             copy.exe = Utils.expand_vars (ep.exe, vars);
             copy.is_default = ep.is_default;
             copy.prelaunch_script = ep.prelaunch_script;
+            copy.prelaunch_script_portal = ep.prelaunch_script_portal;
+            copy.exe_portal = ep.exe_portal;
             copy.args = new Gee.ArrayList<string> ();
             copy.args.add_all (ep.args);
             target.add (copy);

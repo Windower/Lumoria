@@ -175,13 +175,17 @@ namespace Lumoria.Widgets.Dialogs {
 
             var runner_opts_group = SettingsShared.build_group (_("Runner Options"), 12, 12);
 
-            sync_combo = RunnerSettingsShared.build_sync_override_combo ();
-            runner_opts_group.add (sync_combo);
-
             wayland_combo = RunnerSettingsShared.build_wayland_combo ();
             runner_opts_group.add (wayland_combo);
 
+            sync_combo = RunnerSettingsShared.build_sync_override_combo ();
+            runner_opts_group.add (sync_combo);
+
             debug_combo = RunnerSettingsShared.build_debug_override_combo ();
+            RunnerSettingsShared.update_debug_combo_logging_state (
+                debug_combo,
+                Utils.Preferences.instance ().keep_runtime_logs
+            );
             runner_opts_group.add (debug_combo);
 
             runner_content.append (runner_opts_group);
@@ -531,6 +535,7 @@ namespace Lumoria.Widgets.Dialogs {
             entry.name = name;
             entry.path = resolved;
             entry.uri = selected_uri;
+            entry.path_portal = Utils.portal_path_ref_from_path_uri (resolved, selected_uri);
             entry.runner_id = runner_id;
             entry.runner_version = runner_version;
             entry.variant_id = variant_id;

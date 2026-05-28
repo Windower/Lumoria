@@ -201,11 +201,39 @@ namespace Lumoria.Models {
         variable_rules.add (rule);
     }
 
+    public class PortalPathRef : Object {
+        public string document_id { get; set; default = ""; }
+        public string document_path { get; set; default = ""; }
+        public string uri { get; set; default = ""; }
+
+        public bool is_empty () {
+            return document_id == "" || document_path == "";
+        }
+
+        public Json.Object to_json () {
+            var obj = new Json.Object ();
+            if (document_id != "") obj.set_string_member ("document_id", document_id);
+            if (document_path != "") obj.set_string_member ("document_path", document_path);
+            if (uri != "") obj.set_string_member ("uri", uri);
+            return obj;
+        }
+
+        public static PortalPathRef from_json (Json.Object obj) {
+            var r = new PortalPathRef ();
+            r.document_id = json_string (obj, "document_id");
+            r.document_path = json_string (obj, "document_path");
+            r.uri = json_string (obj, "uri");
+            return r;
+        }
+    }
+
     public class Entrypoint : BaseSpec {
         public string exe { get; set; default = ""; }
+        public PortalPathRef? exe_portal { get; set; default = null; }
         public Gee.ArrayList<string> args { get; owned set; default = new Gee.ArrayList<string> (); }
         public bool is_default { get; set; default = false; }
         public string prelaunch_script { get; set; default = ""; }
+        public PortalPathRef? prelaunch_script_portal { get; set; default = null; }
         public WhenClause? when { get; set; default = null; }
         public Gee.ArrayList<EnvRule> env { get; owned set; default = new Gee.ArrayList<EnvRule> (); }
         public Gee.HashMap<string, RuntimeComponentOverride> component_overrides {
@@ -222,9 +250,15 @@ namespace Lumoria.Models {
             var e = new Entrypoint ();
             e.parse_base (obj);
             e.exe = json_string (obj, "exe");
+            if (obj.has_member ("exe_portal")) {
+                e.exe_portal = PortalPathRef.from_json (obj.get_object_member ("exe_portal"));
+            }
             e.is_default = json_bool (obj, "default");
             e.args = json_string_array (obj, "args");
             e.prelaunch_script = json_string (obj, "prelaunch_script");
+            if (obj.has_member ("prelaunch_script_portal")) {
+                e.prelaunch_script_portal = PortalPathRef.from_json (obj.get_object_member ("prelaunch_script_portal"));
+            }
             e.when = WhenClause.from_json_member (obj);
             e.env = parse_env_rules (obj);
             e.component_overrides = json_component_override_map (obj, "component_overrides");

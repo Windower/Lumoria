@@ -9,7 +9,7 @@
       "debug": ""
     },
     "logging": {
-      "mode": "memory"
+      "keep_files": false
     },
     "patches": {
       "large_address_aware": false

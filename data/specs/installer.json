@@ -3,19 +3,6 @@
   "name": "Final Fantasy XI",
   "version": "1.0",
   "variables": {
-    "SE_DIR": {
-      "default": "drive_c/Program Files (x86)/PlayOnline/SquareEnix",
-      "rules": [
-        {
-          "value": "drive_c/Program Files/PlayOnline/SquareEnix",
-          "when": {
-            "var": {
-              "ARCH": "win32"
-            }
-          }
-        }
-      ]
-    },
     "WINE_USERPROFILE_HOST": "${winepath:%USERPROFILE%}",
     "REGION": "${prefix.region}"
   },
@@ -23,18 +10,18 @@
     {
       "id": "pol",
       "name": "PlayOnline Viewer",
-      "exe": "${var.SE_DIR}/PlayOnlineViewer/pol.exe",
+      "exe": "${var.POL_DIR}/pol.exe",
       "default": true
     },
     {
       "id": "pol-config",
       "name": "PlayOnline Config",
-      "exe": "${var.SE_DIR}/PlayOnlineViewer/polcfg/polcfg.exe"
+      "exe": "${var.POL_DIR}/polcfg/polcfg.exe"
     },
     {
       "id": "ffxi-config",
       "name": "Final Fantasy XI Config",
-      "exe": "${var.SE_DIR}/FINAL FANTASY XI/Tools${var.REGION:upper}/FINAL FANTASY XI Config.exe",
+      "exe": "${var.FFXI_DIR}/Tools${var.REGION:upper}/FINAL FANTASY XI Config.exe",
       "when": {
         "not": {
           "var": {
@@ -46,7 +33,7 @@
     {
       "id": "ffxi-config",
       "name": "Final Fantasy XI Config",
-      "exe": "${var.SE_DIR}/FINAL FANTASY XI/Tools/FINAL FANTASY XI Config.exe",
+      "exe": "${var.FFXI_DIR}/Tools/FINAL FANTASY XI Config.exe",
       "when": {
         "var": {
           "REGION": "jp"
@@ -56,7 +43,7 @@
     {
       "id": "ffxi-padconfig",
       "name": "FFXI Gamepad Config",
-      "exe": "${var.SE_DIR}/FINAL FANTASY XI/Tools${var.REGION:upper}/FFXiPadConfig.exe",
+      "exe": "${var.FFXI_DIR}/Tools${var.REGION:upper}/FFXiPadConfig.exe",
       "when": {
         "not": {
           "var": {
@@ -68,7 +55,7 @@
     {
       "id": "ffxi-padconfig",
       "name": "FFXI Gamepad Config",
-      "exe": "${var.SE_DIR}/FINAL FANTASY XI/Tools/FFXiPadConfig.exe",
+      "exe": "${var.FFXI_DIR}/Tools/FFXiPadConfig.exe",
       "when": {
         "var": {
           "REGION": "jp"
@@ -168,11 +155,11 @@
       "working_dir": "${var.CACHE}",
       "when": {
         "not": {
-          "file_exists": "${var.PREFIX}/${var.SE_DIR}/PlayOnlineViewer/pol.exe"
+          "file_exists": "${var.PREFIX}/${var.POL_DIR}/pol.exe"
         }
       },
       "verify_paths": [
-        "${var.PREFIX}/${var.SE_DIR}/PlayOnlineViewer"
+        "${var.PREFIX}/${var.POL_DIR}"
       ]
     },
     {
@@ -187,12 +174,17 @@
       "working_dir": "${var.CACHE}",
       "when": {
         "not": {
-          "file_exists": "${var.PREFIX}/${var.SE_DIR}/FINAL FANTASY XI"
+          "file_exists": "${var.PREFIX}/${var.FFXI_DIR}"
         }
       },
       "verify_paths": [
-        "${var.PREFIX}/${var.SE_DIR}/FINAL FANTASY XI"
+        "${var.PREFIX}/${var.FFXI_DIR}"
       ]
+    },
+    {
+      "type": "delete",
+      "description": "Remove extracted installer files",
+      "dst": "${var.CACHE}/FFXIFullSetup_${var.REGION:upper}"
     },
     {
       "type": "write",

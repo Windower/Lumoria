@@ -1,5 +1,6 @@
 namespace Lumoria.Runtime {
     private delegate string RegFileRewriter (string data);
+    private const int DOTNET_NGEN_TIMEOUT_MS = 3 * 60 * 1000;
 
     public class RedistOptions : Object {
         public string cache_dir { get; set; default = ""; }
@@ -88,7 +89,7 @@ namespace Lumoria.Runtime {
         logger.emit_line ("Setting mscoree DLL override to native...\n");
         set_dll_override (opts, "mscoree", DLL_NATIVE, logger);
 
-        logger.emit_line ("Processing queued .NET native images...\n");
+        logger.emit_line ("Processing queued .NET native images (timeout: 3 minutes)...\n");
         run_ngen_executequeueditems (opts, logger);
 
         var mscorlib = Path.build_filename (
@@ -141,7 +142,7 @@ namespace Lumoria.Runtime {
         if (FileUtils.test (ngen, FileTest.EXISTS)) {
             try {
                 run_wine_command (opts.wine_bin, { ngen, "executequeueditems" },
-                    opts.wine_env, null, logger, opts.cancellable);
+                    opts.wine_env, null, logger, opts.cancellable, DOTNET_NGEN_TIMEOUT_MS);
             } catch (Error e) {
                 logger.typed (LogType.DEBUG, "ngen executequeueditems failed (non-fatal): %s".printf (e.message));
             }

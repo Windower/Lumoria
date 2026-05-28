@@ -5,31 +5,6 @@ namespace Lumoria.Utils {
         COMPONENT
     }
 
-    public enum LoggingMode {
-        DONT_KEEP,
-        KEEP;
-
-        public static LoggingMode from_settings () {
-            return from_value (Preferences.instance ().logging_mode);
-        }
-
-        public static LoggingMode from_value (string value) {
-            switch (value) {
-                case "off":
-                case "memory":
-                case "dont_keep": return DONT_KEEP;
-                default: return KEEP;
-            }
-        }
-
-        public string to_value () {
-            switch (this) {
-                case DONT_KEEP: return "dont_keep";
-                default: return "keep";
-            }
-        }
-    }
-
     public class Preferences : Object {
         private static Preferences? _instance = null;
         private string file_path;
@@ -45,7 +20,7 @@ namespace Lumoria.Utils {
         private bool _updates_lumoria = true;
         private bool _updates_runners = true;
         private bool _updates_components = true;
-        private string _logging_mode = "memory";
+        private bool _keep_runtime_logs = false;
         private bool _wine_wayland = false;
         private string _sync_mode = "ntsync";
         private string _wine_debug = "";
@@ -57,7 +32,7 @@ namespace Lumoria.Utils {
         public bool updates_lumoria { get { return _updates_lumoria; } }
         public bool updates_runners { get { return _updates_runners; } }
         public bool updates_components { get { return _updates_components; } }
-        public string logging_mode { get { return _logging_mode; } }
+        public bool keep_runtime_logs { get { return _keep_runtime_logs; } }
         public bool wine_wayland { get { return _wine_wayland; } }
         public string sync_mode { get { return _sync_mode; } }
         public string wine_debug { get { return _wine_debug; } }
@@ -109,8 +84,8 @@ namespace Lumoria.Utils {
             save ();
         }
 
-        public void set_logging_mode (string mode) {
-            _logging_mode = mode;
+        public void set_keep_runtime_logs (bool enabled) {
+            _keep_runtime_logs = enabled;
             save ();
         }
 
@@ -264,7 +239,7 @@ namespace Lumoria.Utils {
             _sync_mode = defaults.sync_mode;
             _wine_debug = defaults.wine_debug;
             _large_address_aware = defaults.large_address_aware;
-            _logging_mode = defaults.logging_mode;
+            _keep_runtime_logs = defaults.keep_runtime_logs;
             _experimental_features = false;
             _session_manager = false;
             _gamepad_navigation = false;
@@ -311,7 +286,7 @@ namespace Lumoria.Utils {
                 bool has_sync_mode = false;
                 bool has_wine_debug = false;
                 bool has_large_address_aware = false;
-                bool has_logging_mode = false;
+                bool has_keep_runtime_logs = false;
 
                 if (obj.has_member ("runner_id")) {
                     runner_id = obj.get_string_member ("runner_id");
@@ -333,7 +308,8 @@ namespace Lumoria.Utils {
                 }
                 if (obj.has_member ("logging")) {
                     var logging_obj = obj.get_object_member ("logging");
-                    has_logging_mode = logging_obj.has_member ("mode");
+                    has_keep_runtime_logs = logging_obj.has_member ("keep_files")
+                        || logging_obj.has_member ("mode");
                 }
                 if (obj.has_member ("experimental_features"))
                     _experimental_features = obj.get_boolean_member ("experimental_features");
@@ -355,7 +331,7 @@ namespace Lumoria.Utils {
                     has_sync_mode,
                     has_wine_debug,
                     has_large_address_aware,
-                    has_logging_mode
+                    has_keep_runtime_logs
                 )) {
                     save ();
                 }
@@ -371,7 +347,7 @@ namespace Lumoria.Utils {
             bool has_sync_mode,
             bool has_wine_debug,
             bool has_large_address_aware,
-            bool has_logging_mode
+            bool has_keep_runtime_logs
         ) {
             bool changed = false;
             var defaults = resolved_defaults ();
@@ -400,8 +376,8 @@ namespace Lumoria.Utils {
                 _large_address_aware = defaults.large_address_aware;
                 changed = true;
             }
-            if (!has_logging_mode) {
-                _logging_mode = defaults.logging_mode;
+            if (!has_keep_runtime_logs) {
+                _keep_runtime_logs = defaults.keep_runtime_logs;
                 changed = true;
             }
 
@@ -437,8 +413,13 @@ namespace Lumoria.Utils {
         private void load_logging (Json.Object obj) {
             if (!obj.has_member ("logging")) return;
             var log_obj = obj.get_object_member ("logging");
-            if (log_obj.has_member ("mode"))
-                _logging_mode = log_obj.get_string_member ("mode");
+            if (log_obj.has_member ("keep_files")) {
+                _keep_runtime_logs = log_obj.get_boolean_member ("keep_files");
+                return;
+            }
+            if (log_obj.has_member ("mode")) {
+                _keep_runtime_logs = logging_mode_keeps_files (log_obj.get_string_member ("mode"));
+            }
         }
 
         private void load_wine (Json.Object obj) {
@@ -505,7 +486,7 @@ namespace Lumoria.Utils {
             obj.set_object_member ("updates", upd);
 
             var log_obj = new Json.Object ();
-            log_obj.set_string_member ("mode", _logging_mode);
+            log_obj.set_boolean_member ("keep_files", _keep_runtime_logs);
             obj.set_object_member ("logging", log_obj);
 
             var wine_obj = new Json.Object ();
@@ -563,6 +544,17 @@ namespace Lumoria.Utils {
                 gen.to_file (file_path);
             } catch (Error e) {
                 warning ("Failed to save preferences: %s", e.message);
+            }
+        }
+
+        private static bool logging_mode_keeps_files (string value) {
+            switch (value) {
+                case "off":
+                case "memory":
+                case "dont_keep":
+                    return false;
+                default:
+                    return true;
             }
         }
     }

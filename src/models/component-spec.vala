@@ -5,6 +5,7 @@ namespace Lumoria.Models {
         public string asset_regex { get; set; default = ""; }
         public string checksum_regex { get; set; default = ""; }
         public string default_version { get; set; default = "latest"; }
+        public string source_archive { get; set; default = ""; }
         public Gee.HashMap<string, string> system_env_defaults { get; owned set; default = new Gee.HashMap<string, string> (); }
         public Gee.HashMap<string, string> overrides { get; owned set; default = new Gee.HashMap<string, string> (); }
 
@@ -15,6 +16,7 @@ namespace Lumoria.Models {
             s.asset_regex = json_string (obj, "asset_regex");
             s.checksum_regex = json_string (obj, "checksum_regex");
             s.default_version = json_string (obj, "default_version", "latest");
+            s.source_archive = json_string (obj, "source_archive");
             s.system_env_defaults = json_string_map (obj, "system_env_defaults");
             s.overrides = json_string_map (obj, "overrides");
             return s;

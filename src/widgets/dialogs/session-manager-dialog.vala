@@ -53,8 +53,7 @@ namespace Lumoria.Widgets.Dialogs {
 
             empty_page = new Adw.StatusPage () {
                 icon_name = IconRegistry.INFO,
-                title = _("No Active Launches"),
-                description = _("No active launches are being managed by Lumoria.")
+                title = _("No Active Processes")
             };
 
             launch_list = new Gtk.ListBox ();
@@ -225,10 +224,10 @@ namespace Lumoria.Widgets.Dialogs {
         }
 
         private void confirm_stop_launch (Cli.SessionLaunchInfo info) {
-            var target = info.label != "" ? info.label : _("this launch");
+            var target = info.label != "" ? info.label : _("this process");
             SettingsShared.present_destructive_confirmation (
                 this,
-                _("Stop Launch?"),
+                _("Stop Process?"),
                 _("Stop %s?").printf (target),
                 "stop",
                 _("Stop"),
@@ -252,8 +251,8 @@ namespace Lumoria.Widgets.Dialogs {
         private void on_stop_all () {
             SettingsShared.present_destructive_confirmation (
                 this,
-                _("Stop All Launches?"),
-                _("Stop every session-managed launch?"),
+                _("Stop All Processes?"),
+                _("Stop all running processes?"),
                 "stop_all",
                 _("Stop All"),
                 () => {
@@ -261,11 +260,11 @@ namespace Lumoria.Widgets.Dialogs {
                     stop_all_btn.sensitive = false;
                     service.stop_all_async (
                         () => {
-                            show_toast (_("All launches stopped."));
+                            show_toast (_("All processes stopped."));
                             refresh_launches ();
                         },
                         (error) => {
-                            show_toast (_("Stop all failed: %s").printf (error));
+                            show_toast (_("Stop all processes failed: %s").printf (error));
                             refresh_launches ();
                         }
                     );

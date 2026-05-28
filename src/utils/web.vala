@@ -18,6 +18,8 @@ namespace Lumoria.Utils {
         public string tag_name { get; set; default = ""; }
         public string name { get; set; default = ""; }
         public string published_at { get; set; default = ""; }
+        public string zipball_url { get; set; default = ""; }
+        public string tarball_url { get; set; default = ""; }
         public Gee.ArrayList<GitHubAsset> assets { get; owned set; default = new Gee.ArrayList<GitHubAsset> (); }
 
         public static GitHubRelease from_json (Json.Object obj) {
@@ -25,6 +27,8 @@ namespace Lumoria.Utils {
             r.tag_name = Models.json_string (obj, "tag_name");
             r.name = Models.json_string (obj, "name");
             r.published_at = Models.json_string (obj, "published_at");
+            r.zipball_url = Models.json_string (obj, "zipball_url");
+            r.tarball_url = Models.json_string (obj, "tarball_url");
             if (obj.has_member ("assets")) {
                 var arr = obj.get_array_member ("assets");
                 for (uint i = 0; i < arr.get_length (); i++) {

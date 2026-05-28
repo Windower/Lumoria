@@ -1,7 +1,7 @@
 namespace Lumoria.Widgets.Preferences {
 
     public class RuntimePage : Gtk.Box {
-        private OptionListRow logging_combo;
+        private Adw.SwitchRow logging_row;
         private Adw.SwitchRow wayland_row;
         private OptionListRow sync_mode_combo;
         private OptionListRow debug_combo;
@@ -19,18 +19,17 @@ namespace Lumoria.Widgets.Preferences {
 
             var logging_group = SettingsShared.build_group (_("Logging"));
 
-            logging_combo = new OptionListRow ();
-            logging_combo.title = _("Runtime Launch Logs");
-            logging_combo.model = SettingsShared.build_logging_mode_model ();
-            logging_combo.selected = (uint) Utils.LoggingMode.from_value (prefs.logging_mode);
-            logging_combo.notify["selected"].connect (() => {
-                var mode = ((Utils.LoggingMode) logging_combo.selected).to_value ();
-                if (prefs.logging_mode != mode) {
-                    prefs.set_logging_mode (mode);
+            logging_row = new Adw.SwitchRow ();
+            logging_row.title = _("Enable Logging");
+            logging_row.subtitle = _("Keep log files under prefix-path/logs.");
+            logging_row.active = prefs.keep_runtime_logs;
+            logging_row.notify["active"].connect (() => {
+                if (prefs.keep_runtime_logs != logging_row.active) {
+                    prefs.set_keep_runtime_logs (logging_row.active);
                 }
                 update_debug_combo_state ();
             });
-            logging_group.add (logging_combo);
+            logging_group.add (logging_row);
             append (logging_group);
 
             var wine_group = SettingsShared.build_group (_("Wine"));
@@ -117,19 +116,8 @@ namespace Lumoria.Widgets.Preferences {
         }
 
         private void update_debug_combo_state () {
-            if (debug_combo == null || logging_combo == null) return;
-
-            var logs_disabled = ((Utils.LoggingMode) logging_combo.selected) == Utils.LoggingMode.DONT_KEEP;
-            debug_combo.sensitive = !logs_disabled;
-            if (logs_disabled) {
-                debug_combo.subtitle = _("Forced off while runtime launch logs are not kept.");
-                return;
-            }
-
-            var model = debug_combo.model;
-            if (model != null && debug_combo.selected < model.get_n_items ()) {
-                debug_combo.subtitle = model.get_string (debug_combo.selected);
-            }
+            if (debug_combo == null || logging_row == null) return;
+            Dialogs.RunnerSettingsShared.update_debug_combo_logging_state (debug_combo, logging_row.active);
         }
     }
 }

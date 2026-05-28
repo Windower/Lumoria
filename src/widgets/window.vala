@@ -212,7 +212,15 @@ namespace Lumoria.Widgets {
             bool restored_expanded = false;
             for (int i = 0; i < registry.prefixes.size; i++) {
                 var entry = registry.prefixes[i];
-                var row = new PrefixRowWidget (entry, i, runner_specs, launcher_specs, is_gamescope, registry.is_default (entry));
+                var row = new PrefixRowWidget (
+                    entry,
+                    i,
+                    runner_specs,
+                    launcher_specs,
+                    is_gamescope,
+                    registry.is_default (entry),
+                    prefix_needs_grant (entry)
+                );
                 row.play_requested.connect ((idx) => on_play_entrypoint (idx, ""));
                 row.play_entrypoint_requested.connect (on_play_entrypoint);
                 row.action_requested.connect (on_run_spec_action);
@@ -220,6 +228,7 @@ namespace Lumoria.Widgets {
                 row.wine_tools_requested.connect (on_wine_tools);
                 row.open_logs_requested.connect (on_open_logs);
                 row.set_default_requested.connect (on_set_default);
+                row.grant_access_requested.connect (on_grant_prefix_access);
                 int row_index = i;
                 row.notify["expanded"].connect (() => {
                     if (!row.expanded) return;
@@ -263,7 +272,10 @@ namespace Lumoria.Widgets {
 
         private void update_global_play_sensitivity () {
             var def = registry.default_prefix ();
-            global_play_btn.sensitive = active_launch_index < 0 && def != null && def.runner_id != "";
+            global_play_btn.sensitive = active_launch_index < 0
+                && def != null
+                && def.runner_id != ""
+                && !prefix_needs_grant (def);
         }
 
         public void show_toast (string message) {
@@ -275,11 +287,21 @@ namespace Lumoria.Widgets {
             return registry.prefixes[index];
         }
 
+        private bool prefix_needs_grant (Models.PrefixEntry? entry) {
+            if (entry == null || !Utils.is_sandboxed ()) return false;
+            if (entry.path_portal == null || entry.path_portal.is_empty ()) return false;
+            return !FileUtils.test (entry.resolved_path (), FileTest.IS_DIR);
+        }
+
         private Models.PrefixEntry? require_runnable (int index) {
             var entry = entry_at (index);
             if (entry == null) return null;
             if (entry.runner_id == "") {
                 show_toast (_("Set a runner for this prefix in Manage Prefix."));
+                return null;
+            }
+            if (prefix_needs_grant (entry)) {
+                show_toast (_("Permission required to access this prefix."));
                 return null;
             }
             return entry;
@@ -305,7 +327,8 @@ namespace Lumoria.Widgets {
                     registry.prefixes[i],
                     runner_specs,
                     is_gamescope,
-                    registry.is_default (registry.prefixes[i])
+                    registry.is_default (registry.prefixes[i]),
+                    prefix_needs_grant (registry.prefixes[i])
                 );
             }
 
@@ -390,9 +413,141 @@ namespace Lumoria.Widgets {
             if (entry == null) return;
 
             var prefix_dir = entry.resolved_path ();
+            if (!FileUtils.test (prefix_dir, FileTest.IS_DIR)) {
+                if (Utils.is_sandboxed ()) {
+                    recover_missing_prefix_directory (index, entry);
+                    return;
+                }
+            }
             SettingsShared.open_directory (this, prefix_dir, (message) => {
                 show_toast (_("Could not open prefix directory: %s").printf (message));
             });
+        }
+
+        private void on_grant_prefix_access (int index) {
+            var entry = entry_at (index);
+            if (entry == null) return;
+            present_grant_access_dialog (index, entry);
+        }
+
+        private void present_grant_access_dialog (int index, Models.PrefixEntry entry) {
+            var expected = expected_prefix_folder_name (entry);
+            var diagnostics = Utils.portal_path_diagnostics (entry.path_portal);
+            var details = "";
+            if (diagnostics.has_portal_ref && entry.path_portal != null) {
+                details = _("\n\nSaved document: %s/%s").printf (
+                    entry.path_portal.document_id,
+                    entry.path_portal.document_path
+                );
+            }
+
+            var body = _(
+                "We're sorry, there has been a problem. We need to regrant permission to your prefix.\n\n" +
+                "Please select the folder named \"%s\"."
+            ).printf (expected) + details;
+
+            var dialog = new Adw.AlertDialog (_("Grant Prefix Access"), body);
+            dialog.add_response ("cancel", _("Cancel"));
+            dialog.add_response ("grant", _("Grant Access"));
+            dialog.set_response_appearance ("grant", Adw.ResponseAppearance.SUGGESTED);
+            dialog.default_response = "grant";
+            dialog.close_response = "cancel";
+            dialog.response.connect ((response) => {
+                if (response == "grant") {
+                    recover_missing_prefix_directory (index, entry);
+                }
+            });
+            dialog.present (this);
+        }
+
+        private void recover_missing_prefix_directory (int index, Models.PrefixEntry entry) {
+            var dialog = new Gtk.FileDialog ();
+            dialog.title = _("Grant Prefix Access");
+            dialog.modal = true;
+
+            dialog.select_folder.begin (this, null, (obj, res) => {
+                try {
+                    var file = dialog.select_folder.end (res);
+                    if (file == null) return;
+
+                    var path = file.get_path ();
+                    if (path == null || path == "") return;
+
+                    handle_regranted_prefix_folder (index, entry, file, path);
+                } catch (Error e) {
+                    show_toast (_("Could not locate prefix directory: %s").printf (e.message));
+                }
+            });
+        }
+
+        private void handle_regranted_prefix_folder (
+            int index,
+            Models.PrefixEntry entry,
+            File file,
+            string path
+        ) {
+            if (!is_valid_prefix_root (path)) {
+                show_toast (_("Selected folder does not look like a Lumoria prefix."));
+                return;
+            }
+
+            var expected = expected_prefix_folder_name (entry);
+            var selected = Path.get_basename (Utils.normalize_dir_path (path));
+            if (expected != "" && selected != expected) {
+                confirm_prefix_folder_mismatch (index, entry, file, path, expected, selected);
+                return;
+            }
+
+            save_regranted_prefix_folder (entry, file, path);
+        }
+
+        private void confirm_prefix_folder_mismatch (
+            int index,
+            Models.PrefixEntry entry,
+            File file,
+            string path,
+            string expected,
+            string selected
+        ) {
+            var dialog = new Adw.AlertDialog (
+                _("Use Different Folder?"),
+                _("Lumoria expected the folder named \"%s\", but you selected \"%s\". Use this folder for the prefix?").printf (
+                    expected,
+                    selected
+                )
+            );
+            dialog.add_response ("cancel", _("Cancel"));
+            dialog.add_response ("use", _("Use This Folder"));
+            dialog.set_response_appearance ("use", Adw.ResponseAppearance.SUGGESTED);
+            dialog.default_response = "cancel";
+            dialog.close_response = "cancel";
+            dialog.response.connect ((response) => {
+                if (response == "use") {
+                    save_regranted_prefix_folder (entry, file, path);
+                }
+            });
+            dialog.present (this);
+        }
+
+        private void save_regranted_prefix_folder (Models.PrefixEntry entry, File file, string path) {
+            entry.path = path;
+            entry.uri = file.get_uri ();
+            entry.path_portal = Utils.portal_path_ref_from_path_uri (entry.path, entry.uri);
+            registry.update_entry (entry);
+            save_and_refresh ();
+        }
+
+        private bool is_valid_prefix_root (string path) {
+            return FileUtils.test (Path.build_filename (path, "pfx", "drive_c"), FileTest.IS_DIR);
+        }
+
+        private string expected_prefix_folder_name (Models.PrefixEntry entry) {
+            if (entry.path_portal != null && entry.path_portal.document_path != "") {
+                return Path.get_basename (Utils.normalize_dir_path (entry.path_portal.document_path));
+            }
+            var resolved = entry.resolved_path ();
+            if (resolved != "") return Path.get_basename (Utils.normalize_dir_path (resolved));
+            return entry.display_name ();
         }
 
         private void on_launch_exe (int index) {

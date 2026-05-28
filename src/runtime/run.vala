@@ -98,11 +98,20 @@ namespace Lumoria.Runtime {
         if (!Utils.EnvironmentInfo.is_gamescope ()) {
             var prelaunch_work_dir = ctx.prefix_path;
             argv = wrap_with_prelaunch (
-                active_entrypoint != null ? active_entrypoint.prelaunch_script : "",
+                active_entrypoint != null
+                    ? Utils.resolve_user_path (
+                        active_entrypoint.prelaunch_script,
+                        active_entrypoint.prelaunch_script_portal
+                    )
+                    : "",
                 prelaunch_work_dir,
                 argv
             );
-            argv = wrap_with_prelaunch (entry.prelaunch_script, prelaunch_work_dir, argv);
+            argv = wrap_with_prelaunch (
+                Utils.resolve_user_path (entry.prelaunch_script, entry.prelaunch_script_portal),
+                prelaunch_work_dir,
+                argv
+            );
         }
 
         return spawn_wrapped_process (

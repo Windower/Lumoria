@@ -476,6 +476,7 @@ namespace Lumoria.Runtime {
             var cache_root = ensure_cache_subdir (Path.build_filename ("actions", entry.id), action.id);
             var vars = build_action_vars (runtime.prefix_path, cache_root, entry, launcher_specs, action);
             vars["ARCH"] = runtime.wine_arch;
+            set_game_install_vars (vars, runtime.wine_arch);
             vars["REGION"] = entry.region;
             var installer_spec = Models.InstallerSpec.load_from_resource ();
             Models.LauncherSpec? launcher = null;
@@ -1770,6 +1771,7 @@ namespace Lumoria.Runtime {
         Gee.ArrayList<Models.EnvRule>? variable_rules = null
     ) {
         vars["ARCH"] = runtime.wine_arch;
+        set_game_install_vars (vars, runtime.wine_arch);
         resolve_prefix_vars (vars, entry, logger);
         if (variable_rules != null) {
             apply_install_variable_rules (vars, variable_rules);

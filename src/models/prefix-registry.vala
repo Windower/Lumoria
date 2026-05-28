@@ -87,6 +87,7 @@ namespace Lumoria.Models {
                 reg.default_prefix_id = json_string (root, "default_prefix_id");
                 var changed = reg.backfill_runner_state ();
                 changed = reg.migrate_duplicate_custom_entry_ids () || changed;
+                changed = reg.backfill_portal_path_refs () || changed;
                 if (changed) {
                     reg.save (path);
                 }
@@ -117,6 +118,45 @@ namespace Lumoria.Models {
             var changed = false;
             foreach (var prefix in prefixes) {
                 if (migrate_duplicate_custom_entry_ids_for_prefix (prefix)) changed = true;
+            }
+            return changed;
+        }
+
+        private bool backfill_portal_path_refs () {
+            var changed = false;
+            foreach (var prefix in prefixes) {
+                if (prefix.path_portal == null) {
+                    var portal = Utils.portal_path_ref_from_path_uri (prefix.path, prefix.uri);
+                    if (portal != null) {
+                        prefix.path_portal = portal;
+                        changed = true;
+                    }
+                }
+
+                if (prefix.prelaunch_script_portal == null) {
+                    var portal = Utils.portal_path_ref_from_path_uri (prefix.prelaunch_script);
+                    if (portal != null) {
+                        prefix.prelaunch_script_portal = portal;
+                        changed = true;
+                    }
+                }
+
+                foreach (var ep in prefix.custom_entrypoints) {
+                    if (ep.exe_portal == null) {
+                        var portal = Utils.portal_path_ref_from_path_uri (ep.exe);
+                        if (portal != null) {
+                            ep.exe_portal = portal;
+                            changed = true;
+                        }
+                    }
+                    if (ep.prelaunch_script_portal == null) {
+                        var portal = Utils.portal_path_ref_from_path_uri (ep.prelaunch_script);
+                        if (portal != null) {
+                            ep.prelaunch_script_portal = portal;
+                            changed = true;
+                        }
+                    }
+                }
             }
             return changed;
         }

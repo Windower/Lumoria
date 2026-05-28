@@ -194,7 +194,7 @@ namespace Lumoria.Widgets.Dialogs {
         public void start_install (Runtime.InstallOptions opts) {
             action_mode = false;
             this.prefix_path = opts.prefix_path;
-            open_logs_btn.sensitive = Utils.LoggingMode.from_settings () == Utils.LoggingMode.KEEP;
+            open_logs_btn.sensitive = Utils.Preferences.instance ().keep_runtime_logs;
             if (Utils.is_prefixes_root_path (opts.prefix_path)) {
                 append_log (_("You cannot install directly into the prefixes root.\n"));
                 append_log (_("Choose a subdirectory inside: %s\n").printf (Utils.default_prefix_dir ()));
@@ -223,7 +223,7 @@ namespace Lumoria.Widgets.Dialogs {
         ) {
             action_mode = true;
             this.prefix_path = entry.resolved_path ();
-            open_logs_btn.sensitive = Utils.LoggingMode.from_settings () == Utils.LoggingMode.KEEP;
+            open_logs_btn.sensitive = Utils.Preferences.instance ().keep_runtime_logs;
             install_progress = new Runtime.InstallProgress ();
             bind_progress_handlers ();
 
@@ -240,7 +240,7 @@ namespace Lumoria.Widgets.Dialogs {
         ) {
             action_mode = true;
             this.prefix_path = entry.resolved_path ();
-            open_logs_btn.sensitive = Utils.LoggingMode.from_settings () == Utils.LoggingMode.KEEP;
+            open_logs_btn.sensitive = Utils.Preferences.instance ().keep_runtime_logs;
             install_progress = new Runtime.InstallProgress ();
             bind_progress_handlers ();
 

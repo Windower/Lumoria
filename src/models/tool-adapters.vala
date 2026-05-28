@@ -14,6 +14,7 @@ namespace Lumoria.Models {
         protected abstract Utils.GitHubAsset? match_asset (Utils.GitHubRelease release);
         protected abstract string version_dir_for (string tag);
         protected virtual string checksum_regex () { return ""; }
+        protected virtual string source_archive_kind () { return ""; }
         protected virtual bool skips_version (string tag) { return false; }
 
         protected string releases_cache_path () {
@@ -131,7 +132,8 @@ namespace Lumoria.Models {
 
         protected bool release_is_available (Utils.GitHubRelease release) {
             if (skips_version (release.tag_name)) return false;
-            return match_asset (release) != null;
+            if (match_asset (release) != null) return true;
+            return source_archive_url (release) != "";
         }
 
         public virtual void install_version (ToolVersion ver, VersionProgress? progress) throws Error {
@@ -144,23 +146,62 @@ namespace Lumoria.Models {
             if (release == null) throw new IOError.FAILED ("Release not found: %s", ver.tag);
 
             var asset = match_asset (release);
-            if (asset == null) throw new IOError.FAILED ("No matching asset in %s", release.tag_name);
+            var archive_path = "";
+            if (asset != null) {
+                archive_path = Path.build_filename (cache_root, asset.name);
+                var expected_checksum = resolve_asset_checksum (release, asset.name, cache_root);
+                Utils.ensure_downloaded_file (
+                    asset.browser_download_url,
+                    archive_path,
+                    asset.size,
+                    expected_checksum,
+                    tool_id,
+                    (dl, total) => {
+                        if (progress != null) progress (dl, total);
+                    }
+                );
+            } else {
+                var source_url = source_archive_url (release);
+                if (source_url == "") throw new IOError.FAILED ("No matching asset or source archive in %s", release.tag_name);
 
-            var archive_path = Path.build_filename (cache_root, asset.name);
-            var expected_checksum = resolve_asset_checksum (release, asset.name, cache_root);
-            Utils.ensure_downloaded_file (
-                asset.browser_download_url,
-                archive_path,
-                asset.size,
-                expected_checksum,
-                tool_id,
-                (dl, total) => {
-                    if (progress != null) progress (dl, total);
-                }
-            );
+                archive_path = Path.build_filename (cache_root, source_archive_name (release));
+                Utils.ensure_downloaded_file (
+                    source_url,
+                    archive_path,
+                    0,
+                    "",
+                    tool_id,
+                    (dl, total) => {
+                        if (progress != null) progress (dl, total);
+                    }
+                );
+            }
 
             var extract_to = Path.build_filename (install_base_dir, version_dir_for (release.tag_name));
             Utils.extract_archive (archive_path, extract_to);
+        }
+
+        private string source_archive_url (Utils.GitHubRelease release) {
+            switch (source_archive_kind ().strip ().down ()) {
+                case "zip":
+                    return release.zipball_url;
+                case "tar":
+                case "tar.gz":
+                case "tgz":
+                    return release.tarball_url;
+                default:
+                    return "";
+            }
+        }
+
+        private string source_archive_name (Utils.GitHubRelease release) {
+            var tag = release.tag_name.replace ("/", "-");
+            switch (source_archive_kind ().strip ().down ()) {
+                case "zip":
+                    return "%s-%s-source.zip".printf (tool_id, tag);
+                default:
+                    return "%s-%s-source.tar.gz".printf (tool_id, tag);
+            }
         }
 
         private string resolve_asset_checksum (Utils.GitHubRelease release, string asset_name, string cache_root) {
@@ -298,6 +339,10 @@ namespace Lumoria.Models {
 
         protected override string checksum_regex () {
             return spec.checksum_regex;
+        }
+
+        protected override string source_archive_kind () {
+            return spec.source_archive;
         }
 
         protected override bool skips_version (string tag) {

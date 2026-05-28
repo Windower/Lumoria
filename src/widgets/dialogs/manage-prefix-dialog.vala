@@ -23,6 +23,7 @@ namespace Lumoria.Widgets.Dialogs {
         private Adw.SwitchRow advanced_dxvk_row;
         private Gtk.Box dxvk_config_box;
         private Adw.SwitchRow dxvk_show_fps_row;
+        private Adw.SwitchRow dxvk_hide_integrated_graphics_row;
         private Adw.EntryRow dxvk_anisotropy_row;
         private Adw.EntryRow dxvk_max_frame_rate_row;
         private Adw.EntryRow dxvk_sync_interval_row;
@@ -179,9 +180,11 @@ namespace Lumoria.Widgets.Dialogs {
                 copy.id = ep.id;
                 copy.name = ep.name;
                 copy.exe = ep.exe;
+                copy.exe_portal = ep.exe_portal;
                 copy.args = new Gee.ArrayList<string> ();
                 copy.args.add_all (ep.args);
                 copy.prelaunch_script = ep.prelaunch_script;
+                copy.prelaunch_script_portal = ep.prelaunch_script_portal;
                 copy.component_overrides = new Gee.HashMap<string, Models.RuntimeComponentOverride> ();
                 foreach (var ov in ep.component_overrides.entries) {
                     var ov_copy = new Models.RuntimeComponentOverride ();
@@ -225,7 +228,7 @@ namespace Lumoria.Widgets.Dialogs {
 
             var runner_content = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
 
-            var runner_group = SettingsShared.build_group (_("Wine Runner"), 12);
+            var runner_group = SettingsShared.build_group (_("Runner"), 12);
 
             var runner_model = RunnerSettingsShared.build_runner_model (runner_specs);
             runner_combo = new OptionListRow ();
@@ -234,21 +237,30 @@ namespace Lumoria.Widgets.Dialogs {
             runner_combo.selected = RunnerSettingsShared.select_runner_index (runner_specs, entry.runner_id);
             runner_combo.notify["selected"].connect (on_runner_changed);
             runner_group.add (runner_combo);
+            runner_content.append (runner_group);
+
+            runner_content.append (SettingsShared.build_warning_card (
+                _("Changing the runner type for an existing prefix may not work correctly. Some runners set up the prefix differently when it is created, so switching between runner families later can break games or tools. Creating a new prefix is safer when changing runner families.")
+            ));
+
+            var variant_group = SettingsShared.build_group (_("Variant"), 12, 12);
 
             variant_combo = new OptionListRow ();
             variant_combo.title = _("Variant");
-            runner_group.add (variant_combo);
+            variant_group.add (variant_combo);
             rebuild_variant_combo (entry.variant_id);
+            runner_content.append (variant_group);
+
+            var version_group = SettingsShared.build_group (_("Version"), 12, 12);
 
             version_row = new Adw.ActionRow ();
             version_row.title = _("Version");
             version_row.activatable = true;
             version_row.activated.connect (open_version_picker);
-            runner_group.add (version_row);
+            version_group.add (version_row);
             update_version_row ();
             variant_combo.notify["selected"].connect (on_variant_changed);
-
-            runner_content.append (runner_group);
+            runner_content.append (version_group);
 
             latest_runner_warning = SettingsShared.build_warning_card (
                 _("Latest keeps this prefix on the newest runner automatically. Updates may change compatibility or behavior without notice.")
@@ -259,12 +271,6 @@ namespace Lumoria.Widgets.Dialogs {
 
             var runner_opts_group = SettingsShared.build_group (_("Runner Options"), 12, 12);
 
-            sync_combo = RunnerSettingsShared.build_sync_override_combo (entry.sync_mode);
-            runner_opts_group.add (sync_combo);
-
-            debug_combo = RunnerSettingsShared.build_debug_override_combo (entry.wine_debug);
-            runner_opts_group.add (debug_combo);
-
             wayland_combo = RunnerSettingsShared.build_wayland_combo (entry.wine_wayland);
             runner_opts_group.add (wayland_combo);
 
@@ -272,6 +278,16 @@ namespace Lumoria.Widgets.Dialogs {
             wayland_monitor_combo.title = _("Primary Wayland Monitor");
             runner_opts_group.add (wayland_monitor_combo);
             rebuild_wayland_monitor_combo (entry.wayland_primary_monitor);
+
+            sync_combo = RunnerSettingsShared.build_sync_override_combo (entry.sync_mode);
+            runner_opts_group.add (sync_combo);
+
+            debug_combo = RunnerSettingsShared.build_debug_override_combo (entry.wine_debug);
+            RunnerSettingsShared.update_debug_combo_logging_state (
+                debug_combo,
+                Utils.Preferences.instance ().keep_runtime_logs
+            );
+            runner_opts_group.add (debug_combo);
 
             runner_content.append (runner_opts_group);
 
@@ -302,7 +318,7 @@ namespace Lumoria.Widgets.Dialogs {
             }
 
             var dxvk_group = SettingsShared.build_group (_("DXVK Configuration"), 12, 12, 12);
-            dxvk_group.description = _("Leave fields blank to use DXVK defaults. Custom text is appended to the generated dxvk.conf.");
+            dxvk_group.description = _("Leave fields blank to use DXVK defaults.");
 
             advanced_dxvk_row = new Adw.SwitchRow ();
             advanced_dxvk_row.title = _("Advanced DXVK");
@@ -320,6 +336,12 @@ namespace Lumoria.Widgets.Dialogs {
             dxvk_show_fps_row.title = _("Show FPS");
             dxvk_show_fps_row.active = entry.dxvk_show_fps;
             dxvk_config_box.append (dxvk_show_fps_row);
+
+            dxvk_hide_integrated_graphics_row = new Adw.SwitchRow ();
+            dxvk_hide_integrated_graphics_row.title = _("Hide Integrated Graphics");
+            dxvk_hide_integrated_graphics_row.subtitle = _("Only use when a dedicated GPU is present. It is recommended to use the DXVK_FILTER_DEVICE_NAME environment variable when possible.");
+            dxvk_hide_integrated_graphics_row.active = entry.dxvk_hide_integrated_graphics;
+            dxvk_config_box.append (dxvk_hide_integrated_graphics_row);
 
             var anisotropy_info_row = new Adw.ActionRow ();
             anisotropy_info_row.title = _("Anisotropic Filtering");
@@ -357,7 +379,7 @@ namespace Lumoria.Widgets.Dialogs {
             dxvk_sync_interval_row.input_purpose = Gtk.InputPurpose.NUMBER;
             dxvk_config_box.append (dxvk_sync_interval_row);
 
-            var custom_label = new Gtk.Label (_("Custom"));
+            var custom_label = new Gtk.Label (_("Custom Configuration"));
             custom_label.xalign = 0f;
             custom_label.add_css_class ("heading");
             custom_label.margin_top = 12;
@@ -1161,7 +1183,9 @@ namespace Lumoria.Widgets.Dialogs {
                 var ep = existing ?? new Models.Entrypoint ();
                 ep.name = name_row.text.strip ();
                 ep.exe = exe_path;
+                ep.exe_portal = Utils.portal_path_ref_from_path_uri (exe_path);
                 ep.prelaunch_script = entry_prelaunch_path;
+                ep.prelaunch_script_portal = Utils.portal_path_ref_from_path_uri (entry_prelaunch_path);
                 ep.args = new Gee.ArrayList<string> ();
                 foreach (var arg in args_row.text.split (" ")) {
                     var a = arg.strip ();
@@ -1324,6 +1348,8 @@ namespace Lumoria.Widgets.Dialogs {
                     ((ToggleOverrideState) laa_combo.selected).to_nullable_bool ();
             }
             registry.prefixes[prefix_index].prelaunch_script = prelaunch_script_path;
+            registry.prefixes[prefix_index].prelaunch_script_portal =
+                Utils.portal_path_ref_from_path_uri (prelaunch_script_path);
             registry.prefixes[prefix_index].custom_entrypoints = custom_entries;
             registry.prefixes[prefix_index].runtime_env_vars = prefix_env_editor.values ();
             registry.prefixes[prefix_index].runtime_dll_overrides =
@@ -1332,6 +1358,7 @@ namespace Lumoria.Widgets.Dialogs {
             var dxvk_active = is_dxvk_active_in_dialog ();
             pfx.advanced_dxvk = dxvk_active && advanced_dxvk_row.active;
             pfx.dxvk_show_fps = dxvk_show_fps_row.active;
+            pfx.dxvk_hide_integrated_graphics = dxvk_hide_integrated_graphics_row.active;
             pfx.dxvk_sampler_anisotropy = dxvk_anisotropy_row.text.strip ();
             pfx.dxvk_max_frame_rate = dxvk_max_frame_rate_row.text.strip ();
             pfx.dxvk_sync_interval = dxvk_sync_interval_row.text.strip ();

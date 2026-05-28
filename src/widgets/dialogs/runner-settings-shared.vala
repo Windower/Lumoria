@@ -194,6 +194,19 @@ namespace Lumoria.Widgets.Dialogs {
             return Runtime.wine_debug_value_for_index (selected - 1);
         }
 
+        public static void update_debug_combo_logging_state (OptionListRow row, bool keep_runtime_logs) {
+            row.sensitive = keep_runtime_logs;
+            if (!keep_runtime_logs) {
+                row.subtitle = _("Disabled when logging is not enabled.");
+                return;
+            }
+
+            var model = row.model;
+            if (model != null && row.selected < model.get_n_items ()) {
+                row.subtitle = model.get_string (row.selected);
+            }
+        }
+
         private static string sync_mode_display_label (string mode) {
             switch (mode) {
                 case "fsync": return _("Fsync");

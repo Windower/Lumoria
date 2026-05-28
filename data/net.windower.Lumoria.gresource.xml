@@ -59,6 +59,7 @@
     <file>specs/redists/cjkfonts.json</file>
     <file>specs/redists/allfonts.json</file>
     <file>specs/components/d7vk.json</file>
+    <file>specs/components/dgvoodoo.json</file>
     <file>specs/components/dxvk.json</file>
   </gresource>
 </gresources>
