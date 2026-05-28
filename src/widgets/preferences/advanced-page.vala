@@ -27,7 +27,7 @@ namespace Lumoria.Widgets.Preferences {
 
             var session_manager_row = new Adw.SwitchRow ();
             session_manager_row.title = _("Session Manager");
-            session_manager_row.subtitle = _("Keep game processes running after Lumoria's UI is closed.");
+            session_manager_row.subtitle = _("Enables multiboxing in sandboxed environments.");
             session_manager_row.active = prefs.session_manager;
             session_manager_row.notify["active"].connect (() => {
                 if (prefs.session_manager != session_manager_row.active) {
