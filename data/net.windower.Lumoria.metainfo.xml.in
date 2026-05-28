@@ -68,6 +68,23 @@
   </screenshots>
 
   <releases>
+    <release version="0.1.17" date="2026-05-27">
+      <description>
+        <ul>.
+          <li>SteamOS Desktop Mode input less terrible. Gaming mode still has issues.</li>
+          <li>SteamOS: Fix wine falling back to D3D on occasion while in gaming mode.</li>
+          <li>Flatpak: Enabled Windower addons and plugins disabling when installed outside of sandboxed directory after successive restarts.</li>
+          <li>Flatpak: interstitial UI when registering custom entries and prelaunch scripts. The portal when selecting an exe only grants access to that direct file and is causing problems loading some apps dependencies.</li>
+          <li>Flatpak: better checking for when / if prefix needs to have access regranted for whatever reason.</li>
+          <li>Basic DXVK config manager.</li>
+          <li>Ability to select a primary display on runners that support WAYLANDDRV_PRIMARY_DISPLAY</li>
+          <li>Session Manager - Multiboxing in Flatpak!</li>
+          <li>Storage Usage UI provides more detailed per prefix information.</li>
+          <li>Not being able to launch FFXI Config on Japanese client config.</li>
+          <li>dgVoodoo support for those that are using Wine Staging.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.16" date="2026-05-19">
       <description>
         <ul>
