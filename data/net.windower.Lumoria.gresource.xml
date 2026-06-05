@@ -16,6 +16,10 @@
     <file>specs/launchers/windower5.json</file>
     <file>specs/redists/corefonts.json</file>
     <file>specs/redists/gdiplus.json</file>
+    <file>specs/redists/d3dcompiler_42.json</file>
+    <file>specs/redists/d3dcompiler_43.json</file>
+    <file>specs/redists/d3dcompiler_46.json</file>
+    <file>specs/redists/d3dcompiler_47.json</file>
     <file>specs/redists/dotnet48.json</file>
     <file>specs/redists/dotnet7.json</file>
     <file>specs/redists/dotnet8.json</file>
