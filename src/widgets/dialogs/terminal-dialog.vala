@@ -152,7 +152,7 @@ namespace Lumoria.Widgets.Dialogs {
         }
 
         private void copy_terminal_buffer () {
-            var text = terminal.get_text_format (Vte.Format.TEXT);
+            var text = read_terminal_buffer ();
             if (text == null) return;
 
             var trimmed = trim_trailing_blank_lines (text);
@@ -161,6 +161,23 @@ namespace Lumoria.Widgets.Dialogs {
             var clipboard = get_clipboard ();
             clipboard.set_text (trimmed);
             pulse_copy_button (_("Copied terminal output!"));
+        }
+
+        private string? read_terminal_buffer () {
+            var stream = new MemoryOutputStream.resizable ();
+            try {
+                terminal.write_contents_sync (stream, Vte.WriteFlags.DEFAULT);
+                stream.close ();
+            } catch (Error e) {
+                warning ("Terminal copy failed: %s", e.message);
+                return null;
+            }
+
+            var size = stream.get_data_size ();
+            if (size == 0) return "";
+
+            void* data = stream.get_data ();
+            return ((string) data).substring (0, (long) size);
         }
 
         private string trim_trailing_blank_lines (string text) {

@@ -65,6 +65,7 @@
   ],
   "redists": [
     "corefonts",
+    "consolas",
     "gdiplus"
   ],
   "env": [
