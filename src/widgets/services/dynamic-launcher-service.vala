@@ -2,6 +2,8 @@ namespace Lumoria.Widgets.Services {
 
     public class DynamicLauncherService : Object {
 
+        private const string LAUNCHER_ICON_RESOURCE = "/net/windower/Lumoria/icons/hicolor/512x512/apps/net.windower.Lumoria.png";
+
         private static string portal_error_message (Error e) {
             var msg = e.message;
             if (msg.contains ("UnknownMethod") || msg.contains ("unknown method") ||
@@ -38,9 +40,16 @@ namespace Lumoria.Widgets.Services {
             try {
                 var portal = new Xdp.Portal.initable_new ();
                 var p = Xdp.parent_new_gtk (parent);
-                var icon_v = load_launcher_icon ().serialize ();
+                var icon_bytes = load_launcher_icon_bytes ();
+                var icon_v = new BytesIcon (icon_bytes).serialize ();
 
                 var label = build_shortcut_label (entry, target);
+                message ("Dynamic launcher prepare starting: label='%s' %s launcher_specs=%d icon_resource='%s' icon_bytes=%lu",
+                    label,
+                    failure_context (entry, target.id, desktop_id),
+                    launcher_specs.size,
+                    LAUNCHER_ICON_RESOURCE,
+                    (ulong) icon_bytes.get_size ());
                 var prep = yield portal.dynamic_launcher_prepare_install (
                     p,
                     label,
@@ -52,17 +61,32 @@ namespace Lumoria.Widgets.Services {
                     null
                 );
 
+                message ("Dynamic launcher prepare returned: has_token=%s %s",
+                    prep.lookup_value ("token", new VariantType ("s")) != null ? "yes" : "no",
+                    failure_context (entry, target.id, desktop_id));
                 var tok = prep.lookup_value ("token", new VariantType ("s"));
                 if (tok == null) {
                     throw new IOError.FAILED ("Dynamic launcher: missing token");
                 }
                 string token_str = tok.get_string ();
+                message ("Dynamic launcher prepare token received: token_length=%d %s",
+                    token_str.length,
+                    failure_context (entry, target.id, desktop_id));
 
                 var desktop_entry = build_desktop_entry (entry, target.id);
+                message ("Dynamic launcher desktop entry generated: bytes=%d desktop_entry:\n%s",
+                    desktop_entry.length,
+                    desktop_entry);
 
+                message ("Dynamic launcher install starting: desktop_id='%s' desktop_id_length=%d token_length=%d",
+                    desktop_id,
+                    desktop_id.length,
+                    token_str.length);
                 if (!portal.dynamic_launcher_install (token_str, desktop_id, desktop_entry)) {
                     throw new IOError.FAILED (_("Menu shortcut install did not complete."));
                 }
+                message ("Dynamic launcher install completed: %s",
+                    failure_context (entry, target.id, desktop_id));
                 entry.dynamic_launcher_desktop_ids[target.id] = desktop_id;
                 return true;
             } catch (Error e) {
@@ -99,12 +123,8 @@ namespace Lumoria.Widgets.Services {
             return entry.dynamic_launcher_desktop_ids.has_key (entrypoint_id);
         }
 
-        private GLib.Icon load_launcher_icon () throws Error {
-            var bytes = resources_lookup_data (
-                "/net/windower/Lumoria/icons/hicolor/scalable/apps/net.windower.Lumoria.svg",
-                ResourceLookupFlags.NONE
-            );
-            return new BytesIcon (bytes);
+        private Bytes load_launcher_icon_bytes () throws Error {
+            return resources_lookup_data (LAUNCHER_ICON_RESOURCE, ResourceLookupFlags.NONE);
         }
 
         private string build_shortcut_label (Models.PrefixEntry entry, Runtime.LaunchTarget target) {
@@ -159,23 +179,15 @@ namespace Lumoria.Widgets.Services {
         }
 
         private string build_cli_exec (Models.PrefixEntry entry, string entrypoint_id) {
-            var ep_arg = entrypoint_id != "" ? " --entrypoint %s".printf (shell_quote (entrypoint_id)) : "";
+            var ep_arg = entrypoint_id != "" ? " --entrypoint %s".printf (Utils.shell_quote (entrypoint_id)) : "";
             if (Utils.EnvironmentInfo.is_flatpak ()) {
-                return "lumoria launch %s%s".printf (shell_quote (entry.id), ep_arg);
+                return "lumoria launch %s%s".printf (Utils.shell_quote (entry.id), ep_arg);
             }
             var exe = Utils.current_executable_path ();
             if (exe != null && exe != "") {
-                return "%s launch %s%s".printf (shell_quote (exe), shell_quote (entry.id), ep_arg);
+                return "%s launch %s%s".printf (Utils.shell_quote (exe), Utils.shell_quote (entry.id), ep_arg);
             }
-            return "lumoria launch %s%s".printf (shell_quote (entry.id), ep_arg);
-        }
-
-        private string shell_quote (string s) {
-            if (s == "") return "''";
-            if (s.index_of (" ") < 0 && s.index_of ("'") < 0 && s.index_of ("\"") < 0) {
-                return s;
-            }
-            return "'%s'".printf (s.replace ("'", "'\\''"));
+            return "lumoria launch %s%s".printf (Utils.shell_quote (entry.id), ep_arg);
         }
     }
 }

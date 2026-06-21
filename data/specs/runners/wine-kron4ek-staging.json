@@ -7,13 +7,14 @@
   ],
   "github_repo": "Kron4ek/Wine-Builds",
   "skip_versions": [
+    "11.10",
     "11.8"
   ],
   "checksum_regex": "sha256sums\\.txt$",
   "variants": [
     {
       "id": "wow64",
-      "label": "WoW64 (recommended)",
+      "label": "WoW64",
       "default": true,
       "asset_regex": "wine-[0-9]+\\.[0-9]+-staging-amd64-wow64\\.tar\\.xz$",
       "wine_bin": "bin/wine",

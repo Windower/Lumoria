@@ -68,6 +68,17 @@
   </screenshots>
 
   <releases>
+    <release version="0.1.19" date="2026-06-20">
+      <description>
+        <ul>
+          <li>Support for Steam shortcuts.</li>
+          <li>Support for XDG Portal Sleep Inhibitor.</li>
+          <li>Session Manager on by default.</li>
+          <li>Consolas font installed by default.</li>
+          <li>d3dcompiler redists for better compatibility with companion applications.</li>
+        </ul>
+      </description>
+    </release>  
     <release version="0.1.17" date="2026-05-27">
       <description>
         <ul>.

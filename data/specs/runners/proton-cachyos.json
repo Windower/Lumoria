@@ -69,7 +69,7 @@
   "variants": [
     {
       "id": "wow64",
-      "label": "WoW64 (recommended)",
+      "label": "WoW64",
       "default": true,
       "wine_bin": "files/bin-wow64/wine",
       "wineserver": "files/bin-wow64/wineserver",
@@ -116,7 +116,7 @@
     },
     {
       "id": "32bit",
-      "label": "Legacy 32-bit binary",
+      "label": "32-bit (legacy)",
       "wine_bin": "files/bin/wine",
       "wineserver": "files/bin/wineserver",
       "binary_kind": "legacy32",

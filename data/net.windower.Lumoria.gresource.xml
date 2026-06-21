@@ -4,7 +4,9 @@
     <file>css/style.css</file>
     <file alias="appdata/net.windower.Lumoria.metainfo.xml">net.windower.Lumoria.metainfo.xml.in</file>
     <file>ui/lumoria-mascot.svg</file>
+    <file>images/steam.svg</file>
     <file>icons/hicolor/scalable/apps/net.windower.Lumoria.svg</file>
+    <file>icons/hicolor/512x512/apps/net.windower.Lumoria.png</file>
     <file>specs/defaults.json</file>
     <file>specs/installer.json</file>
     <file>specs/runners/proton-ge.json</file>
