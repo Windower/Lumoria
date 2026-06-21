@@ -76,6 +76,7 @@
           <li>Session Manager on by default.</li>
           <li>Consolas font installed by default.</li>
           <li>d3dcompiler redists for better compatibility with companion applications.</li>
+          <li>VTE now properly copies whole buffer to clipboard.</li>
         </ul>
       </description>
     </release>  
