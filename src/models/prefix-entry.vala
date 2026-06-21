@@ -155,6 +155,9 @@ namespace Lumoria.Models {
         public Gee.HashMap<string, string> dynamic_launcher_desktop_ids {
             get; owned set; default = new Gee.HashMap<string, string> ();
         }
+        public Gee.HashMap<string, string> steam_shortcut_app_ids {
+            get; owned set; default = new Gee.HashMap<string, string> ();
+        }
         public Gee.ArrayList<string> installed_redists {
             get; owned set; default = new Gee.ArrayList<string> ();
         }
@@ -335,6 +338,13 @@ namespace Lumoria.Models {
                 }
                 obj.set_object_member ("dynamic_launcher_desktop_ids", shortcuts_obj);
             }
+            if (steam_shortcut_app_ids.size > 0) {
+                var shortcuts_obj = new Json.Object ();
+                foreach (var entry in steam_shortcut_app_ids.entries) {
+                    shortcuts_obj.set_string_member (entry.key, entry.value);
+                }
+                obj.set_object_member ("steam_shortcut_app_ids", shortcuts_obj);
+            }
 
             if (runtime_component_overrides.size > 0) {
                 var overrides = new Json.Object ();
@@ -411,6 +421,7 @@ namespace Lumoria.Models {
             e.runtime_env_vars = json_string_map (obj, "runtime_env_vars");
             e.runtime_dll_overrides = json_string_map (obj, "runtime_dll_overrides");
             e.dynamic_launcher_desktop_ids = json_string_map (obj, "dynamic_launcher_desktop_ids");
+            e.steam_shortcut_app_ids = json_string_map (obj, "steam_shortcut_app_ids");
             e.installed_redists = json_string_array (obj, "installed_redists");
 
             if (obj.has_member ("runtime_component_overrides")) {

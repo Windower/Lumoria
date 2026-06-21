@@ -261,18 +261,17 @@ namespace Lumoria.Runtime {
         var has_x11 = display != null && display.strip () != "";
         var has_wayland = wayland_display != null && wayland_display.strip () != "";
 
-        var can_use_wayland = wayland_enabled && has_wayland && runner_has_wayland_driver (paths, effective_arch);
+        var has_wayland_driver = runner_has_wayland_driver (paths, effective_arch);
+        var can_use_wayland = has_wayland && has_wayland_driver;
 
         if (headless) {
             env.add_dll_override ("winex11.drv", DLL_DISABLED);
             env.add_dll_override ("winewayland.drv", DLL_DISABLED);
-        } else if (can_use_wayland) {
+        } else if (wayland_enabled && can_use_wayland) {
             env.add_dll_override ("winex11.drv", DLL_DISABLED);
         } else if (has_x11) {
             env.add_dll_override ("winewayland.drv", DLL_DISABLED);
-        } else if (!wayland_enabled && has_wayland) {
-            env.add_dll_override ("winewayland.drv", DLL_DISABLED);
-        } else if (has_wayland) {
+        } else if (can_use_wayland) {
             env.add_dll_override ("winex11.drv", DLL_DISABLED);
         }
 

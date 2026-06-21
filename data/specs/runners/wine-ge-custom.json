@@ -15,7 +15,7 @@
   "variants": [
     {
       "id": "wine-ge-custom",
-      "label": "64-bit (recommended)",
+      "label": "WoW64",
       "default": true,
       "wine_arch": "win64",
       "binary_kind": "wow64"

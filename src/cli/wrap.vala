@@ -11,6 +11,7 @@ namespace Lumoria.Cli {
     private const int WRAP_CLEANUP_KILL_WAIT_MS = 1000;
     private const int WRAP_REAP_WAIT_MS = 1000;
     private const int WRAP_LOG_RELAY_JOIN_WAIT_MS = 1000;
+    private const int WRAP_INHIBIT_RESOLVE_WAIT_MS = 2000;
     private const string WRAP_MODE_LEGACY = "legacy";
 
     private int wrap_signal_state = 0;
@@ -58,7 +59,7 @@ namespace Lumoria.Cli {
 
         var child_pid = Posix.fork ();
         if (child_pid < 0) {
-            stdout.printf ("[wrap] fork failed: %s\n", Posix.strerror (Posix.errno));
+            wrap_log ("fork failed: %s".printf (Posix.strerror (Posix.errno)));
             return 1;
         }
 
@@ -74,6 +75,16 @@ namespace Lumoria.Cli {
 
         if (env_fd >= 0) Posix.close (env_fd);
 
+        var inhibitor = new Utils.ScreenInhibitor ();
+        if (Utils.Preferences.saved_screen_inhibitor ()) {
+            string inhibit_error;
+            if (inhibitor.start ("Running Final Fantasy XI Online", WRAP_INHIBIT_RESOLVE_WAIT_MS, out inhibit_error)) {
+                wrap_log ("screensaver inhibit active");
+            } else {
+                wrap_log ("screensaver inhibit failed: %s".printf (inhibit_error));
+            }
+        }
+
         var mode = Environment.get_variable ("LUMORIA_WRAP_MODE") ?? "";
         var poll_ms = wrap_poll_interval_ms ();
         int initial_signal = 0;
@@ -81,6 +92,9 @@ namespace Lumoria.Cli {
             ? legacy_loop (child_pid, out initial_signal)
             : watcher_loop (child_pid, poll_ms, out initial_signal);
         cleanup_remaining_descendants ();
+        if (inhibitor.stop ()) {
+            wrap_log ("screensaver inhibit released");
+        }
 
         if (log_path != "") {
             if (initial_signal > 0) {
@@ -153,15 +167,18 @@ namespace Lumoria.Cli {
         }
     }
 
+    private void wrap_log (string message) {
+        stdout.printf ("[wrap] %s\n", message);
+        stdout.flush ();
+    }
+
     private string apply_working_directory (string cwd) {
         if (cwd == "") return "";
         if (Posix.chdir (cwd) == 0) {
-            stdout.printf ("[wrap] cwd=%s\n", cwd);
-            stdout.flush ();
+            wrap_log ("cwd=%s".printf (cwd));
             return Environment.get_current_dir ();
         }
-        stdout.printf ("[wrap] cwd failed: %s: %s\n", cwd, Posix.strerror (Posix.errno));
-        stdout.flush ();
+        wrap_log ("cwd failed: %s: %s".printf (cwd, Posix.strerror (Posix.errno)));
         return "";
     }
 
@@ -214,7 +231,7 @@ namespace Lumoria.Cli {
 
         try {
             if (!has_monitored_descendants ()) {
-                stdout.printf ("[wrap] waiting for monitored process to start\n");
+                wrap_log ("waiting for monitored process to start");
                 while (!has_monitored_descendants ()) {
                     reap_children_nonblocking (
                         child_pid, ref initial_code, ref initial_signal, ref initial_reaped, out no_more_children
@@ -356,12 +373,12 @@ namespace Lumoria.Cli {
         ref bool hard_signal_processed
     ) {
         if (wrap_signal_state >= 1 && !soft_signal_processed) {
-            stdout.printf ("[wrap] caught signal %d, terminating monitored processes\n", wrap_signal_number);
+            wrap_log ("caught signal %d, terminating monitored processes".printf (wrap_signal_number));
             signal_monitored_descendants (Posix.Signal.TERM);
             soft_signal_processed = true;
         }
         if (wrap_signal_state >= 2 && !hard_signal_processed) {
-            stdout.printf ("[wrap] caught second signal, killing monitored processes\n");
+            wrap_log ("caught second signal, killing monitored processes");
             for (var i = 0; i < 3; i++) {
                 signal_monitored_descendants (Posix.Signal.KILL);
             }

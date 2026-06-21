@@ -22,7 +22,7 @@ namespace Lumoria.Runtime {
             case LaunchTargetSection.ACTIONS:
                 return _("Actions");
             default:
-                return _("Launch");
+                return _("Programs");
         }
     }
 

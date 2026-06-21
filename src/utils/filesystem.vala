@@ -200,4 +200,29 @@ namespace Lumoria.Utils {
         var dest = File.new_for_path (dst);
         source.copy (dest, FileCopyFlags.OVERWRITE);
     }
+
+    public static uint32 crc32 (uint8[] bytes) {
+        uint32 crc = 0xffffffffU;
+        foreach (var byte in bytes) {
+            crc ^= (uint32) byte;
+            for (int i = 0; i < 8; i++) {
+                if ((crc & 1U) != 0) {
+                    crc = (crc >> 1) ^ 0xedb88320U;
+                } else {
+                    crc >>= 1;
+                }
+            }
+        }
+        return crc ^ 0xffffffffU;
+    }
+
+    public static string shell_quote (string s) {
+        if (s == "") return "''";
+        if (s.index_of (" ") < 0 && s.index_of ("'") < 0 && s.index_of ("\"") < 0) return s;
+        return "'%s'".printf (s.replace ("'", "'\\''"));
+    }
+
+    public static string double_quote (string s) {
+        return "\"%s\"".printf (s.replace ("\"", "\\\""));
+    }
 }

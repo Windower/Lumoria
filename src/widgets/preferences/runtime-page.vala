@@ -1,13 +1,17 @@
 namespace Lumoria.Widgets.Preferences {
 
     public class RuntimePage : Gtk.Box {
+        private const int SCREEN_INHIBITOR_PROBE_TIMEOUT_MS = 1500;
+
         private Adw.SwitchRow logging_row;
+        private Adw.SwitchRow screen_inhibitor_row;
         private Adw.SwitchRow wayland_row;
         private OptionListRow sync_mode_combo;
         private OptionListRow debug_combo;
         private Adw.SwitchRow laa_row;
         private Lumoria.Widgets.EnvVarsEditor global_env_editor;
         private Gtk.Label env_validation_label;
+        private bool updating_screen_inhibitor_row = false;
 
         public RuntimePage () {
             Object (orientation: Gtk.Orientation.VERTICAL, spacing: 0);
@@ -17,11 +21,10 @@ namespace Lumoria.Widgets.Preferences {
         private void build_ui () {
             var prefs = Utils.Preferences.instance ();
 
-            var logging_group = SettingsShared.build_group (_("Logging"));
+            var general_group = SettingsShared.build_group (_("General"));
 
             logging_row = new Adw.SwitchRow ();
             logging_row.title = _("Enable Logging");
-            logging_row.subtitle = _("Keep log files under prefix-path/logs.");
             logging_row.active = prefs.keep_runtime_logs;
             logging_row.notify["active"].connect (() => {
                 if (prefs.keep_runtime_logs != logging_row.active) {
@@ -29,14 +32,27 @@ namespace Lumoria.Widgets.Preferences {
                 }
                 update_debug_combo_state ();
             });
-            logging_group.add (logging_row);
-            append (logging_group);
+            general_group.add (logging_row);
+
+            screen_inhibitor_row = new Adw.SwitchRow ();
+            screen_inhibitor_row.title = _("Keep Display Awake While Playing");
+            screen_inhibitor_row.sensitive = false;
+            screen_inhibitor_row.active = prefs.screen_inhibitor;
+            screen_inhibitor_row.notify["active"].connect (() => {
+                if (updating_screen_inhibitor_row) return;
+                if (prefs.screen_inhibitor != screen_inhibitor_row.active) {
+                    prefs.set_screen_inhibitor (screen_inhibitor_row.active);
+                }
+            });
+            general_group.add (screen_inhibitor_row);
+            check_screen_inhibitor_support ();
+
+            append (general_group);
 
             var wine_group = SettingsShared.build_group (_("Wine"));
 
             wayland_row = new Adw.SwitchRow ();
             wayland_row.title = _("Enable Wine Wayland");
-            wayland_row.subtitle = _("Use Wine's Wayland driver instead of X11 by default.");
             wayland_row.active = prefs.wine_wayland;
             wayland_row.notify["active"].connect (() => {
                 if (prefs.wine_wayland != wayland_row.active) {
@@ -70,7 +86,6 @@ namespace Lumoria.Widgets.Preferences {
 
                 laa_row = new Adw.SwitchRow ();
                 laa_row.title = _("Enable Large Address Aware");
-                laa_row.subtitle = _("Toggle the Large Address Aware flag on PlayOnline before launch by default.");
                 laa_row.active = prefs.large_address_aware;
                 laa_row.notify["active"].connect (() => {
                     if (prefs.large_address_aware != laa_row.active) {
@@ -102,6 +117,21 @@ namespace Lumoria.Widgets.Preferences {
             env_validation_label.margin_bottom = 4;
             env_group.add (env_validation_label);
             append (env_group);
+        }
+
+        private void check_screen_inhibitor_support () {
+            new Thread<bool> ("screen-inhibitor-probe", () => {
+                string error;
+                var supported = Utils.ScreenInhibitor.probe (SCREEN_INHIBITOR_PROBE_TIMEOUT_MS, out error);
+                Idle.add (() => {
+                    updating_screen_inhibitor_row = true;
+                    screen_inhibitor_row.active = supported && Utils.Preferences.instance ().screen_inhibitor;
+                    screen_inhibitor_row.sensitive = supported;
+                    updating_screen_inhibitor_row = false;
+                    return Source.REMOVE;
+                });
+                return true;
+            });
         }
 
         private void on_global_env_editor_changed () {

@@ -26,8 +26,11 @@ namespace Lumoria.Utils {
         private string _wine_debug = "";
         private bool _large_address_aware = false;
         private bool _experimental_features = false;
-        private bool _session_manager = false;
+        private bool _session_manager = true;
         private bool _gamepad_navigation = false;
+        private bool _screen_inhibitor = true;
+        private string _steam_userdata_dir = "";
+        private Models.PortalPathRef? _steam_userdata_dir_portal = null;
 
         public bool updates_lumoria { get { return _updates_lumoria; } }
         public bool updates_runners { get { return _updates_runners; } }
@@ -40,6 +43,17 @@ namespace Lumoria.Utils {
         public bool experimental_features { get { return _experimental_features; } }
         public bool session_manager { get { return _session_manager; } }
         public bool gamepad_navigation { get { return _gamepad_navigation; } }
+        public bool screen_inhibitor { get { return _screen_inhibitor; } }
+
+        public string resolved_steam_userdata_dir () {
+            return Utils.resolve_user_path (_steam_userdata_dir, _steam_userdata_dir_portal);
+        }
+
+        public void set_steam_userdata_dir (string path, Models.PortalPathRef? portal_ref) {
+            _steam_userdata_dir = path;
+            _steam_userdata_dir_portal = portal_ref;
+            save ();
+        }
 
         private Gee.HashMap<string, string> component_versions;
         private Gee.HashMap<string, bool?> component_enabled;
@@ -60,6 +74,26 @@ namespace Lumoria.Utils {
                 _instance = new Preferences ();
             }
             return _instance;
+        }
+
+        public static bool saved_screen_inhibitor () {
+            var file_path = Path.build_filename (config_dir (), "preferences.json");
+            if (!FileUtils.test (file_path, FileTest.EXISTS)) return true;
+
+            try {
+                var parser = new Json.Parser ();
+                parser.load_from_file (file_path);
+                var obj = parser.get_root ().get_object ();
+                if (!obj.has_member ("power")) return true;
+
+                var power_obj = obj.get_object_member ("power");
+                if (!power_obj.has_member ("screen_inhibitor")) return true;
+
+                return power_obj.get_boolean_member ("screen_inhibitor");
+            } catch (Error e) {
+                warning ("Failed to load power preferences: %s", e.message);
+                return true;
+            }
         }
 
         public void freeze () { _freeze_count++; }
@@ -126,6 +160,12 @@ namespace Lumoria.Utils {
             _gamepad_navigation = enabled;
             save ();
             gamepad_navigation_changed (enabled);
+        }
+
+        public void set_screen_inhibitor (bool enabled) {
+            if (_screen_inhibitor == enabled) return;
+            _screen_inhibitor = enabled;
+            save ();
         }
 
         public Gee.HashMap<string, string> get_runtime_env_vars () {
@@ -241,8 +281,9 @@ namespace Lumoria.Utils {
             _large_address_aware = defaults.large_address_aware;
             _keep_runtime_logs = defaults.keep_runtime_logs;
             _experimental_features = false;
-            _session_manager = false;
+            _session_manager = true;
             _gamepad_navigation = false;
+            _screen_inhibitor = true;
 
             component_versions.clear ();
             component_enabled.clear ();
@@ -321,8 +362,10 @@ namespace Lumoria.Utils {
                 load_wine (obj);
                 load_patches (obj);
                 load_input (obj);
+                load_power (obj);
                 load_components (obj);
                 load_runtime (obj);
+                load_steam (obj);
 
                 if (seed_missing_defaults (
                     has_runner_id,
@@ -459,6 +502,13 @@ namespace Lumoria.Utils {
                 _gamepad_navigation = input_obj.get_boolean_member ("gamepad_nav");
         }
 
+        private void load_power (Json.Object obj) {
+            if (!obj.has_member ("power")) return;
+            var power_obj = obj.get_object_member ("power");
+            if (power_obj.has_member ("screen_inhibitor"))
+                _screen_inhibitor = power_obj.get_boolean_member ("screen_inhibitor");
+        }
+
         private void load_runtime (Json.Object obj) {
             if (!obj.has_member ("runtime")) return;
             var runtime_obj = obj.get_object_member ("runtime");
@@ -469,6 +519,16 @@ namespace Lumoria.Utils {
                     runtime_env_vars[key] = node.get_string ();
                 });
             }
+        }
+
+        private void load_steam (Json.Object obj) {
+            if (!obj.has_member ("steam")) return;
+            var steam_obj = obj.get_object_member ("steam");
+            if (steam_obj.has_member ("userdata_dir"))
+                _steam_userdata_dir = steam_obj.get_string_member ("userdata_dir");
+            if (steam_obj.has_member ("userdata_dir_portal"))
+                _steam_userdata_dir_portal = Models.PortalPathRef.from_json (
+                    steam_obj.get_object_member ("userdata_dir_portal"));
         }
 
         public Json.Object snapshot () {
@@ -503,6 +563,10 @@ namespace Lumoria.Utils {
             input_obj.set_boolean_member ("gamepad_nav", _gamepad_navigation);
             obj.set_object_member ("input", input_obj);
 
+            var power_obj = new Json.Object ();
+            power_obj.set_boolean_member ("screen_inhibitor", _screen_inhibitor);
+            obj.set_object_member ("power", power_obj);
+
             var runtime_obj = new Json.Object ();
             var env_obj = new Json.Object ();
             foreach (var entry in runtime_env_vars.entries) {
@@ -524,6 +588,12 @@ namespace Lumoria.Utils {
                 comps.set_object_member (key, entry);
             }
             obj.set_object_member ("components", comps);
+
+            var steam_obj = new Json.Object ();
+            steam_obj.set_string_member ("userdata_dir", _steam_userdata_dir);
+            if (_steam_userdata_dir_portal != null && !_steam_userdata_dir_portal.is_empty ())
+                steam_obj.set_object_member ("userdata_dir_portal", _steam_userdata_dir_portal.to_json ());
+            obj.set_object_member ("steam", steam_obj);
 
             return obj;
         }

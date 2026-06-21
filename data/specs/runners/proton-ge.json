@@ -69,7 +69,7 @@
   "variants": [
     {
       "id": "wow64",
-      "label": "64-bit / WoW64 (recommended)",
+      "label": "WoW64",
       "default": true,
       "wine_bin": "files/bin-wow64/wine",
       "wineserver": "files/bin-wow64/wineserver",
