@@ -47,6 +47,7 @@ namespace Lumoria.Widgets.Dialogs {
         private ulong host_width_handler = 0;
         private ulong host_height_handler = 0;
         private Services.DynamicLauncherService shortcut_service;
+        private Services.SteamShortcutService steam_shortcut_service;
         private Gtk.Box shortcuts_content;
         private Gtk.Box packages_content;
         private Gee.HashMap<string, Models.RedistSpec> package_specs;
@@ -94,6 +95,7 @@ namespace Lumoria.Widgets.Dialogs {
             component_mode_rows = new Gee.HashMap<string, OptionListRow> ();
             entrypoint_values = new Gee.ArrayList<string> ();
             shortcut_service = new Services.DynamicLauncherService ();
+            steam_shortcut_service = new Services.SteamShortcutService ();
             build_ui ();
         }
 
@@ -880,21 +882,45 @@ namespace Lumoria.Widgets.Dialogs {
                 var subtitle = Runtime.launch_target_subtitle (target, active_target_id);
                 if (subtitle != "") row.subtitle = subtitle;
 
-                var add_btn = new Gtk.Button.with_label (_("Add"));
-                var remove_btn = new Gtk.Button.with_label (_("Remove"));
-                add_btn.valign = Gtk.Align.CENTER;
-                remove_btn.valign = Gtk.Align.CENTER;
-                add_btn.sensitive = !shortcut_service.has_menu_shortcut (entry, target.id);
-                remove_btn.sensitive = shortcut_service.has_menu_shortcut (entry, target.id);
+                var has_menu_shortcut = shortcut_service.has_menu_shortcut (entry, target.id);
+                var has_steam_shortcut = steam_shortcut_service.has_steam_shortcut (entry, target.id);
 
-                var button_box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8);
-                button_box.append (add_btn);
-                button_box.append (remove_btn);
+                var menu_btn = new Gtk.Button.from_icon_name ("view-app-grid-symbolic");
+                menu_btn.valign = Gtk.Align.CENTER;
+                menu_btn.tooltip_text = has_menu_shortcut ? _("Remove from App Launcher") : _("Add to App Launcher");
+                menu_btn.add_css_class ("flat");
+                menu_btn.add_css_class ("shortcut-toggle");
+                if (has_menu_shortcut) menu_btn.add_css_class ("shortcut-active");
+
+                var steam_icon = new Gtk.Image.from_resource ("/net/windower/Lumoria/images/steam.svg");
+                var steam_btn = new Gtk.Button ();
+                steam_btn.child = steam_icon;
+                steam_btn.valign = Gtk.Align.CENTER;
+                steam_btn.tooltip_text = has_steam_shortcut ? _("Remove from Steam") : _("Add to Steam");
+                steam_btn.add_css_class ("flat");
+                steam_btn.add_css_class ("shortcut-toggle");
+                if (has_steam_shortcut) steam_btn.add_css_class ("shortcut-active");
+
+                var button_box = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 4);
+                button_box.append (menu_btn);
+                button_box.append (steam_btn);
                 row.add_suffix (button_box);
 
                 var captured_target = target;
-                add_btn.clicked.connect (() => install_shortcut_for_target (captured_target));
-                remove_btn.clicked.connect (() => remove_shortcut_for_target (captured_target.id));
+                menu_btn.clicked.connect (() => {
+                    if (has_menu_shortcut) {
+                        remove_shortcut_for_target (captured_target.id);
+                    } else {
+                        install_shortcut_for_target (captured_target);
+                    }
+                });
+                steam_btn.clicked.connect (() => {
+                    if (has_steam_shortcut) {
+                        remove_steam_shortcut_for_target (captured_target.id);
+                    } else {
+                        install_steam_shortcut_for_target (captured_target);
+                    }
+                });
 
                 group.add (row);
             }
@@ -962,6 +988,118 @@ namespace Lumoria.Widgets.Dialogs {
                 toast_overlay.add_toast (new Adw.Toast (e.message));
             }
             rebuild_shortcuts_ui ();
+        }
+
+        private void install_steam_shortcut_for_target (Runtime.LaunchTarget target) {
+            resolve_steam_config ((config) => install_steam_shortcut_with_config (target, config));
+        }
+
+        private void install_steam_shortcut_with_config (
+            Runtime.LaunchTarget target,
+            Utils.SteamConfig.UserConfig config
+        ) {
+            try {
+                steam_shortcut_service.install_steam_shortcut (registry.prefixes[prefix_index], target, config);
+                registry.save (Utils.prefix_registry_path ());
+                toast_overlay.add_toast (new Adw.Toast (_("Steam shortcut added. Restart Steam if it does not appear.")));
+            } catch (Error e) {
+                toast_overlay.add_toast (new Adw.Toast (_("Steam shortcut failed: %s").printf (e.message)));
+            }
+            rebuild_shortcuts_ui ();
+        }
+
+        private void remove_steam_shortcut_for_target (string entrypoint_id) {
+            resolve_steam_config ((config) => remove_steam_shortcut_with_config (entrypoint_id, config));
+        }
+
+        private void remove_steam_shortcut_with_config (
+            string entrypoint_id,
+            Utils.SteamConfig.UserConfig config
+        ) {
+            try {
+                steam_shortcut_service.remove_steam_shortcut (registry.prefixes[prefix_index], entrypoint_id, config);
+                registry.save (Utils.prefix_registry_path ());
+                toast_overlay.add_toast (new Adw.Toast (_("Steam shortcut removed. Restart Steam if it still appears.")));
+            } catch (Error e) {
+                toast_overlay.add_toast (new Adw.Toast (_("Steam shortcut removal failed: %s").printf (e.message)));
+            }
+            rebuild_shortcuts_ui ();
+        }
+
+        private delegate void SteamConfigSelectedCallback (Utils.SteamConfig.UserConfig config);
+
+        private void resolve_steam_config (owned SteamConfigSelectedCallback on_resolved) {
+            if (!Utils.EnvironmentInfo.is_sandboxed ()) {
+                var config = steam_shortcut_service.detect_config ();
+                if (config != null) {
+                    on_resolved (config);
+                    return;
+                }
+                browse_for_steam_folder ((owned) on_resolved);
+                return;
+            }
+
+            var saved_dir = Utils.Preferences.instance ().resolved_steam_userdata_dir ();
+            if (saved_dir != "") {
+                var config = steam_shortcut_service.resolve_config_from_folder (saved_dir);
+                if (config != null) {
+                    on_resolved (config);
+                    return;
+                }
+                Utils.Preferences.instance ().set_steam_userdata_dir ("", null);
+                toast_overlay.add_toast (new Adw.Toast (_("Steam folder access was lost. Please grant access again.")));
+            }
+
+            present_steam_access_explanation (() => browse_for_steam_folder ((owned) on_resolved));
+        }
+
+        private void browse_for_steam_folder (owned SteamConfigSelectedCallback on_selected) {
+            if (SettingsShared.file_browse_blocked (toast_overlay)) return;
+
+            var dialog = new Gtk.FileDialog ();
+            dialog.title = _("Select Steam Installation Folder");
+            dialog.modal = true;
+            if (FileUtils.test (Environment.get_home_dir (), FileTest.IS_DIR))
+                dialog.initial_folder = File.new_for_path (Environment.get_home_dir ());
+
+            dialog.select_folder.begin (host_window, null, (obj, res) => {
+                try {
+                    var file = dialog.select_folder.end (res);
+                    if (file == null) return;
+                    var raw_path = file.get_path () ?? "";
+                    var raw_uri = file.get_uri () ?? "";
+                    if (raw_path == "" && raw_uri == "") return;
+                    var portal_ref = Utils.portal_path_ref_from_path_uri (raw_path, raw_uri);
+                    var path = Utils.resolve_user_path (raw_path, portal_ref, raw_uri);
+                    var config = steam_shortcut_service.resolve_config_from_folder (path);
+                    if (config == null) {
+                        toast_overlay.add_toast (new Adw.Toast (_("Selected folder does not look like a Steam installation folder.")));
+                        return;
+                    }
+                    if (Utils.EnvironmentInfo.is_sandboxed ())
+                        Utils.Preferences.instance ().set_steam_userdata_dir (raw_path, portal_ref);
+                    on_selected (config);
+                } catch (Error e) {
+                    toast_overlay.add_toast (new Adw.Toast (_("Steam folder selection failed: %s").printf (e.message)));
+                }
+            });
+        }
+
+        private void present_steam_access_explanation (owned SettingsShared.ConfirmationCallback on_continue) {
+            var dialog = new Adw.AlertDialog (
+                _("Steam Installation Access Required"),
+                _("Select your Steam installation folder. Common locations:\n\n.local/share/Steam\n.var/app/com.valvesoftware.Steam/.local/share/Steam (Steam Flatpak)\n\nAvoid selecting .steam or .steam/steam as they are symlinks and may not work.\nEnable \"Show Hidden Files\" in the file picker to see these folders.\n\nSee the Lumoria wiki for step-by-step screenshots.")
+            );
+            dialog.content_width = 600;
+            dialog.add_response ("cancel", _("Cancel"));
+            dialog.add_response ("continue", _("Browse\u2026"));
+            dialog.set_response_appearance ("continue", Adw.ResponseAppearance.SUGGESTED);
+            dialog.default_response = "continue";
+            dialog.close_response = "cancel";
+            dialog.response.connect ((response) => {
+                if (response == "continue") on_continue ();
+            });
+            dialog.present (this);
         }
 
         private void show_custom_entry_editor (int index) {

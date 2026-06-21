@@ -60,3 +60,20 @@ expanderrow.gamepad-focus image {
     -gtk-icon-style: symbolic;
     color: @accent_color;
 }
+
+button.shortcut-toggle {
+    padding: 6px;
+    min-width: 32px;
+    min-height: 32px;
+    border-radius: 9999px;
+}
+
+button.shortcut-toggle.shortcut-active {
+    background-color: alpha(@accent_bg_color, 0.85);
+    color: @accent_fg_color;
+}
+
+button.shortcut-toggle.shortcut-active image {
+    -gtk-icon-style: symbolic;
+    color: @accent_fg_color;
+}

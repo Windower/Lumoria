@@ -67,6 +67,8 @@ namespace Lumoria.Cli {
             } else if (args[i] == "--exe" && i + 1 < args.length) {
                 exe_path = args[i + 1];
                 i++;
+            } else if (args[i] == "--lumoria-shortcut-id" && i + 1 < args.length) {
+                i++;
             }
         }
 
