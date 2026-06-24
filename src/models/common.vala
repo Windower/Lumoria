@@ -13,6 +13,7 @@ namespace Lumoria.Models {
         public WhenClauseKind kind { get; set; }
         public string key { get; set; default = ""; }
         public string value { get; set; default = ""; }
+        public string op { get; set; default = "eq"; }
         public Gee.ArrayList<WhenClause> children { get; owned set; default = new Gee.ArrayList<WhenClause> (); }
 
         public WhenClause (WhenClauseKind kind) {
@@ -22,9 +23,9 @@ namespace Lumoria.Models {
         public bool evaluate (Gee.HashMap<string, string> vars, Gee.HashMap<string, string>? item_fields = null) {
             switch (kind) {
                 case WhenClauseKind.MATCH:
-                    return vars.has_key (key) && vars[key] == value;
+                    return vars.has_key (key) && apply_op (vars[key]);
                 case WhenClauseKind.MANIFEST_FIELD_MATCH:
-                    return item_fields != null && item_fields.has_key (key) && item_fields[key] == value;
+                    return item_fields != null && item_fields.has_key (key) && apply_op (item_fields[key]);
                 case WhenClauseKind.FILE_EXISTS:
                     var expanded = Utils.expand_vars (value, vars);
                     return FileUtils.test (expanded, FileTest.EXISTS);
@@ -42,6 +43,28 @@ namespace Lumoria.Models {
                     return children.size > 0 && !children[0].evaluate (vars, item_fields);
                 default:
                     return false;
+            }
+        }
+
+        private bool apply_op (string actual) {
+            switch (op) {
+                case "eq":         return actual == value;
+                case "neq":        return actual != value;
+                case "contains":   return actual.contains (value);
+                case "startswith": return actual.has_prefix (value);
+                case "endswith":   return actual.has_suffix (value);
+                case "gt":
+                case "gte":
+                case "lt":
+                case "lte": {
+                    double a = 0, b = 0;
+                    if (!double.try_parse (actual, out a) || !double.try_parse (value, out b)) return false;
+                    if (op == "gt")  return a > b;
+                    if (op == "gte") return a >= b;
+                    if (op == "lt")  return a < b;
+                    return a <= b;
+                }
+                default: return actual == value;
             }
         }
 
@@ -99,7 +122,7 @@ namespace Lumoria.Models {
             foreach (unowned string k in members) {
                 var child = new WhenClause (WhenClauseKind.MATCH);
                 child.key = k;
-                child.value = obj.get_string_member (k);
+                parse_match_value (obj.get_member (k), child);
                 clause.children.add (child);
             }
             if (clause.children.size == 1) return clause.children[0];
@@ -115,7 +138,7 @@ namespace Lumoria.Models {
             foreach (unowned string k in members) {
                 var child = new WhenClause (WhenClauseKind.MANIFEST_FIELD_MATCH);
                 child.key = k;
-                child.value = obj.get_string_member (k);
+                parse_match_value (obj.get_member (k), child);
                 clause.children.add (child);
             }
             if (clause.children.size == 1) return clause.children[0];
@@ -126,6 +149,30 @@ namespace Lumoria.Models {
             for (uint i = 0; i < arr.get_length (); i++) {
                 parent.children.add (parse_node (arr.get_object_element (i)));
             }
+        }
+
+        private static void parse_match_value (Json.Node node, WhenClause clause) {
+            if (node.get_node_type () == Json.NodeType.OBJECT) {
+                var op_obj = node.get_object ();
+                var ops = op_obj.get_members ();
+                if (ops.length () == 1) {
+                    clause.op = ops.nth_data (0);
+                    clause.value = json_node_to_string (op_obj.get_member (clause.op));
+                    return;
+                }
+            }
+            clause.op = "eq";
+            clause.value = json_node_to_string (node);
+        }
+
+        private static string json_node_to_string (Json.Node node) {
+            if (node.get_node_type () != Json.NodeType.VALUE) return "";
+            var vtype = node.get_value_type ();
+            if (vtype == typeof (string)) return node.get_string ();
+            if (vtype == typeof (bool))   return node.get_boolean () ? "true" : "false";
+            if (vtype == typeof (int64))  return node.get_int ().to_string ();
+            if (vtype == typeof (double)) return node.get_double ().to_string ();
+            return "";
         }
     }
 
