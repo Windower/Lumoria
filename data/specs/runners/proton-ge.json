@@ -8,8 +8,8 @@
   ],
   "github_repo": "GloriousEggroll/proton-ge-custom",
   "version_dir": "GE-Proton(.+)",
-  "asset_regex": "GE-Proton.*\\.tar\\.(gz|zst)$",
-  "checksum_regex": "GE-Proton.*\\.(sha512sum|sha512)$",
+  "asset_regex": "^GE-Proton(?!.*-aarch64(?:\\.|-)).*\\.tar\\.(gz|zst)$",
+  "checksum_regex": "^GE-Proton(?!.*-aarch64(?:\\.|-)).*\\.(sha512sum|sha512)$",
   "support_files": [
     {
       "id": "icu-win32",

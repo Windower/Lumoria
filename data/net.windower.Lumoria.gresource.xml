@@ -47,6 +47,8 @@
     <file>specs/redists/meiryo.json</file>
     <file>specs/redists/pptfonts.json</file>
     <file>specs/redists/liberation.json</file>
+    <file>specs/redists/notosans.json</file>
+    <file>specs/redists/segoeui-noto.json</file>
     <file>specs/redists/sourcehansans.json</file>
     <file>specs/redists/vlgothic.json</file>
     <file>specs/redists/wenquanyi.json</file>
