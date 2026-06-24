@@ -68,6 +68,16 @@
   </screenshots>
 
   <releases>
+    <release version="0.1.20" date="2026-06-23">
+      <description>
+        <ul>
+          <li>Fix GE-Proton 11 pulling aarch64 version.</li>
+          <li>Post Install script improvements.</li>
+          <li>DXVK-Sarek support.</li>
+          <li>Segoe UI font replacement.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.19" date="2026-06-20">
       <description>
         <ul>
