@@ -66,7 +66,8 @@
   "redists": [
     "corefonts",
     "consolas",
-    "gdiplus"
+    "gdiplus",
+    "segoeui-noto"
   ],
   "env": [
     {

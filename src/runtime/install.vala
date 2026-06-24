@@ -1727,10 +1727,17 @@ namespace Lumoria.Runtime {
 
         if (entries.size == 0) return;
 
+        string[] sections = {
+            "HKEY_CURRENT_USER\\Software\\Wine\\Fonts\\Replacements",
+            "HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows NT\\CurrentVersion\\FontSubstitutes"
+        };
+
         var payload = new StringBuilder ("REGEDIT4\r\n\r\n");
-        payload.append ("[HKEY_CURRENT_USER\\Software\\Wine\\Fonts\\Replacements]\r\n");
-        foreach (var line in entries) payload.append (line);
-        payload.append ("\r\n");
+        foreach (var section in sections) {
+            payload.append ("[%s]\r\n".printf (section));
+            foreach (var line in entries) payload.append (line);
+            payload.append ("\r\n");
+        }
 
         var tmp_dir = DirUtils.make_tmp ("fontrep-XXXXXX");
         var reg_path = Path.build_filename (tmp_dir, "replacements.reg");
