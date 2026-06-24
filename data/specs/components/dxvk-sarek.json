@@ -1,0 +1,183 @@
+{
+  "id": "dxvk-sarek",
+  "name": "DXVK-Sarek",
+  "github_repo": "pythonlover02/DXVK-Sarek",
+  "asset_regex": "dxvk-sarek-(dyasync-)?v.*\\.tar\\.gz$",
+  "checksum_regex": "",
+  "default_version": "latest",
+  "system_env_defaults": {},
+  "overrides": {
+    "d3d8": "n,b",
+    "d3d9": "n,b",
+    "d3d10core": "n,b",
+    "d3d11": "n,b",
+    "dxgi": "n,b"
+  },
+  "steps": [
+    {
+      "type": "copy",
+      "description": "Install DXVK-Sarek x32 d3d8.dll (win64)",
+      "src": "${var.COMPONENT}/x32/d3d8.dll",
+      "dst": "${var.PREFIX}/drive_c/windows/syswow64",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    },
+    {
+      "type": "copy",
+      "description": "Install DXVK-Sarek x32 d3d9.dll (win64)",
+      "src": "${var.COMPONENT}/x32/d3d9.dll",
+      "dst": "${var.PREFIX}/drive_c/windows/syswow64",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    },
+    {
+      "type": "copy",
+      "description": "Install DXVK-Sarek x32 d3d10core.dll (win64)",
+      "src": "${var.COMPONENT}/x32/d3d10core.dll",
+      "dst": "${var.PREFIX}/drive_c/windows/syswow64",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    },
+    {
+      "type": "copy",
+      "description": "Install DXVK-Sarek x32 d3d11.dll (win64)",
+      "src": "${var.COMPONENT}/x32/d3d11.dll",
+      "dst": "${var.PREFIX}/drive_c/windows/syswow64",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    },
+    {
+      "type": "copy",
+      "description": "Install DXVK-Sarek x32 dxgi.dll (win64)",
+      "src": "${var.COMPONENT}/x32/dxgi.dll",
+      "dst": "${var.PREFIX}/drive_c/windows/syswow64",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    },
+    {
+      "type": "copy",
+      "description": "Install DXVK-Sarek x64 d3d8.dll (win64)",
+      "src": "${var.COMPONENT}/x64/d3d8.dll",
+      "dst": "${var.PREFIX}/drive_c/windows/system32",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    },
+    {
+      "type": "copy",
+      "description": "Install DXVK-Sarek x64 d3d9.dll (win64)",
+      "src": "${var.COMPONENT}/x64/d3d9.dll",
+      "dst": "${var.PREFIX}/drive_c/windows/system32",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    },
+    {
+      "type": "copy",
+      "description": "Install DXVK-Sarek x64 d3d10core.dll (win64)",
+      "src": "${var.COMPONENT}/x64/d3d10core.dll",
+      "dst": "${var.PREFIX}/drive_c/windows/system32",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    },
+    {
+      "type": "copy",
+      "description": "Install DXVK-Sarek x64 d3d11.dll (win64)",
+      "src": "${var.COMPONENT}/x64/d3d11.dll",
+      "dst": "${var.PREFIX}/drive_c/windows/system32",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    },
+    {
+      "type": "copy",
+      "description": "Install DXVK-Sarek x64 dxgi.dll (win64)",
+      "src": "${var.COMPONENT}/x64/dxgi.dll",
+      "dst": "${var.PREFIX}/drive_c/windows/system32",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    },
+    {
+      "type": "copy",
+      "description": "Install DXVK-Sarek x32 d3d8.dll (win32)",
+      "src": "${var.COMPONENT}/x32/d3d8.dll",
+      "dst": "${var.PREFIX}/drive_c/windows/system32",
+      "when": {
+        "var": {
+          "ARCH": "win32"
+        }
+      }
+    },
+    {
+      "type": "copy",
+      "description": "Install DXVK-Sarek x32 d3d9.dll (win32)",
+      "src": "${var.COMPONENT}/x32/d3d9.dll",
+      "dst": "${var.PREFIX}/drive_c/windows/system32",
+      "when": {
+        "var": {
+          "ARCH": "win32"
+        }
+      }
+    },
+    {
+      "type": "copy",
+      "description": "Install DXVK-Sarek x32 d3d10core.dll (win32)",
+      "src": "${var.COMPONENT}/x32/d3d10core.dll",
+      "dst": "${var.PREFIX}/drive_c/windows/system32",
+      "when": {
+        "var": {
+          "ARCH": "win32"
+        }
+      }
+    },
+    {
+      "type": "copy",
+      "description": "Install DXVK-Sarek x32 d3d11.dll (win32)",
+      "src": "${var.COMPONENT}/x32/d3d11.dll",
+      "dst": "${var.PREFIX}/drive_c/windows/system32",
+      "when": {
+        "var": {
+          "ARCH": "win32"
+        }
+      }
+    },
+    {
+      "type": "copy",
+      "description": "Install DXVK-Sarek x32 dxgi.dll (win32)",
+      "src": "${var.COMPONENT}/x32/dxgi.dll",
+      "dst": "${var.PREFIX}/drive_c/windows/system32",
+      "when": {
+        "var": {
+          "ARCH": "win32"
+        }
+      }
+    }
+  ]
+}
