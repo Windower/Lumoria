@@ -7,6 +7,7 @@
   ],
   "github_repo": "Kron4ek/Wine-Builds",
   "skip_versions": [
+    "11.11",
     "11.10",
     "11.8"
   ],

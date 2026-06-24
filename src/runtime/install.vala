@@ -69,6 +69,7 @@ namespace Lumoria.Runtime {
                 expand_path (dl.url, vars),
                 expand_path (dl.dest, vars),
                 expand_path (dl.sha256, vars),
+                expand_path (dl.checksum_algorithm, vars),
                 idx, total, progress, logger
             );
         }
@@ -785,6 +786,7 @@ namespace Lumoria.Runtime {
         string url,
         string dest,
         string sha256,
+        string checksum_algorithm,
         int step_idx,
         int total_steps,
         InstallProgress progress,
@@ -793,7 +795,9 @@ namespace Lumoria.Runtime {
         Utils.ensure_dir (Path.get_dirname (dest));
         progress.step_changed ("(%d/%d) Downloading %s\u2026".printf (step_idx, total_steps, id));
 
-        if (download_item_is_valid (id, dest, sha256, logger)) {
+        var algorithm = checksum_algorithm != "" ? checksum_algorithm : null;
+
+        if (download_item_is_valid (id, dest, sha256, logger, algorithm)) {
             progress.progress_changed ((double) step_idx / total_steps);
             logger.typed (LogType.CACHED, dest);
             return;
@@ -801,7 +805,7 @@ namespace Lumoria.Runtime {
 
         var s_base = (double) (step_idx - 1) / total_steps;
         var s_range = 1.0 / total_steps;
-        logger.emit_line ("Downloading: %s\n  -> %s\n".printf (url, dest));
+        logger.typed (LogType.DOWNLOAD, "%s -> %s".printf (url, dest));
         Utils.ensure_downloaded_file (
             url,
             dest,
@@ -812,19 +816,20 @@ namespace Lumoria.Runtime {
                 if (total > 0) {
                     progress.progress_changed (s_base + (double) downloaded / (double) total * s_range);
                 }
-            }
+            },
+            algorithm
         );
         logger.typed (LogType.DONE, id);
     }
 
-    private bool download_item_is_valid (string id, string path, string sha256, RuntimeLog logger) {
+    private bool download_item_is_valid (string id, string path, string sha256, RuntimeLog logger, string? algorithm = null) {
         if (!FileUtils.test (path, FileTest.EXISTS)) return false;
 
         if (sha256 == "") {
             logger.typed (LogType.WARN, "%s has no checksum; using size-only cache validation".printf (id));
         }
 
-        var valid = Utils.validate_downloaded_file (path, 0, sha256, id);
+        var valid = Utils.validate_downloaded_file (path, 0, sha256, id, algorithm);
         if (!valid && FileUtils.test (path, FileTest.EXISTS)) {
             FileUtils.remove (path);
         }
@@ -957,8 +962,95 @@ namespace Lumoria.Runtime {
                 run_set_component_override_step (step, vars, logger);
                 break;
 
+            case "manifest_extract":
+                run_manifest_extract_step (step, vars, logger, cancellable);
+                break;
+
+            case "manifest_cache_clear":
+                run_manifest_cache_clear_step (step, vars, logger);
+                break;
+
+            case "manifest_downloads_clear":
+                run_manifest_downloads_clear_step (step, vars, logger);
+                break;
+
             default:
                 throw new IOError.FAILED ("Unknown install step type: %s", step.step_type);
+        }
+    }
+
+    private void run_manifest_extract_step (
+        Models.InstallStep step,
+        Gee.HashMap<string, string> vars,
+        RuntimeLog logger,
+        Cancellable? cancellable = null
+    ) throws Error {
+        if (step.manifest_schema == null) {
+            throw new IOError.FAILED ("manifest_extract step missing manifest_schema");
+        }
+
+        var manifest_url = Utils.expand_vars (step.manifest_url, vars);
+        if (manifest_url == "") {
+            throw new IOError.FAILED ("manifest_extract step has empty manifest_url");
+        }
+
+        var dst = expand_path (step.dst, vars);
+        var cache_root = Utils.cache_dir ();
+        var cache_path = Path.build_filename (
+            cache_root, "remote-manifests",
+            Checksum.compute_for_string (ChecksumType.SHA256, manifest_url).substring (0, 16) + ".json"
+        );
+        var dl_dir = Path.build_filename (cache_root, "remote-manifests", "downloads");
+        var url_hash = Checksum.compute_for_string (ChecksumType.SHA256, manifest_url).substring (0, 16);
+
+        var files = Utils.fetch_remote_manifest_sync (manifest_url, step.manifest_schema, cache_path, vars);
+
+        foreach (var file in files) {
+            check_cancelled (cancellable);
+            var dl_dest = Path.build_filename (dl_dir, url_hash, file.filename);
+            var algorithm = file.checksum_algorithm != "" ? file.checksum_algorithm : null;
+            if (Utils.validate_downloaded_file (dl_dest, 0, file.checksum, file.filename, algorithm)) {
+                logger.typed (LogType.CACHED, dl_dest);
+            } else {
+                logger.typed (LogType.DOWNLOAD, "%s -> %s".printf (file.download_url, dl_dest));
+                Utils.ensure_downloaded_file (file.download_url, dl_dest, 0, file.checksum, file.filename, null, algorithm);
+            }
+            logger.typed (LogType.EXTRACT, "%s -> %s".printf (file.filename, dst));
+            Utils.extract_archive (dl_dest, dst);
+        }
+    }
+
+    private void run_manifest_cache_clear_step (
+        Models.InstallStep step,
+        Gee.HashMap<string, string> vars,
+        RuntimeLog logger
+    ) throws Error {
+        var url = Utils.expand_vars (step.manifest_url, vars);
+        if (url == "") throw new IOError.FAILED ("manifest_cache_clear: empty manifest_url");
+        var hash = Checksum.compute_for_string (ChecksumType.SHA256, url).substring (0, 16);
+        var envelope = Path.build_filename (Utils.cache_dir (), "remote-manifests", hash + ".json");
+        if (FileUtils.test (envelope, FileTest.EXISTS)) {
+            FileUtils.remove (envelope);
+            logger.typed (LogType.COPY, "cleared manifest envelope: %s".printf (hash));
+        } else {
+            logger.typed (LogType.SKIP, "manifest envelope not cached: %s".printf (hash));
+        }
+    }
+
+    private void run_manifest_downloads_clear_step (
+        Models.InstallStep step,
+        Gee.HashMap<string, string> vars,
+        RuntimeLog logger
+    ) throws Error {
+        var url = Utils.expand_vars (step.manifest_url, vars);
+        if (url == "") throw new IOError.FAILED ("manifest_downloads_clear: empty manifest_url");
+        var hash = Checksum.compute_for_string (ChecksumType.SHA256, url).substring (0, 16);
+        var dl_subdir = Path.build_filename (Utils.cache_dir (), "remote-manifests", "downloads", hash);
+        if (FileUtils.test (dl_subdir, FileTest.IS_DIR)) {
+            Utils.remove_recursive (dl_subdir);
+            logger.typed (LogType.COPY, "cleared manifest downloads: %s".printf (hash));
+        } else {
+            logger.typed (LogType.SKIP, "manifest downloads not cached: %s".printf (hash));
         }
     }
 

@@ -26,7 +26,8 @@ namespace Lumoria.Runtime {
         EXIT,
         PATCH,
         COMPONENT,
-        GIT
+        GIT,
+        DOWNLOAD
     }
 
     public class RuntimeLog : Object {
@@ -170,6 +171,7 @@ namespace Lumoria.Runtime {
                 case LogType.PATCH: return "patch";
                 case LogType.COMPONENT: return "component";
                 case LogType.GIT: return "git";
+                case LogType.DOWNLOAD: return "download";
                 default: return "log";
             }
         }

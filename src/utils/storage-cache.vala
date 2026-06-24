@@ -9,9 +9,10 @@ namespace Lumoria.Utils {
         CACHE_COMPONENTS,
         CACHE_INSTALLER,
         CACHE_LAUNCHERS,
-        CACHE_REDIST;
+        CACHE_REDIST,
+        CACHE_REMOTE_MANIFESTS;
 
-        public const int COUNT = 9;
+        public const int COUNT = 10;
 
         public string dir_path () {
             switch (this) {
@@ -31,6 +32,8 @@ namespace Lumoria.Utils {
                     return Path.build_filename (Utils.cache_dir (), "launchers");
                 case CACHE_REDIST:
                     return Path.build_filename (Utils.cache_dir (), "redist");
+                case CACHE_REMOTE_MANIFESTS:
+                    return Path.build_filename (Utils.cache_dir (), "remote-manifests");
                 default:
                     return "";
             }
@@ -43,6 +46,7 @@ namespace Lumoria.Utils {
                 case CACHE_INSTALLER:
                 case CACHE_LAUNCHERS:
                 case CACHE_REDIST:
+                case CACHE_REMOTE_MANIFESTS:
                     return true;
                 default:
                     return false;

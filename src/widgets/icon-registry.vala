@@ -23,6 +23,41 @@ namespace Lumoria.Widgets {
         public const string STARRED = "starred-symbolic";
         public const string UNSTARRED = "non-starred-symbolic";
 
+        public static string resolve_action_icon (string name) {
+            switch (name) {
+                case "add":           return ADD;
+                case "menu":          return MENU;
+                case "download":      return DOWNLOAD;
+                case "open_folder":   return OPEN_FOLDER;
+                case "open_dir":      return OPEN_DIRECTORY;
+                case "delete":        return DELETE;
+                case "checkmark":     return CHECKMARK;
+                case "copy":          return COPY;
+                case "paste":         return PASTE;
+                case "refresh":       return REFRESH;
+                case "close":         return CLOSE;
+                case "sessions":      return SESSIONS;
+                case "manage":        return MANAGE;
+                case "tools":         return TOOLS;
+                case "info":          return INFO;
+                case "warning":       return WARNING;
+                case "success":       return SUCCESS;
+                case "error":         return ERROR;
+                case "pending":       return PENDING;
+                case "starred":       return STARRED;
+                case "unstarred":     return UNSTARRED;
+                case "play":          return PAGE_LAUNCH;
+                case "install":       return PAGE_PACKAGES;
+                case "runners":       return PAGE_RUNNERS;
+                case "components":    return PAGE_COMPONENTS;
+                case "shortcuts":     return PAGE_SHORTCUTS;
+                case "storage":       return PAGE_STORAGE;
+                case "advanced":      return PAGE_ADVANCED;
+                case "about":         return PAGE_ABOUT;
+                default:              return TOOLS;
+            }
+        }
+
         public const string PAGE_GENERAL = MANAGE;
         public const string PAGE_RUNTIME = TOOLS;
         public const string PAGE_RUNNERS = "system-run-symbolic";

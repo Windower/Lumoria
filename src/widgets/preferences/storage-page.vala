@@ -79,6 +79,8 @@ namespace Lumoria.Widgets.Preferences {
                 Utils.StorageCategory.CACHE_LAUNCHERS, _("Launcher cache cleared."));
             add_cache_row (cache_group, _("Redistributable Cache"), "redist",
                 Utils.StorageCategory.CACHE_REDIST, _("Redistributable cache cleared."));
+            add_cache_row (cache_group, _("Remote Manifest Cache"), "remote-manifests",
+                Utils.StorageCategory.CACHE_REMOTE_MANIFESTS, _("Remote manifest cache cleared."));
 
             var clear_all = new Adw.ActionRow ();
             clear_all.title = _("Clear All Cache");

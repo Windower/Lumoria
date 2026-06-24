@@ -2,6 +2,7 @@ namespace Lumoria.Models {
 
     public enum WhenClauseKind {
         MATCH,
+        MANIFEST_FIELD_MATCH,
         FILE_EXISTS,
         ALL,
         ANY,
@@ -18,25 +19,27 @@ namespace Lumoria.Models {
             this.kind = kind;
         }
 
-        public bool evaluate (Gee.HashMap<string, string> vars) {
+        public bool evaluate (Gee.HashMap<string, string> vars, Gee.HashMap<string, string>? item_fields = null) {
             switch (kind) {
                 case WhenClauseKind.MATCH:
                     return vars.has_key (key) && vars[key] == value;
+                case WhenClauseKind.MANIFEST_FIELD_MATCH:
+                    return item_fields != null && item_fields.has_key (key) && item_fields[key] == value;
                 case WhenClauseKind.FILE_EXISTS:
                     var expanded = Utils.expand_vars (value, vars);
                     return FileUtils.test (expanded, FileTest.EXISTS);
                 case WhenClauseKind.ALL:
                     foreach (var child in children) {
-                        if (!child.evaluate (vars)) return false;
+                        if (!child.evaluate (vars, item_fields)) return false;
                     }
                     return true;
                 case WhenClauseKind.ANY:
                     foreach (var child in children) {
-                        if (child.evaluate (vars)) return true;
+                        if (child.evaluate (vars, item_fields)) return true;
                     }
                     return false;
                 case WhenClauseKind.NOT:
-                    return children.size > 0 && !children[0].evaluate (vars);
+                    return children.size > 0 && !children[0].evaluate (vars, item_fields);
                 default:
                     return false;
             }
@@ -47,6 +50,10 @@ namespace Lumoria.Models {
             var node = obj.get_member ("when");
             if (node.get_node_type () != Json.NodeType.OBJECT) return null;
             return parse_node (node.get_object ());
+        }
+
+        public static WhenClause? from_json_object (Json.Object obj) throws Error {
+            return parse_node (obj);
         }
 
         private static WhenClause parse_node (Json.Object obj) throws Error {
@@ -76,6 +83,8 @@ namespace Lumoria.Models {
                     return file_clause;
                 case "var":
                     return parse_var_match (obj.get_object_member ("var"));
+                case "manifestField":
+                    return parse_manifest_field_match (obj.get_object_member ("manifestField"));
                 default:
                     throw new IOError.FAILED ("Invalid when clause operator: %s", op);
             }
@@ -89,6 +98,22 @@ namespace Lumoria.Models {
             var clause = new WhenClause (WhenClauseKind.ALL);
             foreach (unowned string k in members) {
                 var child = new WhenClause (WhenClauseKind.MATCH);
+                child.key = k;
+                child.value = obj.get_string_member (k);
+                clause.children.add (child);
+            }
+            if (clause.children.size == 1) return clause.children[0];
+            return clause;
+        }
+
+        private static WhenClause parse_manifest_field_match (Json.Object obj) throws Error {
+            var members = obj.get_members ();
+            if (members.length () == 0) {
+                throw new IOError.FAILED ("Invalid manifestField clause: expected at least one field match");
+            }
+            var clause = new WhenClause (WhenClauseKind.ALL);
+            foreach (unowned string k in members) {
+                var child = new WhenClause (WhenClauseKind.MANIFEST_FIELD_MATCH);
                 child.key = k;
                 child.value = obj.get_string_member (k);
                 clause.children.add (child);
@@ -273,6 +298,7 @@ namespace Lumoria.Models {
         public string url { get; set; default = ""; }
         public string dest { get; set; default = ""; }
         public string sha256 { get; set; default = ""; }
+        public string checksum_algorithm { get; set; default = ""; }
         public WhenClause? when { get; set; default = null; }
 
         public static DownloadItem from_json (Json.Object obj) throws Error {
@@ -281,6 +307,7 @@ namespace Lumoria.Models {
             d.url = json_string (obj, "url");
             d.dest = json_string (obj, "dest");
             d.sha256 = json_string (obj, "sha256");
+            d.checksum_algorithm = json_string (obj, "checksum_algorithm");
             d.when = WhenClause.from_json_member (obj);
             return d;
         }
@@ -303,6 +330,8 @@ namespace Lumoria.Models {
         public bool create_if_missing { get; set; default = true; }
         public bool overwrite_existing { get; set; default = false; }
         public bool idempotent { get; set; default = true; }
+        public string manifest_url { get; set; default = ""; }
+        public RemoteManifestSchema? manifest_schema { get; set; default = null; }
         public WhenClause? when { get; set; default = null; }
         public Gee.HashMap<string, string> match { get; owned set; default = new Gee.HashMap<string, string> (); }
         public Gee.HashMap<string, string> children { get; owned set; default = new Gee.HashMap<string, string> (); }
@@ -329,6 +358,10 @@ namespace Lumoria.Models {
             s.create_if_missing = json_bool (obj, "create_if_missing", true);
             s.overwrite_existing = json_bool (obj, "overwrite_existing");
             s.idempotent = json_bool (obj, "idempotent", true);
+            s.manifest_url = json_string (obj, "manifest_url");
+            if (obj.has_member ("manifest_schema")) {
+                s.manifest_schema = RemoteManifestSchema.from_json (obj.get_object_member ("manifest_schema"));
+            }
             s.when = WhenClause.from_json_member (obj);
             s.match = json_string_map (obj, "match");
             s.children = json_string_map (obj, "children");
@@ -342,6 +375,7 @@ namespace Lumoria.Models {
 
     public class SpecAction : BaseSpec {
         public string description { get; set; default = ""; }
+        public string icon { get; set; default = ""; }
         public Gee.HashMap<string, string> variables { get; owned set; default = new Gee.HashMap<string, string> (); }
         public Gee.ArrayList<string> redists { get; owned set; default = new Gee.ArrayList<string> (); }
         public Gee.ArrayList<DownloadItem> downloads { get; owned set; default = new Gee.ArrayList<DownloadItem> (); }
@@ -352,6 +386,7 @@ namespace Lumoria.Models {
             var a = new SpecAction ();
             a.parse_base (obj);
             a.description = json_string (obj, "description");
+            a.icon = json_string (obj, "icon");
             a.variables = json_string_map (obj, "variables");
             a.redists = json_string_array (obj, "redists");
             a.downloads = parse_downloads (obj);
@@ -396,5 +431,88 @@ namespace Lumoria.Models {
             map[member] = RuntimeComponentOverride.from_json (node.get_object ());
         });
         return map;
+    }
+
+    public class RemoteManifestSchema : Object {
+        public string url_template { get; set; default = ""; }
+        public string files_path { get; set; default = ""; }
+        public string checksum_field { get; set; default = ""; }
+        public string checksum_algorithm { get; set; default = ""; }
+        public string checksum_algorithm_field { get; set; default = ""; }
+        public string filename_field { get; set; default = ""; }
+        public WhenClause? filter { get; set; default = null; }
+        public string sort_field { get; set; default = ""; }
+        public string available_field { get; set; default = ""; }
+        public int64 cache_ttl { get; set; default = 3600; }
+
+        public static RemoteManifestSchema from_json (Json.Object obj) throws Error {
+            var s = new RemoteManifestSchema ();
+            s.url_template = json_string (obj, "url_template");
+            s.files_path = json_string (obj, "files_path");
+            s.checksum_field = json_string (obj, "checksum_field");
+            s.checksum_algorithm = json_string (obj, "checksum_algorithm");
+            s.checksum_algorithm_field = json_string (obj, "checksum_algorithm_field");
+            s.filename_field = json_string (obj, "filename_field");
+            if (obj.has_member ("filter")) {
+                var node = obj.get_member ("filter");
+                if (node.get_node_type () == Json.NodeType.OBJECT) {
+                    s.filter = WhenClause.from_json_object (node.get_object ());
+                }
+            }
+            s.sort_field = json_string (obj, "sort_field");
+            s.available_field = json_string (obj, "available_field");
+            s.cache_ttl = obj.has_member ("cache_ttl") ? obj.get_int_member ("cache_ttl") : 3600;
+            return s;
+        }
+    }
+
+    public class RemoteManifestAction : Object {
+        public string id_template { get; set; default = ""; }
+        public string name_template { get; set; default = ""; }
+        public string description { get; set; default = ""; }
+        public string icon { get; set; default = ""; }
+        public string manifest_url { get; set; default = ""; }
+        public RemoteManifestSchema? manifest_schema { get; set; default = null; }
+        public string dst { get; set; default = ""; }
+
+        public static RemoteManifestAction from_json (Json.Object obj) throws Error {
+            var a = new RemoteManifestAction ();
+            a.id_template = json_string (obj, "id_template");
+            a.name_template = json_string (obj, "name_template");
+            a.description = json_string (obj, "description");
+            a.icon = json_string (obj, "icon");
+            a.manifest_url = json_string (obj, "manifest_url");
+            if (obj.has_member ("manifest_schema")) {
+                a.manifest_schema = RemoteManifestSchema.from_json (obj.get_object_member ("manifest_schema"));
+            }
+            a.dst = json_string (obj, "dst");
+            return a;
+        }
+    }
+
+    public static Gee.ArrayList<RemoteManifestAction> parse_remote_manifest_actions (Json.Object obj) throws Error {
+        return parse_json_array<RemoteManifestAction> (obj, "remote_manifest_actions", (o) => RemoteManifestAction.from_json (o));
+    }
+
+    public static string expand_manifest_template (
+        string template,
+        Gee.HashMap<string, string> item_fields,
+        Gee.HashMap<string, string> vars
+    ) {
+        var result = template;
+        try {
+            var re = new Regex ("\\$\\{manifestField\\.([^}:]+)(?::([^}]*))?\\}");
+            result = re.replace_eval (template, template.length, 0, 0, (match, builder) => {
+                var field_name = match.fetch (1);
+                var modifiers  = match.fetch (2);
+                var value = (field_name != null && item_fields.has_key (field_name))
+                    ? item_fields[field_name] : "";
+                builder.append (Utils.apply_modifier_chain (value, modifiers));
+                return false;
+            });
+        } catch (RegexError e) {
+            warning ("expand_manifest_template: %s", e.message);
+        }
+        return Utils.expand_vars (result, vars);
     }
 }

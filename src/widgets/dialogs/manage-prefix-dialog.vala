@@ -800,7 +800,12 @@ namespace Lumoria.Widgets.Dialogs {
         }
 
         private Gee.ArrayList<Runtime.LaunchTarget> current_launch_targets () {
-            return Runtime.list_launch_targets (registry.prefixes[prefix_index], launcher_specs, custom_entries);
+            var manifest_warnings = new Gee.ArrayList<string> ();
+            var targets = Runtime.list_launch_targets (registry.prefixes[prefix_index], launcher_specs, custom_entries, manifest_warnings);
+            foreach (var msg in manifest_warnings) {
+                toast_overlay.add_toast (new Adw.Toast (msg));
+            }
+            return targets;
         }
 
         private string current_selected_entrypoint_id () {

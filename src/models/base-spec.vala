@@ -179,6 +179,7 @@ namespace Lumoria.Models {
         public Gee.ArrayList<DownloadItem> downloads { get; owned set; default = new Gee.ArrayList<DownloadItem> (); }
         public Gee.ArrayList<InstallStep> steps { get; owned set; default = new Gee.ArrayList<InstallStep> (); }
         public Gee.ArrayList<SpecAction> actions { get; owned set; default = new Gee.ArrayList<SpecAction> (); }
+        public Gee.ArrayList<RemoteManifestAction> remote_manifest_actions { get; owned set; default = new Gee.ArrayList<RemoteManifestAction> (); }
         public Gee.ArrayList<EnvRule> env { get; owned set; default = new Gee.ArrayList<EnvRule> (); }
         public bool reinstallable { get; set; default = true; }
         public string wineboot_mscoree { get; set; default = "disabled"; }
@@ -189,6 +190,7 @@ namespace Lumoria.Models {
             downloads = parse_downloads (obj);
             steps = parse_steps (obj);
             actions = parse_actions (obj);
+            remote_manifest_actions = parse_remote_manifest_actions (obj);
             env = parse_env_rules (obj);
             reinstallable = json_bool (obj, "reinstallable", true);
             has_wineboot_mscoree = obj.has_member ("wineboot_mscoree");

@@ -341,7 +341,7 @@ namespace Lumoria.Utils {
         }
     }
 
-    private static string apply_modifier_chain (string raw, string? chain) {
+    public static string apply_modifier_chain (string raw, string? chain) {
         if (chain == null || chain == "") return raw;
         string result = raw;
         foreach (var segment in chain.split ("|")) {
@@ -386,6 +386,8 @@ namespace Lumoria.Utils {
                 return (raw == "") ? (arg ?? "") : raw;
             case "urlencode":
                 return Uri.escape_string (raw, null, true);
+            case "slug":
+                return slugify (raw);
             default:
                 warning ("expand_vars: unknown modifier '%s'", modifier);
                 return raw;

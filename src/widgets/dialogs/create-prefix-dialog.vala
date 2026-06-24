@@ -220,7 +220,7 @@ namespace Lumoria.Widgets.Dialogs {
             var advanced_content = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
             var post_install_group = SettingsShared.build_group (_("Post Install"), 12);
             post_install_group.add (SettingsShared.build_warning_card (
-                _("Post-install specs can make changes to the prefix before first launch."),
+                _("Post-install specs can make breaking changes to your prefix. Use at your own risk."),
                 8,
                 8,
                 8,

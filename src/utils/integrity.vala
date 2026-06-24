@@ -38,7 +38,8 @@ namespace Lumoria.Utils {
         string path,
         int64 expected_size,
         string expected_checksum,
-        string context
+        string context,
+        string? algorithm = null
     ) {
         if (!FileUtils.test (path, FileTest.EXISTS)) return false;
 
@@ -47,7 +48,7 @@ namespace Lumoria.Utils {
         if (expected_size > 0 && actual_size != expected_size) return false;
 
         if (expected_checksum != "") {
-            var actual = compute_checksum_for_expected (path, expected_checksum);
+            var actual = compute_checksum_for_expected (path, expected_checksum, algorithm);
             if (actual == "" || actual.down () != expected_checksum.down ()) {
                 warning ("Checksum mismatch for %s (%s)", context, path);
                 return false;
@@ -62,16 +63,17 @@ namespace Lumoria.Utils {
         int64 expected_size,
         string expected_checksum,
         string context,
-        ProgressCallback? progress = null
+        ProgressCallback? progress = null,
+        string? algorithm = null
     ) throws Error {
         ensure_dir (Path.get_dirname (dest));
-        if (!validate_downloaded_file (dest, expected_size, expected_checksum, context)) {
+        if (!validate_downloaded_file (dest, expected_size, expected_checksum, context, algorithm)) {
             if (FileUtils.test (dest, FileTest.EXISTS)) {
                 FileUtils.remove (dest);
             }
             download_file_sync (url, dest, progress);
         }
-        if (!validate_downloaded_file (dest, expected_size, expected_checksum, context)) {
+        if (!validate_downloaded_file (dest, expected_size, expected_checksum, context, algorithm)) {
             throw new IOError.FAILED ("Downloaded file is invalid for %s: %s", context, dest);
         }
     }
@@ -129,15 +131,32 @@ namespace Lumoria.Utils {
         return "";
     }
 
-    private string compute_checksum_for_expected (string path, string expected_hex) {
-        var len = expected_hex.length;
-        ChecksumType type;
-        if (len == 64) {
-            type = ChecksumType.SHA256;
-        } else if (len == 128) {
-            type = ChecksumType.SHA512;
-        } else {
-            return "";
+    private string compute_checksum_for_expected (string path, string expected_hex, string? algorithm = null) {
+        var type = ChecksumType.SHA256;
+        var resolved = false;
+
+        if (algorithm != null && algorithm != "") {
+            switch (algorithm.down ()) {
+                case "sha256":  type = ChecksumType.SHA256; resolved = true; break;
+                case "sha512":  type = ChecksumType.SHA512; resolved = true; break;
+                case "sha384":  type = ChecksumType.SHA384; resolved = true; break;
+                case "sha1":    type = ChecksumType.SHA1;   resolved = true; break;
+                case "md5":     type = ChecksumType.MD5;    resolved = true; break;
+                default:
+                    warning ("Unknown checksum algorithm '%s'; falling back to hex-length inference", algorithm);
+                    break;
+            }
+        }
+
+        if (!resolved) {
+            var len = expected_hex.length;
+            if (len == 64) {
+                type = ChecksumType.SHA256;
+            } else if (len == 128) {
+                type = ChecksumType.SHA512;
+            } else {
+                return "";
+            }
         }
 
         try {

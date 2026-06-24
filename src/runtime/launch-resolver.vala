@@ -11,6 +11,7 @@ namespace Lumoria.Runtime {
         public string label { get; set; default = ""; }
         public string selector_label { get; set; default = ""; }
         public string description { get; set; default = ""; }
+        public string icon { get; set; default = ""; }
         public bool is_action { get; set; default = false; }
         public LaunchTargetSection section { get; set; default = LaunchTargetSection.MAIN; }
     }
@@ -220,7 +221,8 @@ namespace Lumoria.Runtime {
     public Gee.ArrayList<LaunchTarget> list_launch_targets (
         Models.PrefixEntry entry,
         Gee.ArrayList<Models.LauncherSpec> launcher_specs,
-        Gee.ArrayList<Models.Entrypoint>? custom_list = null
+        Gee.ArrayList<Models.Entrypoint>? custom_list = null,
+        Gee.ArrayList<string>? warnings = null
     ) {
         var targets = new Gee.ArrayList<LaunchTarget> ();
         var entrypoints = list_entrypoints_with_custom (
@@ -246,12 +248,13 @@ namespace Lumoria.Runtime {
             targets.add (target);
         }
 
-        foreach (var action in list_spec_actions (entry, launcher_specs)) {
+        foreach (var action in list_spec_actions (entry, launcher_specs, warnings)) {
             var target = new LaunchTarget ();
             target.id = action.id;
             target.label = action.display_label ();
             target.selector_label = target.label;
             target.description = action.description;
+            target.icon = action.icon;
             target.section = LaunchTargetSection.ACTIONS;
             target.is_action = true;
             targets.add (target);
@@ -262,7 +265,8 @@ namespace Lumoria.Runtime {
 
     public Gee.ArrayList<Models.SpecAction> list_spec_actions (
         Models.PrefixEntry entry,
-        Gee.ArrayList<Models.LauncherSpec> launcher_specs
+        Gee.ArrayList<Models.LauncherSpec> launcher_specs,
+        Gee.ArrayList<string>? warnings = null
     ) {
         var actions = new Gee.ArrayList<Models.SpecAction> ();
         var seen = new Gee.HashSet<string> ();
@@ -270,8 +274,9 @@ namespace Lumoria.Runtime {
         var installer = Models.InstallerSpec.load_from_resource ();
         append_unique_actions (actions, seen, installer.actions);
 
+        Models.LauncherSpec? launcher = null;
         if (entry.launcher_id != "") {
-            var launcher = find_launcher_by_id (launcher_specs, entry.launcher_id);
+            launcher = find_launcher_by_id (launcher_specs, entry.launcher_id);
             if (launcher != null) {
                 append_unique_actions (actions, seen, launcher.actions);
             }
@@ -282,7 +287,79 @@ namespace Lumoria.Runtime {
             append_unique_actions (actions, seen, post_install.actions);
         }
 
+        var pfx_path = install_prefix_path (entry.resolved_path ());
+        var vars = build_launch_vars (pfx_path, entry, installer, launcher, post_install);
+
+        expand_remote_manifest_actions (installer, seen, actions, vars, warnings);
+        if (launcher != null) {
+            expand_remote_manifest_actions (launcher, seen, actions, vars, warnings);
+        }
+        if (post_install != null) {
+            expand_remote_manifest_actions (post_install, seen, actions, vars, warnings);
+        }
+
         return actions;
+    }
+
+    private void expand_remote_manifest_actions (
+        Models.InstallableSpec spec,
+        Gee.HashSet<string> seen,
+        Gee.ArrayList<Models.SpecAction> actions,
+        Gee.HashMap<string, string> vars,
+        Gee.ArrayList<string>? warnings
+    ) {
+        if (spec.remote_manifest_actions.size == 0) return;
+
+        var dl_dir = Path.build_filename (Utils.cache_dir (), "remote-manifests", "downloads");
+
+        foreach (var tmpl in spec.remote_manifest_actions) {
+            var manifest_url = Utils.expand_vars (tmpl.manifest_url, vars);
+            if (manifest_url == "" || tmpl.manifest_schema == null) continue;
+
+            var url_hash = Checksum.compute_for_string (ChecksumType.SHA256, manifest_url).substring (0, 16);
+            var cache_path = Path.build_filename (
+                Utils.cache_dir (), "remote-manifests",
+                url_hash + ".json"
+            );
+
+            Gee.ArrayList<Utils.RemoteManifestFile> files;
+            try {
+                files = Utils.fetch_remote_manifest_sync (manifest_url, tmpl.manifest_schema, cache_path, vars);
+            } catch (Error e) {
+                var msg = _("Remote manifest unavailable (%s): %s").printf (manifest_url, e.message);
+                warning (msg);
+                if (warnings != null) warnings.add (msg);
+                continue;
+            }
+
+            foreach (var file in files) {
+                var action_id = Models.expand_manifest_template (tmpl.id_template, file.item_fields, vars);
+                if (action_id == "" || seen.contains (action_id)) continue;
+
+                var dl = new Models.DownloadItem ();
+                dl.id = action_id;
+                dl.url = file.download_url;
+                dl.dest = Path.build_filename (dl_dir, url_hash, file.filename);
+                dl.sha256 = file.checksum;
+                dl.checksum_algorithm = file.checksum_algorithm;
+
+                var step = new Models.InstallStep ();
+                step.step_type = "extract";
+                step.src = dl.dest;
+                step.dst = tmpl.dst;
+
+                var action = new Models.SpecAction ();
+                action.id = action_id;
+                action.name = Models.expand_manifest_template (tmpl.name_template, file.item_fields, vars);
+                action.description = Models.expand_manifest_template (tmpl.description, file.item_fields, vars);
+                action.icon = tmpl.icon;
+                action.downloads.add (dl);
+                action.steps.add (step);
+
+                actions.add (action);
+                seen.add (action_id);
+            }
+        }
     }
 
     public Models.PostInstallSpec? load_prefix_post_install_spec (Models.PrefixEntry entry) {

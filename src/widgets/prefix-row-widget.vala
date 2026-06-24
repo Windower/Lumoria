@@ -179,7 +179,11 @@ namespace Lumoria.Widgets {
                     : subtitle;
             }
 
-            var play_button = new Gtk.Button.from_icon_name (target.is_action ? IconRegistry.TOOLS : IconRegistry.PAGE_LAUNCH);
+            var play_button = new Gtk.Button.from_icon_name (
+                target.is_action
+                    ? IconRegistry.resolve_action_icon (target.icon)
+                    : IconRegistry.PAGE_LAUNCH
+            );
             play_button.add_css_class ("flat");
             play_button.add_css_class ("launch-entry-play-btn");
             play_button.valign = Gtk.Align.CENTER;
