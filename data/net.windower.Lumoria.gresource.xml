@@ -71,5 +71,6 @@
     <file>specs/components/dxvk-sarek-d7vk.json</file>
     <file>specs/components/dxvk-sarek.json</file>
     <file>specs/components/dxvk.json</file>
+    <file>specs/components/rysas-d7vk.json</file>
   </gresource>
 </gresources>

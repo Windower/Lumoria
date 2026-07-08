@@ -76,6 +76,7 @@
           <li>Prefix update UX improvements. You now have the option to not update right away!</li>
           <li>Warning dialog when you install a package into your prefix that applications will be closed.</li>
           <li>New setting to show hidden versions of Wine runners.</li>
+          <li>D7VK now tracks official WinterSnowfall releases.</li>
 	      </ul>
       </description>
     </release>

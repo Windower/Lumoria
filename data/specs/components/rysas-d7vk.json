@@ -1,7 +1,7 @@
 {
-  "id": "d7vk",
-  "name": "D7VK",
-  "github_repo": "WinterSnowfall/d7vk",
+  "id": "rysas-d7vk",
+  "name": "D7VK (rysas devel)",
+  "github_repo": "rysas/d7vk",
   "asset_regex": "d7vk-.*\\.zip$",
   "checksum_regex": "",
   "default_version": "latest",

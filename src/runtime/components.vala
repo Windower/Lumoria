@@ -523,7 +523,14 @@ namespace Lumoria.Runtime {
                         break;
                     }
                     if (!FileUtils.test (src, FileTest.EXISTS)) {
-                        logger.typed (LogType.COMPONENT, "  source missing: %s".printf (src));
+                        var builtin = runner_builtin_for_dst (wine_paths, src, arch);
+                        if (builtin == "") {
+                            logger.typed (LogType.COMPONENT, "  source missing: %s".printf (src));
+                            break;
+                        }
+                        Utils.copy_path (builtin, dst);
+                        logger.typed (LogType.COMPONENT, "  sourced %s from runner".printf (Path.get_basename (dst)));
+                        record.installed_files.add (dst);
                         break;
                     }
                     Utils.ensure_dir (Path.get_dirname (dst));
