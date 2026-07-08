@@ -68,11 +68,22 @@
   </screenshots>
 
   <releases>
+    <release version="0.1.22" date="2026-07-07">
+      <description>
+        <ul>
+          <li>Fix Proton-11 failing to start due to its combined 32/64-bit binary layout requiring the 32-bit loader (/lib/ld-linux.so.2)</li>
+          <li>Add proton-cachyos runner to Flatpak.</li>
+          <li>Prefix update UX improvements. You now have the option to not update right away!</li>
+          <li>Warning dialog when you install a package into your prefix that applications will be closed.</li>
+          <li>New setting to show hidden versions of Wine runners.</li>
+	      </ul>
+      </description>
+    </release>
     <release version="0.1.21" date="2026-06-24">
       <description>
         <ul>
           <li>Hide GE-Proton 11.1 in Flatpak.</li>
-	</ul>
+	      </ul>
       </description>
     </release>
     <release version="0.1.20" date="2026-06-23">

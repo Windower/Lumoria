@@ -41,5 +41,10 @@ namespace Lumoria.Utils {
 
             return display.get_type ().name ().down ().contains ("wayland");
         }
+
+        public static bool has_x11_display () {
+            var display = Environment.get_variable ("DISPLAY");
+            return display != null && display.strip () != "";
+        }
     }
 }

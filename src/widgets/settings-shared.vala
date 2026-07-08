@@ -389,10 +389,40 @@ namespace Lumoria.Widgets {
             });
         }
 
+        public static string wayland_no_x11_hint () {
+            if (Utils.EnvironmentInfo.has_x11_display ()) return "";
+            return Utils.EnvironmentInfo.is_sandboxed ()
+                ? _("No X11 display available; disabling has no effect. Grant the X11 socket (e.g. via Flatseal) to use XWayland.")
+                : _("No X11 display available; disabling has no effect.");
+        }
+
         public static void present_alert (Gtk.Widget parent, string title, string body) {
             var alert = new Adw.AlertDialog (title, body);
             alert.add_response ("ok", _("OK"));
             alert.present (parent);
+        }
+
+        public static void present_confirmation (
+            Gtk.Widget parent,
+            string title,
+            string body,
+            string confirm_id,
+            string confirm_label,
+            Adw.ResponseAppearance confirm_appearance,
+            owned ConfirmationCallback on_confirm
+        ) {
+            var dialog = new Adw.AlertDialog (title, body);
+            dialog.add_response ("cancel", _("Cancel"));
+            dialog.add_response (confirm_id, confirm_label);
+            dialog.set_response_appearance (confirm_id, confirm_appearance);
+            dialog.default_response = "cancel";
+            dialog.close_response = "cancel";
+            dialog.response.connect ((response) => {
+                if (response == confirm_id) {
+                    on_confirm ();
+                }
+            });
+            dialog.present (parent);
         }
 
         public static void present_destructive_confirmation (
@@ -403,15 +433,76 @@ namespace Lumoria.Widgets {
             string confirm_label,
             owned ConfirmationCallback on_confirm
         ) {
-            var dialog = new Adw.AlertDialog (title, body);
+            present_confirmation (
+                parent, title, body, confirm_id, confirm_label,
+                Adw.ResponseAppearance.DESTRUCTIVE, (owned) on_confirm
+            );
+        }
+
+        private static Gtk.Widget build_update_table (Gee.ArrayList<Runtime.PendingUpdate> updates) {
+            var table = new Gtk.Grid ();
+            table.column_spacing = 12;
+            table.row_spacing = 4;
+            table.halign = Gtk.Align.CENTER;
+
+            string[] headers = { _("Component"), _("Current"), _("New") };
+            for (int col = 0; col < headers.length; col++) {
+                var header = new Gtk.Label (headers[col]);
+                header.xalign = 0f;
+                header.add_css_class ("caption-heading");
+                header.add_css_class ("dim-label");
+                table.attach (header, col, 0);
+            }
+
+            int row = 1;
+            foreach (var update in updates) {
+                var cells = new string[] { update.label, update.current_version, update.new_version };
+                for (int col = 0; col < cells.length; col++) {
+                    var cell = new Gtk.Label (cells[col]);
+                    cell.xalign = 0f;
+                    cell.wrap = true;
+                    cell.add_css_class ("caption");
+                    if (col > 0) cell.add_css_class ("numeric");
+                    table.attach (cell, col, row);
+                }
+                row++;
+            }
+
+            return table;
+        }
+
+        public static void present_prefix_update_dialog (
+            Gtk.Widget parent,
+            Gee.ArrayList<Runtime.PendingUpdate> updates,
+            owned Runtime.UpdateDecisionHandler on_decision
+        ) {
+            var dialog = new Adw.AlertDialog (_("Update Available"), "");
+            dialog.prefer_wide_layout = true;
+
+            var content = new Gtk.Box (Gtk.Orientation.VERTICAL, 12);
+            content.append (build_update_table (updates));
+            content.append (build_warning_card (
+                _("Updating can lead to unforeseen issues. It is generally recommended create a backup of your prefix before updating."),
+                0, 0, 0, 0
+            ));
+            dialog.extra_child = content;
             dialog.add_response ("cancel", _("Cancel"));
-            dialog.add_response (confirm_id, confirm_label);
-            dialog.set_response_appearance (confirm_id, Adw.ResponseAppearance.DESTRUCTIVE);
+            dialog.add_response ("stay", _("Stay on Current Version"));
+            dialog.add_response ("update", _("Update"));
+            dialog.set_response_appearance ("update", Adw.ResponseAppearance.SUGGESTED);
             dialog.default_response = "cancel";
             dialog.close_response = "cancel";
             dialog.response.connect ((response) => {
-                if (response == confirm_id) {
-                    on_confirm ();
+                switch (response) {
+                    case "update":
+                        on_decision (Runtime.UpdateDecision.UPDATE);
+                        break;
+                    case "stay":
+                        on_decision (Runtime.UpdateDecision.STAY);
+                        break;
+                    default:
+                        on_decision (Runtime.UpdateDecision.CANCEL);
+                        break;
                 }
             });
             dialog.present (parent);

@@ -35,6 +35,37 @@ namespace Lumoria.Runtime {
         return downloaded;
     }
 
+    public void collect_pending_component_updates (
+        Models.PrefixEntry entry,
+        Gee.ArrayList<PendingUpdate> pending,
+        RuntimeLog logger
+    ) {
+        var defaults = Utils.Preferences.instance ();
+        foreach (var spec in Models.ComponentSpec.load_all_from_resource ()) {
+            if (!is_component_active (spec, entry, defaults, null)) continue;
+            if (!entry.applied_components.has_key (spec.id)) continue;
+            var applied = entry.applied_components[spec.id];
+            if (is_deferred_component_version (applied.version)) continue;
+            if (!is_deferred_component_version (resolve_component_version (spec, entry, defaults))) continue;
+
+            string latest;
+            try {
+                latest = new Models.ComponentToolAdapter (spec).resolve_latest_tag ();
+            } catch (Error e) {
+                logger.typed (LogType.WARN, "Update check failed for %s: %s".printf (spec.id, e.message));
+                continue;
+            }
+            if (latest == "" || latest == applied.version) continue;
+
+            var update = new PendingUpdate ();
+            update.component_id = spec.id;
+            update.label = spec.display_label ();
+            update.current_version = applied.version;
+            update.new_version = latest;
+            pending.add (update);
+        }
+    }
+
     public ComponentResult apply_enabled_components (
         WinePaths wine_paths,
         string pfx_path,

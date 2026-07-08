@@ -269,10 +269,12 @@ namespace Lumoria.Runtime {
             env.add_dll_override ("winewayland.drv", DLL_DISABLED);
         } else if (wayland_enabled && can_use_wayland) {
             env.add_dll_override ("winex11.drv", DLL_DISABLED);
+            apply_wayland_driver_env (env, paths);
         } else if (has_x11) {
             env.add_dll_override ("winewayland.drv", DLL_DISABLED);
         } else if (can_use_wayland) {
             env.add_dll_override ("winex11.drv", DLL_DISABLED);
+            apply_wayland_driver_env (env, paths);
         }
 
         if (wine_debug != "" && wine_debug != "off") {
@@ -308,6 +310,25 @@ namespace Lumoria.Runtime {
         apply_sync_mode (env, sync_mode);
 
         return env;
+    }
+
+    private void apply_wayland_driver_env (WineEnv env, WinePaths paths) {
+        env.set_var ("WINE_USE_EGL", "1");
+        env.set_var ("WINE_DISABLE_FULLSCREEN_HACK", "1");
+        env.set_var ("WINE_MOVE_HACK", "1");
+
+        // GE-Proton's bundled libxkbcommon has its build machine's X locale
+        // root baked in, so the Compose table lookup fails and dead keys type
+        // nothing. The proton script works around it by pointing XLOCALEDIR
+        // at the locale data shipped with the runner; fall back to the system
+        // copy for runners that do not ship one.
+        if (Environment.get_variable ("XLOCALEDIR") == null) {
+            var runner_locale = Path.build_filename (paths.root, "files", "share", "X11", "locale");
+            env.set_var (
+                "XLOCALEDIR",
+                FileUtils.test (runner_locale, FileTest.IS_DIR) ? runner_locale : "/usr/share/X11/locale"
+            );
+        }
     }
 
     private bool runner_has_wayland_driver (WinePaths paths, string wine_arch) {
@@ -409,13 +430,23 @@ namespace Lumoria.Runtime {
         var variant = runner_spec.effective_variant (variant_id);
         var pfx_path = install_prefix_path (prefix_root);
         var arch = wine_arch_override != "" ? wine_arch_override : variant.wine_arch;
+        var wayland_pref = Utils.Preferences.resolve_wine_wayland (wine_wayland);
+        if (!wayland_pref && !Utils.EnvironmentInfo.has_x11_display ()) {
+            logger.typed (
+                LogType.WARN,
+                "Wine Wayland is disabled but no X11 display is available; using the Wayland driver anyway."
+                + (Utils.EnvironmentInfo.is_sandboxed ()
+                    ? " Grant the X11 socket (flatpak override --user --socket=x11 net.windower.Lumoria) to use XWayland."
+                    : "")
+            );
+        }
         var env = build_wine_env (
             paths, runner_spec, variant_id,
             pfx_path, arch,
             Utils.Preferences.resolve_sync_mode (sync_mode),
             Utils.Preferences.resolve_wine_debug (wine_debug),
             false,
-            Utils.Preferences.resolve_wine_wayland (wine_wayland)
+            wayland_pref
         );
         if (Utils.Preferences.resolve_large_address_aware (large_address_aware)) {
             env.set_var ("WINE_LARGE_ADDRESS_AWARE", "1");

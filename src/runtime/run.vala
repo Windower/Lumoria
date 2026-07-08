@@ -10,6 +10,23 @@ namespace Lumoria.Runtime {
         public string error_message { get; set; default = ""; }
     }
 
+    public enum UpdateDecision {
+        UPDATE,
+        STAY,
+        CANCEL
+    }
+
+    public class PendingUpdate : Object {
+        public string label { get; set; default = ""; }
+        public string current_version { get; set; default = ""; }
+        public string new_version { get; set; default = ""; }
+        public bool is_runner { get; set; default = false; }
+        public string component_id { get; set; default = ""; }
+    }
+
+    public delegate UpdateDecision UpdateDecisionCallback (Gee.ArrayList<PendingUpdate> updates);
+    public delegate void UpdateDecisionHandler (UpdateDecision decision);
+
     private void require_prefix_path (Models.PrefixEntry entry) throws Error {
         if (entry.resolved_path () == "")
             throw new IOError.FAILED ("Prefix path is required");
@@ -23,7 +40,8 @@ namespace Lumoria.Runtime {
         string custom_exe = "",
         string[]? custom_wine_args = null,
         LaunchPolicy launch_policy = LaunchPolicy.INTERACTIVE,
-        RuntimeStatusCallback? status_cb = null
+        RuntimeStatusCallback? status_cb = null,
+        UpdateDecisionCallback? update_decision_cb = null
     ) throws Error {
         require_prefix_path (entry);
 
@@ -57,7 +75,8 @@ namespace Lumoria.Runtime {
             logger,
             active_entrypoint,
             launch_policy,
-            status_cb
+            status_cb,
+            update_decision_cb
         );
         apply_launch_env (entry, launcher_specs, custom_exe != "" ? "" : active_entrypoint_id, ctx.env);
         apply_entrypoint_runtime_overrides (active_entrypoint, ctx.env, logger);
@@ -126,7 +145,8 @@ namespace Lumoria.Runtime {
         Gee.ArrayList<string> wine_args,
         string command_label,
         LaunchPolicy launch_policy = LaunchPolicy.INTERACTIVE,
-        RuntimeStatusCallback? status_cb = null
+        RuntimeStatusCallback? status_cb = null,
+        UpdateDecisionCallback? update_decision_cb = null
     ) throws Error {
         require_prefix_path (entry);
 
@@ -139,7 +159,8 @@ namespace Lumoria.Runtime {
             logger,
             null,
             launch_policy,
-            status_cb
+            status_cb,
+            update_decision_cb
         );
         apply_launch_env (entry, null, "", ctx.env);
         apply_runtime_logging_policy (ctx.env);
@@ -167,13 +188,17 @@ namespace Lumoria.Runtime {
 
     public TerminalContext prepare_prefix_terminal_context (
         Models.PrefixEntry entry,
-        Gee.ArrayList<Models.RunnerSpec> runner_specs
+        Gee.ArrayList<Models.RunnerSpec> runner_specs,
+        UpdateDecisionCallback? update_decision_cb = null
     ) throws Error {
         require_prefix_path (entry);
 
         var session_id = generate_session_id ();
         var logger = RuntimeLog.for_run (entry.resolved_path (), session_id);
-        var ctx = prepare_runtime_context (entry, runner_specs, false, logger, null);
+        var ctx = prepare_runtime_context (
+            entry, runner_specs, false, logger, null,
+            LaunchPolicy.INTERACTIVE, null, update_decision_cb
+        );
         apply_launch_env (entry, null, "", ctx.env);
         apply_runtime_logging_policy (ctx.env);
 
@@ -222,9 +247,11 @@ namespace Lumoria.Runtime {
         RuntimeLog logger,
         Models.Entrypoint? active_entrypoint,
         LaunchPolicy launch_policy = LaunchPolicy.INTERACTIVE,
-        RuntimeStatusCallback? status_cb = null
+        RuntimeStatusCallback? status_cb = null,
+        UpdateDecisionCallback? update_decision_cb = null
     ) throws Error {
         var runner_spec = resolve_runner_spec_for_entry (entry, runner_specs);
+        confirm_pending_updates (entry, runner_spec, logger, launch_policy, update_decision_cb);
         var runtime = prepare_wine_runtime (
             runner_spec, entry.variant_id, entry.runner_version,
             entry.resolved_path (), entry.wine_arch,
@@ -259,6 +286,100 @@ namespace Lumoria.Runtime {
         apply_env_overrides (runtime.env, entry.runtime_env_vars);
         apply_runtime_logging_policy (runtime.env);
         return runtime;
+    }
+
+    private void confirm_pending_updates (
+        Models.PrefixEntry entry,
+        Models.RunnerSpec runner_spec,
+        RuntimeLog logger,
+        LaunchPolicy launch_policy,
+        UpdateDecisionCallback? decision_cb
+    ) throws Error {
+        if (decision_cb == null || launch_policy != LaunchPolicy.INTERACTIVE) return;
+
+        var pending = new Gee.ArrayList<PendingUpdate> ();
+        var runner_update = pending_runner_update (entry, runner_spec, logger);
+        if (runner_update != null) pending.add (runner_update);
+        collect_pending_component_updates (entry, pending, logger);
+        if (pending.size == 0) return;
+
+        switch (decision_cb (pending)) {
+            case UpdateDecision.STAY:
+                pin_current_versions (entry, pending, logger);
+                break;
+            case UpdateDecision.CANCEL:
+                throw new IOError.CANCELLED ("Launch cancelled");
+            default:
+                break;
+        }
+    }
+
+    private PendingUpdate? pending_runner_update (
+        Models.PrefixEntry entry,
+        Models.RunnerSpec runner_spec,
+        RuntimeLog logger
+    ) {
+        var state = entry.runner_state;
+        if (state == null || state.resolved_version == "") return null;
+        if (state.runner_id != runner_spec.id) return null;
+
+        var requested = Utils.Preferences.resolve_version (runner_spec.id, entry.runner_version);
+        if (requested != "" && requested != "latest") return null;
+
+        string latest;
+        try {
+            var variant = runner_spec.effective_variant (entry.variant_id);
+            if (state.variant_id != "" && state.variant_id != variant.id) return null;
+            latest = resolve_latest_runner_tag (runner_spec, entry.variant_id, logger);
+        } catch (Error e) {
+            logger.typed (LogType.WARN, "Update check failed for %s: %s".printf (runner_spec.id, e.message));
+            return null;
+        }
+        if (latest == "" || latest == state.resolved_version) return null;
+
+        var update = new PendingUpdate ();
+        update.is_runner = true;
+        update.label = runner_spec.display_label ();
+        update.current_version = state.resolved_version;
+        update.new_version = latest;
+        return update;
+    }
+
+    private void pin_current_versions (
+        Models.PrefixEntry entry,
+        Gee.ArrayList<PendingUpdate> pending,
+        RuntimeLog logger
+    ) {
+        foreach (var update in pending) {
+            apply_version_pin (entry, update);
+            logger.typed (LogType.DEBUG, "pinned %s to %s".printf (update.label, update.current_version));
+        }
+
+        var reg_path = Utils.prefix_registry_path ();
+        var reg = Models.PrefixRegistry.load (reg_path);
+        Models.PrefixEntry? target = entry.id != "" ? reg.by_id (entry.id) : null;
+        if (target == null) target = reg.by_path (entry.resolved_path ());
+        if (target == null) return;
+
+        foreach (var update in pending) {
+            apply_version_pin (target, update);
+        }
+        reg.update_entry (target);
+        if (!reg.save (reg_path)) {
+            logger.typed (LogType.WARN, "Failed to save pinned versions for prefix");
+        }
+    }
+
+    private void apply_version_pin (Models.PrefixEntry entry, PendingUpdate update) {
+        if (update.is_runner) {
+            entry.runner_version = update.current_version;
+            return;
+        }
+        var ov = entry.runtime_component_overrides.has_key (update.component_id)
+            ? entry.runtime_component_overrides[update.component_id]
+            : new Models.RuntimeComponentOverride ();
+        ov.version = update.current_version;
+        entry.runtime_component_overrides[update.component_id] = ov;
     }
 
     private void apply_wayland_primary_monitor (

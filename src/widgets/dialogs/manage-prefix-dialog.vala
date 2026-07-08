@@ -1834,6 +1834,19 @@ namespace Lumoria.Widgets.Dialogs {
         }
 
         private void on_install_redist (Models.PrefixEntry entry, string redist_id) {
+            var name = package_specs.has_key (redist_id) ? package_specs[redist_id].name : redist_id;
+            SettingsShared.present_confirmation (
+                this,
+                _("Install Package?"),
+                _("Installing %s will close any programs currently running in this prefix.").printf (name),
+                "install",
+                _("Install"),
+                Adw.ResponseAppearance.SUGGESTED,
+                () => run_redist_install_flow (entry, redist_id)
+            );
+        }
+
+        private void run_redist_install_flow (Models.PrefixEntry entry, string redist_id) {
             var previously_installed = new Gee.HashSet<string> ();
             previously_installed.add_all (entry.installed_redists);
 

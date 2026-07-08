@@ -90,6 +90,18 @@ namespace Lumoria.Runtime {
         return result;
     }
 
+    public string resolve_latest_runner_tag (
+        Models.RunnerSpec spec,
+        string variant_id,
+        RuntimeLog logger
+    ) throws Error {
+        var variant = spec.effective_variant (variant_id);
+        var cache_root = Path.build_filename (Utils.cache_dir (), "runners", spec.id);
+        Utils.ensure_dir (cache_root);
+        var release = select_release (spec, variant, "latest", cache_root, logger);
+        return release != null ? release.tag_name : "";
+    }
+
     private DownloadResult? find_installed_runner (
         Models.RunnerSpec spec,
         string extract_root,
@@ -145,7 +157,8 @@ namespace Lumoria.Runtime {
             foreach (var r in release_page.releases) {
                 scanned++;
                 if (r.tag_name != version) continue;
-                if (!release_matches_variant (spec, variant, r, logger)) {
+                // Explicitly requested tags are honored even when the spec hides them.
+                if (find_asset (r, variant.asset_regex, logger) == null) {
                     logger.typed (LogType.WARN, "Release '%s' had no asset for variant '%s'".printf (
                         version,
                         variant.id

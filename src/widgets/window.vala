@@ -364,8 +364,16 @@ namespace Lumoria.Widgets {
                 entrypoint_id,
                 (msg) => show_toast (msg),
                 (status) => update_launch_status (status),
-                () => end_launch_state ()
+                () => end_launch_state (),
+                present_update_decision_dialog
             );
+        }
+
+        private void present_update_decision_dialog (
+            Gee.ArrayList<Runtime.PendingUpdate> updates,
+            owned Runtime.UpdateDecisionHandler respond
+        ) {
+            SettingsShared.present_prefix_update_dialog (this, updates, (owned) respond);
         }
 
         private void on_run_spec_action (int index, string action_id) {
@@ -596,7 +604,8 @@ namespace Lumoria.Widgets {
                 exe_path,
                 (msg) => show_toast (msg),
                 (status) => update_launch_status (status),
-                () => end_launch_state ()
+                () => end_launch_state (),
+                present_update_decision_dialog
             );
         }
 
@@ -617,7 +626,8 @@ namespace Lumoria.Widgets {
                 label,
                 (msg) => show_toast (msg),
                 (status) => update_launch_status (status),
-                () => end_launch_state ()
+                () => end_launch_state (),
+                present_update_decision_dialog
             );
         }
 
@@ -709,9 +719,10 @@ namespace Lumoria.Widgets {
             var entry = require_runnable (index);
             if (entry == null) return;
 
+            var update_bridge = new Services.UpdateDecisionBridge (present_update_decision_dialog);
             new Thread<bool> ("prepare-terminal", () => {
                 try {
-                    var ctx = Runtime.prepare_prefix_terminal_context (entry, runner_specs);
+                    var ctx = Runtime.prepare_prefix_terminal_context (entry, runner_specs, update_bridge.decide);
                     var work_dir = ctx.working_directory;
                     var env_vars = ctx.env_vars;
                     Idle.add (() => {
@@ -721,6 +732,7 @@ namespace Lumoria.Widgets {
                         return false;
                     });
                 } catch (Error e) {
+                    if (e is IOError.CANCELLED) return true;
                     var msg = _("Open terminal failed: %s").printf (e.message);
                     Idle.add (() => {
                         show_toast (msg);
