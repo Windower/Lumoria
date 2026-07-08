@@ -39,10 +39,10 @@ namespace Lumoria.Widgets.Preferences {
 
             append (experimental_group);
 
-            var runners_group = SettingsShared.build_group (_("Runners"));
+            var runners_group = SettingsShared.build_group (_("Versions"));
             var hidden_versions_row = new Adw.SwitchRow ();
-            hidden_versions_row.title = _("Show Hidden Wine Versions");
-            hidden_versions_row.subtitle = _("List runner releases that are hidden by default due to known issues.");
+            hidden_versions_row.title = _("Show Hidden Versions");
+            hidden_versions_row.subtitle = _("List runner and component releases that are hidden by default due to known issues.");
             hidden_versions_row.active = prefs.show_hidden_runner_versions;
             hidden_versions_row.notify["active"].connect (() => {
                 if (prefs.show_hidden_runner_versions != hidden_versions_row.active) {

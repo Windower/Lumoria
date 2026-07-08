@@ -68,6 +68,13 @@
   </screenshots>
 
   <releases>
+    <release version="0.1.23" date="2026-07-08">
+      <description>
+        <ul>
+          <li>Disable D7VK v1.12. Crashes on startup of POL.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.22" date="2026-07-07">
       <description>
         <ul>

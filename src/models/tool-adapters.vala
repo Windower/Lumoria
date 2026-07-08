@@ -354,6 +354,10 @@ namespace Lumoria.Models {
         protected override bool skips_version (string tag) {
             return spec.skips_version (tag);
         }
+
+        protected override bool show_hidden_versions () {
+            return Utils.Preferences.instance ().show_hidden_runner_versions;
+        }
     }
 
 }

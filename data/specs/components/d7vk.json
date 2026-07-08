@@ -5,6 +5,7 @@
   "asset_regex": "d7vk-.*\\.zip$",
   "checksum_regex": "",
   "default_version": "latest",
+  "skip_versions": ["v1.12"],
   "system_env_defaults": {},
   "overrides": {
     "ddraw": "n,b"
