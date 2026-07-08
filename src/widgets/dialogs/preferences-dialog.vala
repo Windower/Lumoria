@@ -81,6 +81,7 @@ namespace Lumoria.Widgets.Dialogs {
             var advanced_page = new Preferences.AdvancedPage ();
             advanced_page.reset_requested.connect (on_reset_defaults);
             advanced_page.experimental_changed.connect (() => build_ui ());
+            advanced_page.hidden_versions_changed.connect (() => build_ui ());
             SettingsShared.add_scrolled_settings_page (stack, advanced_page, SettingsShared.PAGE_ADVANCED, _("Advanced"));
 
             var about_page = new Preferences.AboutPage ();

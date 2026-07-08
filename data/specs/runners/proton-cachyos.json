@@ -2,7 +2,6 @@
   "id": "proton-cachyos",
   "name": "Proton-CachyOS",
   "wine_arch": "win64",
-  "sandbox_supported": false,
   "features": [
     "wayland-primary-monitor"
   ],

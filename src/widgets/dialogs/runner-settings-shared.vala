@@ -226,7 +226,8 @@ namespace Lumoria.Widgets.Dialogs {
             return SettingsShared.build_toggle_override_combo (
                 _("Wine Wayland"),
                 wayland_override,
-                wayland_global
+                wayland_global,
+                SettingsShared.wayland_no_x11_hint ()
             );
         }
 

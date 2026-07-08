@@ -143,6 +143,7 @@ namespace Lumoria.Widgets.Dialogs {
             var query = search_row.text.down ().strip ();
             last_searched_query = query;
             var selected_variant = (Models.RunnerVariant) variant;
+            var show_hidden = Utils.Preferences.instance ().show_hidden_runner_versions;
 
             new Thread<bool> ("runner-version-picker-%s".printf (runner.id), () => {
                 var result = new ReleasePageResult ();
@@ -160,11 +161,13 @@ namespace Lumoria.Widgets.Dialogs {
                         result.page = next_page;
                         result.has_more = releases.has_more;
                         foreach (var release in releases.releases) {
-                            if (runner.skips_version (release.tag_name)) continue;
+                            var is_hidden = runner.skips_version (release.tag_name);
+                            if (is_hidden && !show_hidden) continue;
                             if (!release_has_variant_asset (release, selected_variant)) continue;
                             if (query != "" && !release.tag_name.down ().contains (query)) continue;
                             result.labels.add (release.tag_name);
                             result.values.add (release.tag_name);
+                            if (is_hidden) result.hidden.add (release.tag_name);
                         }
 
                         if (!search_until_match || result.labels.size > 0 || !releases.has_more) break;
@@ -210,12 +213,15 @@ namespace Lumoria.Widgets.Dialogs {
             clear_release_rows ();
             for (int i = 0; i < result.labels.size; i++) {
                 if (installed_set.contains (result.values[i])) {
-                    add_release_row (result.labels[i], result.values[i], _("Installed"));
+                    var hidden = result.hidden.contains (result.values[i]);
+                    add_release_row (result.labels[i], result.values[i],
+                        hidden ? _("Installed · Hidden") : _("Installed"));
                 }
             }
             for (int i = 0; i < result.labels.size; i++) {
                 if (!installed_set.contains (result.values[i])) {
-                    add_release_row (result.labels[i], result.values[i], "");
+                    var hidden = result.hidden.contains (result.values[i]);
+                    add_release_row (result.labels[i], result.values[i], hidden ? _("Hidden") : "");
                 }
             }
             if (result.labels.size == 0) {
@@ -281,6 +287,7 @@ namespace Lumoria.Widgets.Dialogs {
         private class ReleasePageResult : Object {
             public Gee.ArrayList<string> labels { get; owned set; default = new Gee.ArrayList<string> (); }
             public Gee.ArrayList<string> values { get; owned set; default = new Gee.ArrayList<string> (); }
+            public Gee.HashSet<string> hidden { get; owned set; default = new Gee.HashSet<string> (); }
             public int page { get; set; default = 1; }
             public bool has_more { get; set; default = false; }
             public string? error_message { get; set; default = null; }

@@ -3,6 +3,7 @@ namespace Lumoria.Widgets.Preferences {
     public class AdvancedPage : Gtk.Box {
         public signal void reset_requested ();
         public signal void experimental_changed ();
+        public signal void hidden_versions_changed ();
 
         public AdvancedPage () {
             Object (orientation: Gtk.Orientation.VERTICAL, spacing: 0);
@@ -37,6 +38,20 @@ namespace Lumoria.Widgets.Preferences {
             experimental_group.add (session_manager_row);
 
             append (experimental_group);
+
+            var runners_group = SettingsShared.build_group (_("Runners"));
+            var hidden_versions_row = new Adw.SwitchRow ();
+            hidden_versions_row.title = _("Show Hidden Wine Versions");
+            hidden_versions_row.subtitle = _("List runner releases that are hidden by default due to known issues.");
+            hidden_versions_row.active = prefs.show_hidden_runner_versions;
+            hidden_versions_row.notify["active"].connect (() => {
+                if (prefs.show_hidden_runner_versions != hidden_versions_row.active) {
+                    prefs.set_show_hidden_runner_versions (hidden_versions_row.active);
+                    hidden_versions_changed ();
+                }
+            });
+            runners_group.add (hidden_versions_row);
+            append (runners_group);
 
             var input_group = SettingsShared.build_group (_("Input"));
             var gamepad_row = new Adw.SwitchRow ();

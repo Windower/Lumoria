@@ -26,6 +26,7 @@ namespace Lumoria.Utils {
         private string _wine_debug = "";
         private bool _large_address_aware = false;
         private bool _experimental_features = false;
+        private bool _show_hidden_runner_versions = false;
         private bool _session_manager = true;
         private bool _gamepad_navigation = false;
         private bool _screen_inhibitor = true;
@@ -41,6 +42,7 @@ namespace Lumoria.Utils {
         public string wine_debug { get { return _wine_debug; } }
         public bool large_address_aware { get { return _large_address_aware; } }
         public bool experimental_features { get { return _experimental_features; } }
+        public bool show_hidden_runner_versions { get { return _show_hidden_runner_versions; } }
         public bool session_manager { get { return _session_manager; } }
         public bool gamepad_navigation { get { return _gamepad_navigation; } }
         public bool screen_inhibitor { get { return _screen_inhibitor; } }
@@ -145,6 +147,12 @@ namespace Lumoria.Utils {
 
         public void set_experimental_features (bool enabled) {
             _experimental_features = enabled;
+            save ();
+        }
+
+        public void set_show_hidden_runner_versions (bool enabled) {
+            if (_show_hidden_runner_versions == enabled) return;
+            _show_hidden_runner_versions = enabled;
             save ();
         }
 
@@ -281,6 +289,7 @@ namespace Lumoria.Utils {
             _large_address_aware = defaults.large_address_aware;
             _keep_runtime_logs = defaults.keep_runtime_logs;
             _experimental_features = false;
+            _show_hidden_runner_versions = false;
             _session_manager = true;
             _gamepad_navigation = false;
             _screen_inhibitor = true;
@@ -354,6 +363,8 @@ namespace Lumoria.Utils {
                 }
                 if (obj.has_member ("experimental_features"))
                     _experimental_features = obj.get_boolean_member ("experimental_features");
+                if (obj.has_member ("show_hidden_runner_versions"))
+                    _show_hidden_runner_versions = obj.get_boolean_member ("show_hidden_runner_versions");
                 if (obj.has_member ("session_manager"))
                     _session_manager = obj.get_boolean_member ("session_manager");
 
@@ -537,6 +548,7 @@ namespace Lumoria.Utils {
             obj.set_string_member ("runner_id", runner_id);
             obj.set_string_member ("runner_version", runner_version);
             obj.set_boolean_member ("experimental_features", _experimental_features);
+            obj.set_boolean_member ("show_hidden_runner_versions", _show_hidden_runner_versions);
             obj.set_boolean_member ("session_manager", _session_manager);
 
             var upd = new Json.Object ();

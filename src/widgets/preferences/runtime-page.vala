@@ -53,6 +53,7 @@ namespace Lumoria.Widgets.Preferences {
 
             wayland_row = new Adw.SwitchRow ();
             wayland_row.title = _("Enable Wine Wayland");
+            wayland_row.subtitle = SettingsShared.wayland_no_x11_hint ();
             wayland_row.active = prefs.wine_wayland;
             wayland_row.notify["active"].connect (() => {
                 if (prefs.wine_wayland != wayland_row.active) {

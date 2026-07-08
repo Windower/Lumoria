@@ -16,6 +16,7 @@ namespace Lumoria.Models {
         protected virtual string checksum_regex () { return ""; }
         protected virtual string source_archive_kind () { return ""; }
         protected virtual bool skips_version (string tag) { return false; }
+        protected virtual bool show_hidden_versions () { return false; }
 
         protected string releases_cache_path () {
             return Path.build_filename (Utils.cache_dir (), cache_kind, tool_id, "releases.json");
@@ -125,13 +126,14 @@ namespace Lumoria.Models {
 
         private Utils.GitHubRelease? latest_release (Gee.ArrayList<Utils.GitHubRelease> releases) {
             foreach (var release in releases) {
+                if (skips_version (release.tag_name)) continue;
                 if (release_is_available (release)) return release;
             }
             return null;
         }
 
         protected bool release_is_available (Utils.GitHubRelease release) {
-            if (skips_version (release.tag_name)) return false;
+            if (skips_version (release.tag_name) && !show_hidden_versions ()) return false;
             if (match_asset (release) != null) return true;
             return source_archive_url (release) != "";
         }
@@ -284,6 +286,10 @@ namespace Lumoria.Models {
 
         protected override bool skips_version (string tag) {
             return spec.skips_version (tag);
+        }
+
+        protected override bool show_hidden_versions () {
+            return Utils.Preferences.instance ().show_hidden_runner_versions;
         }
 
         public override string installed_path (ToolVersion ver) {
