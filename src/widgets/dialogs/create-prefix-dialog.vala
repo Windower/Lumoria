@@ -6,6 +6,8 @@ namespace Lumoria.Widgets.Dialogs {
         private Models.PrefixRegistry registry;
         private Gee.ArrayList<Models.RunnerSpec> runner_specs;
         private Gee.ArrayList<Models.LauncherSpec> launcher_specs;
+        private Gee.ArrayList<Models.InstallerSpec> installer_specs;
+        private Gee.ArrayList<Models.LauncherSpec> visible_launcher_specs;
 
         private Adw.EntryRow name_entry;
         private Adw.ToastOverlay toast_overlay;
@@ -20,6 +22,10 @@ namespace Lumoria.Widgets.Dialogs {
         private OptionListRow laa_combo;
         private OptionListRow launcher_combo;
         private OptionListRow region_combo;
+        private OptionListRow installer_combo;
+        private Adw.PreferencesGroup? launcher_group;
+        private Adw.PreferencesGroup? region_group;
+        private Adw.PreferencesGroup? patches_group;
         private Adw.ActionRow post_install_row;
         private Gtk.Button clear_post_install_btn;
         private Gtk.Button create_btn;
@@ -49,6 +55,8 @@ namespace Lumoria.Widgets.Dialogs {
             this.registry = registry;
             this.runner_specs = Models.RunnerSpec.filter_for_environment (runner_specs, Utils.is_sandboxed ());
             this.launcher_specs = launcher_specs;
+            this.installer_specs = Models.SpecRepository.shared ().installers;
+            this.visible_launcher_specs = new Gee.ArrayList<Models.LauncherSpec> ();
             visible_variants = new Gee.ArrayList<Models.RunnerVariant> ();
             component_mode_rows = new Gee.HashMap<string, OptionListRow> ();
 
@@ -99,6 +107,17 @@ namespace Lumoria.Widgets.Dialogs {
             name_entry.title = _("Name");
             general_group.add (name_entry);
 
+            var installer_model = new Gtk.StringList (null);
+            foreach (var spec in installer_specs) {
+                installer_model.append (spec.display_label ());
+            }
+            installer_combo = new OptionListRow ();
+            installer_combo.title = _("Installation");
+            installer_combo.model = installer_model;
+            installer_combo.selected = default_installer_index ();
+            installer_combo.notify["selected"].connect (update_installer_ui);
+            general_group.add (installer_combo);
+
             general_content.append (general_group);
 
             if (Utils.EnvironmentInfo.is_gamescope ()) {
@@ -108,31 +127,21 @@ namespace Lumoria.Widgets.Dialogs {
             }
 
             if (launcher_specs.size > 0) {
-                var launcher_group = SettingsShared.build_group (_("Launcher"), 12);
+                launcher_group = SettingsShared.build_group (_("Launcher"), 12);
                 var launcher_model = new Gtk.StringList (null);
                 launcher_model.append (_("None"));
-                int default_launcher = 0;
-                for (int i = 0; i < launcher_specs.size; i++) {
-                    launcher_model.append (launcher_specs[i].display_label ());
-                    if (launcher_specs[i].is_default) default_launcher = i + 1;
-                }
                 launcher_combo = new OptionListRow ();
                 launcher_combo.title = _("Launcher");
                 launcher_combo.model = launcher_model;
-                launcher_combo.selected = default_launcher;
                 launcher_group.add (launcher_combo);
                 general_content.append (launcher_group);
             }
 
-            var region_group = SettingsShared.build_group (_("Region"), 12, 12);
+            region_group = SettingsShared.build_group (_("Region"), 12, 12);
             var region_model = new Gtk.StringList (null);
-            region_model.append (_("US (North America)"));
-            region_model.append (_("EU (Europe)"));
-            region_model.append (_("JP (Japan)"));
             region_combo = new OptionListRow ();
             region_combo.title = _("Region");
             region_combo.model = region_model;
-            region_combo.selected = 0;
             region_group.add (region_combo);
             general_content.append (region_group);
 
@@ -190,7 +199,7 @@ namespace Lumoria.Widgets.Dialogs {
 
             runner_content.append (runner_opts_group);
 
-            var component_specs = Models.ComponentSpec.load_all_from_resource ();
+            var component_specs = Models.SpecRepository.shared ().components;
             if (component_specs.size > 0) {
                 var components_group = SettingsShared.build_group (_("Runtime Components"), 12, 12);
                 components_group.add (SettingsShared.build_warning_card (
@@ -250,7 +259,7 @@ namespace Lumoria.Widgets.Dialogs {
             advanced_content.append (post_install_group);
 
             if (Utils.Preferences.instance ().experimental_features) {
-                var patches_group = SettingsShared.build_group (_("Patches"), 12, 12);
+                patches_group = SettingsShared.build_group (_("Patches"), 12, 12);
                 var laa_default = Utils.Preferences.instance ().large_address_aware ? _("enabled") : _("disabled");
                 laa_combo = SettingsShared.build_toggle_override_combo (
                     _("Large Address Aware"),
@@ -287,6 +296,109 @@ namespace Lumoria.Widgets.Dialogs {
             toolbar.add_bottom_bar (create_btn);
 
             this.child = toolbar;
+            update_installer_ui ();
+        }
+
+        private Models.InstallerSpec? selected_installer () {
+            if (installer_combo == null) return null;
+            var index = (int) installer_combo.selected;
+            if (index < 0 || index >= installer_specs.size) return null;
+            return installer_specs[index];
+        }
+
+        private uint default_installer_index () {
+            for (int i = 0; i < installer_specs.size; i++) {
+                if (installer_specs[i].id == "ffxi") return (uint) i;
+            }
+            return 0;
+        }
+
+        private void rebuild_region_combo () {
+            if (region_combo == null) return;
+            var model = new Gtk.StringList (null);
+            var installer = selected_installer ();
+            uint selected = 0;
+            if (installer != null) {
+                for (int i = 0; i < installer.regions.size; i++) {
+                    var region = installer.regions[i];
+                    model.append (region.name);
+                    if (region.id == installer.effective_default_region_id ()) {
+                        selected = (uint) i;
+                    }
+                }
+            }
+            region_combo.model = model;
+            region_combo.selected = selected;
+        }
+
+        private void rebuild_launcher_combo () {
+            if (launcher_combo == null) return;
+            visible_launcher_specs.clear ();
+            var installer = selected_installer ();
+            foreach (var launcher in launcher_specs) {
+                if (installer == null || installer.supports_launcher (launcher.id)) {
+                    visible_launcher_specs.add (launcher);
+                }
+            }
+
+            var model = new Gtk.StringList (null);
+            model.append (_("None"));
+            var default_index = 0;
+            var installer_default = installer != null ? installer.default_launcher_id : "";
+            for (int i = 0; i < visible_launcher_specs.size; i++) {
+                var launcher = visible_launcher_specs[i];
+                model.append (launcher.display_label ());
+                if (launcher.id == installer_default
+                    || (installer_default == "" && launcher.is_default)) {
+                    default_index = i + 1;
+                }
+            }
+            launcher_combo.model = model;
+            launcher_combo.selected = default_index;
+        }
+
+        private void update_installer_ui () {
+            var installer = selected_installer ();
+            rebuild_region_combo ();
+            rebuild_launcher_combo ();
+            var has_launchers = installer != null && installer.launcher_ids.size > 0;
+            var has_regions = installer != null && installer.regions.size > 0;
+            var has_patches = installer != null && installer.patches.size > 0;
+            if (launcher_group != null) launcher_group.visible = has_launchers;
+            if (region_group != null) region_group.visible = has_regions;
+            if (launcher_combo != null) launcher_combo.visible = has_launchers;
+            if (region_combo != null) region_combo.visible = has_regions;
+            if (patches_group != null) patches_group.visible = has_patches;
+            if (laa_combo != null) {
+                var patch = installer_patch_for_setting (
+                    installer, "large_address_aware"
+                );
+                laa_combo.visible = patch != null;
+                if (patch != null) laa_combo.title = patch.name;
+            }
+            foreach (var component in Models.SpecRepository.shared ().components) {
+                if (!component_mode_rows.has_key (component.id)) continue;
+                component_mode_rows[component.id].visible =
+                    installer != null && component.supports_installer (installer.id);
+            }
+        }
+
+        private bool installer_supports_patch_setting (
+            Models.InstallerSpec? installer,
+            string setting
+        ) {
+            return installer_patch_for_setting (installer, setting) != null;
+        }
+
+        private Models.InstallerPatch? installer_patch_for_setting (
+            Models.InstallerSpec? installer,
+            string setting
+        ) {
+            if (installer == null) return null;
+            foreach (var patch in installer.patches) {
+                if (patch.setting == setting) return patch;
+            }
+            return null;
         }
 
         private void rebuild_variant_combo () {
@@ -511,22 +623,38 @@ namespace Lumoria.Widgets.Dialogs {
             var sync_mode = RunnerSettingsShared.sync_override_value_for_index (sync_combo.selected);
             var wine_debug = RunnerSettingsShared.debug_override_value_for_index (debug_combo.selected);
             var wine_wayland = RunnerSettingsShared.wayland_value_for_index (wayland_combo.selected);
-            bool? large_address_aware = laa_combo != null
+            var installer = selected_installer ();
+            if (installer == null) {
+                SettingsShared.present_alert (
+                    this,
+                    _("Invalid Installation"),
+                    _("No installer specification is selected.")
+                );
+                return;
+            }
+            bool? large_address_aware =
+                installer_supports_patch_setting (installer, "large_address_aware")
+                && laa_combo != null
                 ? ((ToggleOverrideState) laa_combo.selected).to_nullable_bool ()
                 : null;
 
             var launcher_id = "";
-            if (launcher_combo != null && launcher_combo.selected > 0) {
+            if (launcher_combo != null && launcher_combo.visible && launcher_combo.selected > 0) {
                 var li = (int) launcher_combo.selected - 1;
-                if (li >= 0 && li < launcher_specs.size) {
-                    launcher_id = launcher_specs[li].id;
+                if (li >= 0 && li < visible_launcher_specs.size) {
+                    launcher_id = visible_launcher_specs[li].id;
                 }
             }
 
-            string[] region_values = { "us", "eu", "jp" };
-            var region = region_combo != null && region_combo.selected < region_values.length
-                ? region_values[region_combo.selected]
-                : "us";
+            var region = "";
+            if (region_combo != null && region_combo.visible) {
+                var region_index = (int) region_combo.selected;
+                if (region_index >= 0 && region_index < installer.regions.size) {
+                    region = installer.regions[region_index].id;
+                } else if (installer.effective_default_region_id () != "") {
+                    region = installer.effective_default_region_id ();
+                }
+            }
 
             var runner_version = selected_runner_version;
 
@@ -536,6 +664,7 @@ namespace Lumoria.Widgets.Dialogs {
             entry.path = resolved;
             entry.uri = selected_uri;
             entry.path_portal = Utils.portal_path_ref_from_path_uri (resolved, selected_uri);
+            entry.installer_id = installer.id;
             entry.runner_id = runner_id;
             entry.runner_version = runner_version;
             entry.variant_id = variant_id;
@@ -571,13 +700,6 @@ namespace Lumoria.Widgets.Dialogs {
             var install_opts = new Runtime.InstallOptions ();
             install_opts.prefix_path = resolved;
             install_opts.prefix_entry = entry;
-            install_opts.runner_id = runner_id;
-            install_opts.runner_version = runner_version;
-            install_opts.variant_id = variant_id;
-            install_opts.wine_arch = "";
-            install_opts.wine_debug = wine_debug;
-            install_opts.launcher_id = launcher_id;
-            install_opts.wine_wayland = wine_wayland;
             install_opts.post_install_spec_path = selected_post_install_path;
             install_opts.post_install_spec_uri = selected_post_install_uri;
 

@@ -81,12 +81,19 @@ namespace Lumoria.Runtime {
             }
         );
 
-        Utils.extract_archive (archive_path, extract_to);
+        var staging = extract_to + ".part";
+        if (FileUtils.test (staging, FileTest.EXISTS)) Utils.remove_recursive (staging);
+        Utils.extract_archive (archive_path, staging);
+        normalize_runner_root (staging, logger);
+        if (FileUtils.rename (staging, extract_to) != 0) {
+            Utils.remove_recursive (staging);
+            throw new IOError.FAILED ("Failed to commit runner %s", release.tag_name);
+        }
 
         var result = new DownloadResult ();
         result.version = release.tag_name;
         result.archive_path = archive_path;
-        result.extracted_to = normalize_runner_root (extract_to, logger);
+        result.extracted_to = extract_to;
         return result;
     }
 

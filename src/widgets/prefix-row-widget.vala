@@ -99,14 +99,25 @@ namespace Lumoria.Widgets {
             default_row.activatable_widget = default_btn;
             add_row (default_row);
 
-            var active_ep_id = Runtime.resolve_effective_entrypoint_id (entry, launcher_specs);
-            Runtime.LaunchTargetSection? current_section = null;
-            foreach (var target in Runtime.list_launch_targets (entry, launcher_specs)) {
-                if (current_section == null || current_section != target.section) {
-                    add_row (build_section_header (Runtime.launch_target_section_title (target.section)));
-                    current_section = target.section;
+            try {
+                var active_ep_id = Runtime.resolve_effective_entrypoint_id (
+                    entry, launcher_specs
+                );
+                Runtime.LaunchTargetSection? current_section = null;
+                foreach (var target in Runtime.list_launch_targets (entry, launcher_specs)) {
+                    if (current_section == null || current_section != target.section) {
+                        add_row (build_section_header (
+                            Runtime.launch_target_section_title (target.section)
+                        ));
+                        current_section = target.section;
+                    }
+                    add_launch_target_row (target, has_runner, active_ep_id);
                 }
-                add_launch_target_row (target, has_runner, active_ep_id);
+            } catch (Error e) {
+                var error_row = new Adw.ActionRow ();
+                error_row.title = _("Invalid prefix configuration");
+                error_row.subtitle = e.message;
+                add_row (error_row);
             }
 
             add_row (build_section_header (_("Tools")));

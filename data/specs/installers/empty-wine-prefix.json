@@ -1,0 +1,14 @@
+{
+  "id": "empty-wine-prefix",
+  "name": "Wine prefix only",
+  "version": "1.0",
+  "regions": [],
+  "launchers": [],
+  "patches": [],
+  "variables": {},
+  "entrypoints": [],
+  "redists": [],
+  "env": [],
+  "steps": [],
+  "downloads": []
+}

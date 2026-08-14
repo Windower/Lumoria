@@ -8,7 +8,8 @@
     <file>icons/hicolor/scalable/apps/net.windower.Lumoria.svg</file>
     <file>icons/hicolor/512x512/apps/net.windower.Lumoria.png</file>
     <file>specs/defaults.json</file>
-    <file>specs/installer.json</file>
+    <file>specs/installers/ffxi.json</file>
+    <file>specs/installers/empty-wine-prefix.json</file>
     <file>specs/runners/proton-ge.json</file>
     <file>specs/runners/proton-cachyos.json</file>
     <file>specs/runners/wine-ge-custom.json</file>

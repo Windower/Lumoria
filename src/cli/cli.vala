@@ -41,10 +41,16 @@ namespace Lumoria.Cli {
         var launcher_specs = Models.LauncherSpec.load_all_from_resource ();
         foreach (var p in reg.prefixes) {
             stdout.printf ("%s\t%s\t%s\n", p.id, p.display_name (), p.resolved_path ());
-            var active_target_id = Runtime.resolve_effective_entrypoint_id (p, launcher_specs);
-            foreach (var target in Runtime.list_launch_targets (p, launcher_specs)) {
-                var default_suffix = target.id == active_target_id ? " [default]" : "";
-                stdout.printf ("  %s\t%s%s\n", target.id, target.selector_label, default_suffix);
+            try {
+                var active_target_id = Runtime.resolve_effective_entrypoint_id (
+                    p, launcher_specs
+                );
+                foreach (var target in Runtime.list_launch_targets (p, launcher_specs)) {
+                    var default_suffix = target.id == active_target_id ? " [default]" : "";
+                    stdout.printf ("  %s\t%s%s\n", target.id, target.selector_label, default_suffix);
+                }
+            } catch (Error e) {
+                stderr.printf ("%s: %s\n", p.id, e.message);
             }
         }
         return 0;

@@ -14,6 +14,67 @@ namespace Lumoria.Utils {
         extract_archive_multi ({ archive_path }, extract_to);
     }
 
+    public static void extract_cab_archive (string archive_path, string extract_to) throws Error {
+        ensure_dir (extract_to);
+        var extract_root = Posix.realpath (extract_to);
+        if (extract_root == null) {
+            throw new IOError.FAILED ("Failed to resolve extraction directory: %s", extract_to);
+        }
+
+        var decomp = new MsPack.CabDecompressor ();
+        var cab = decomp.search (archive_path);
+        if (cab == null) cab = decomp.open (archive_path);
+        if (cab == null) {
+            throw new IOError.FAILED (
+                "mspack: cannot open %s (error %d)", archive_path, decomp.last_error ()
+            );
+        }
+
+        try {
+            int extracted = 0;
+            for (unowned var current = cab; current != null; current = current.get_next ()) {
+                for (unowned var file = current.get_files (); file != null; file = file.get_next ()) {
+                    var name = file.get_filename ();
+                    if (name == null || name == "") continue;
+
+                    var relative = name.replace ("\\", "/");
+                    if (relative.has_prefix ("/")
+                        || relative.has_prefix ("//")
+                        || (relative.length > 1 && relative[1] == ':')) {
+                        throw new IOError.FAILED ("mspack: unsafe cab path: %s", name);
+                    }
+                    while (relative.has_prefix ("./")) relative = relative.substring (2);
+                    foreach (var part in relative.split ("/")) {
+                        if (part == "..") {
+                            throw new IOError.FAILED ("mspack: unsafe cab path: %s", name);
+                        }
+                    }
+
+                    var destination = Path.build_filename (extract_root, relative);
+                    var parent = Path.get_dirname (destination);
+                    ensure_dir (parent);
+                    if (FileUtils.test (parent, FileTest.IS_SYMLINK)
+                        || FileUtils.test (destination, FileTest.IS_SYMLINK)) {
+                        throw new IOError.FAILED ("mspack: refusing symlink path: %s", name);
+                    }
+
+                    var result = decomp.extract (file, destination);
+                    if (result != MsPack.ERR_OK) {
+                        throw new IOError.FAILED (
+                            "mspack: extract failed for %s (error %d)", name, result
+                        );
+                    }
+                    extracted++;
+                }
+            }
+            if (extracted == 0) {
+                throw new IOError.FAILED ("mspack: no files found in %s", archive_path);
+            }
+        } finally {
+            decomp.close (cab);
+        }
+    }
+
     public static void extract_archive_multi (string[] archive_paths, string extract_to) throws Error {
         if (archive_paths.length == 0) {
             throw new IOError.FAILED ("No archive volumes provided");

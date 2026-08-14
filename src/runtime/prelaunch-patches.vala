@@ -17,21 +17,45 @@ namespace Lumoria.Runtime {
         string launched_host_exe,
         RuntimeLog logger
     ) throws Error {
-        if (!Utils.Preferences.resolve_large_address_aware (entry.large_address_aware)) {
-            return;
+        var installer = Models.SpecRepository.shared ().require_installer (
+            entry.installer_id
+        );
+        foreach (var patch in installer.patches) {
+            if (patch.patch_type == "pe_characteristic"
+                && patch.setting == "large_address_aware"
+                && patch.flag == "IMAGE_FILE_LARGE_ADDRESS_AWARE") {
+                apply_large_address_aware_patch (
+                    entry,
+                    installer,
+                    patch,
+                    launched_host_exe,
+                    Utils.Preferences.resolve_large_address_aware (
+                        entry.large_address_aware
+                    ),
+                    logger
+                );
+                continue;
+            }
+            throw new IOError.FAILED (
+                "Unsupported installer patch operation: %s", patch.id
+            );
         }
-        apply_large_address_aware_patch (entry, launched_host_exe, logger);
     }
 
     private void apply_large_address_aware_patch (
         Models.PrefixEntry entry,
+        Models.InstallerSpec installer,
+        Models.InstallerPatch patch,
         string launched_host_exe,
+        bool desired_enabled,
         RuntimeLog logger
     ) throws Error {
-        var desired_enabled = Utils.Preferences.resolve_large_address_aware (entry.large_address_aware);
-        var target_exe = resolve_playonline_host_exe (entry);
+        var target_exe = resolve_patch_target (
+            entry, installer, patch, desired_enabled
+        );
+        if (target_exe == "") return;
 
-        if (Path.get_basename (launched_host_exe).down () != "pol.exe") {
+        if (Path.get_basename (launched_host_exe).down () != Path.get_basename (target_exe).down ()) {
             logger.typed (LogType.PATCH,
                 "checking large_address_aware on %s before launching %s".printf (
                     Path.get_basename (target_exe),
@@ -62,22 +86,43 @@ namespace Lumoria.Runtime {
         }
     }
 
-    private string resolve_playonline_host_exe (Models.PrefixEntry entry) throws Error {
-        var pfx_path = install_prefix_path (entry.path);
-        string exe;
-        string[] args;
-        var launcher_specs = Models.LauncherSpec.load_all_from_resource ();
-        resolve_launcher_exe (entry, launcher_specs, "pol", out exe, out args);
+    private string resolve_patch_target (
+        Models.PrefixEntry entry,
+        Models.InstallerSpec installer,
+        Models.InstallerPatch patch,
+        bool require_existing
+    ) throws Error {
+        var pfx_path = install_prefix_path (entry.resolved_path ());
+        if (patch.target == "") {
+            throw new IOError.FAILED (
+                "Installer patch '%s' has no target", patch.id
+            );
+        }
 
-        var host_exe = resolve_host_path (exe, pfx_path).replace ("\\", "/");
+        var vars = new Gee.HashMap<string, string> ();
+        vars["PREFIX"] = pfx_path;
+        vars["ARCH"] = resolve_effective_wine_arch (entry);
+        foreach (var value in installer.variables.entries) vars[value.key] = value.value;
+        resolve_prefix_vars (vars, entry);
+        foreach (var rule in installer.variable_rules) {
+            if (rule.when != null && !rule.when.evaluate (vars)) continue;
+            foreach (var value in rule.vars.entries) {
+                vars[value.key] = Utils.expand_vars (value.value, vars);
+            }
+        }
+        Utils.resolve_var_references (vars);
+
+        var target = Utils.expand_vars (patch.target, vars);
+        var host_exe = resolve_host_path (target, pfx_path).replace ("\\", "/");
         var arch = resolve_effective_wine_arch (entry);
         if (arch == "win32") {
             host_exe = host_exe.replace ("/drive_c/Program Files (x86)/", "/drive_c/Program Files/");
         }
 
         if (!FileUtils.test (host_exe, FileTest.EXISTS)) {
+            if (!require_existing) return "";
             throw new IOError.FAILED (
-                "PlayOnline executable not found for patching: %s", host_exe
+                "Installer patch target executable not found: %s", host_exe
             );
         }
 

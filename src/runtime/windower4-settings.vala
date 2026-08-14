@@ -4,7 +4,7 @@ namespace Lumoria.Runtime {
 
     public string windower_settings_xml_path (Models.PrefixEntry entry) {
         return Path.build_filename (
-            install_prefix_path (entry.path),
+            install_prefix_path (entry.resolved_path ()),
             "drive_c", "Windower4", "settings.xml"
         );
     }

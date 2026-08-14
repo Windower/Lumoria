@@ -35,6 +35,7 @@ namespace Lumoria.Runtime {
         private LogFunc? sink;
         private FileOutputStream? stream;
         private bool stream_failed = false;
+        private Mutex mutex;
 
         public RuntimeLog (string log_path = "", owned LogFunc? sink = null) {
             this.log_path = log_path;
@@ -69,22 +70,29 @@ namespace Lumoria.Runtime {
         }
 
         public void emit_line (string message) {
+            mutex.lock ();
             if (sink != null) {
                 sink (message);
             }
-            if (log_path == "") return;
-            ensure_stream ();
-            if (stream != null) {
-                try {
-                    stream.write (message.data);
-                } catch (Error e) {
-                    warning ("Failed to write to log stream: %s", e.message);
+            if (log_path != "") {
+                ensure_stream ();
+                if (stream != null) {
+                    try {
+                        stream.write (message.data);
+                    } catch (Error e) {
+                        warning ("Failed to write to log stream: %s", e.message);
+                    }
                 }
             }
+            mutex.unlock ();
         }
 
         public void close () {
-            if (stream == null) return;
+            mutex.lock ();
+            if (stream == null) {
+                mutex.unlock ();
+                return;
+            }
             try { stream.flush (); } catch (Error e) {
                 warning ("Failed to flush log stream: %s", e.message);
             }
@@ -92,6 +100,7 @@ namespace Lumoria.Runtime {
                 warning ("Failed to close log stream: %s", e.message);
             }
             stream = null;
+            mutex.unlock ();
         }
 
         public void banner (string title, bool leading_newline = true) {

@@ -209,4 +209,162 @@ namespace Lumoria.Models {
             redists = json_string_array (obj, "redists");
         }
     }
+
+    public class SpecRepository : Object {
+        private static SpecRepository? shared_instance;
+        private string validation_error = "";
+
+        public Gee.ArrayList<InstallerSpec> installers { get; private set; }
+        public Gee.ArrayList<RunnerSpec> runners { get; private set; }
+        public Gee.ArrayList<LauncherSpec> launchers { get; private set; }
+        public Gee.HashMap<string, RedistSpec> redists { get; private set; }
+        public Gee.ArrayList<ComponentSpec> components { get; private set; }
+
+        public SpecRepository () {
+            installers = InstallerSpec.load_all_from_resource ();
+            runners = RunnerSpec.load_all_from_resource ();
+            launchers = LauncherSpec.load_all_from_resource ();
+            redists = RedistSpec.load_all_from_resource ();
+            components = ComponentSpec.load_all_from_resource ();
+            try {
+                validate ();
+            } catch (Error e) {
+                validation_error = e.message;
+                critical ("Invalid specification repository: %s", e.message);
+            }
+        }
+
+        public static SpecRepository shared () {
+            if (shared_instance == null) shared_instance = new SpecRepository ();
+            return shared_instance;
+        }
+
+        public InstallerSpec? installer (string id) {
+            return InstallerSpec.find_by_id (installers, id);
+        }
+
+        public InstallerSpec require_installer (string id) throws Error {
+            require_valid ();
+            var spec = installer (id);
+            if (spec == null) {
+                throw new IOError.FAILED ("Unknown installer specification: %s", id);
+            }
+            return spec;
+        }
+
+        public LauncherSpec? launcher (string id) {
+            foreach (var spec in launchers) {
+                if (spec.id == id) return spec;
+            }
+            return null;
+        }
+
+        public void require_valid () throws Error {
+            if (validation_error != "") {
+                throw new IOError.FAILED ("Invalid specification repository: %s", validation_error);
+            }
+        }
+
+        private void validate () throws Error {
+            var installer_resources = list_spec_ids_from_resource ("installers");
+            if (installer_resources.length == 0) {
+                throw new IOError.FAILED ("No installer specifications were loaded");
+            }
+            if (installers.size != installer_resources.length) {
+                throw new IOError.FAILED (
+                    "One or more installer specifications failed to load"
+                );
+            }
+
+            var installer_ids = new Gee.HashSet<string> ();
+            foreach (var installer in installers) {
+                if (installer.id == "") {
+                    throw new IOError.FAILED ("Installer specification has no id");
+                }
+                if (!installer_ids.add (installer.id)) {
+                    throw new IOError.FAILED ("Duplicate installer id: %s", installer.id);
+                }
+
+                var region_ids = new Gee.HashSet<string> ();
+                foreach (var region in installer.regions) {
+                    if (region.id == "" || !region_ids.add (region.id)) {
+                        throw new IOError.FAILED (
+                            "Installer '%s' has an empty or duplicate region id", installer.id
+                        );
+                    }
+                }
+                if (installer.default_region_id != ""
+                    && !region_ids.contains (installer.default_region_id)) {
+                    throw new IOError.FAILED (
+                        "Installer '%s' has unknown default region '%s'",
+                        installer.id,
+                        installer.default_region_id
+                    );
+                }
+
+                var launcher_ids = new Gee.HashSet<string> ();
+                foreach (var launcher_id in installer.launcher_ids) {
+                    if (launcher_id == "" || !launcher_ids.add (launcher_id)) {
+                        throw new IOError.FAILED (
+                            "Installer '%s' has an empty or duplicate launcher reference", installer.id
+                        );
+                    }
+                    if (launcher (launcher_id) == null) {
+                        throw new IOError.FAILED (
+                            "Installer '%s' references unknown launcher '%s'", installer.id, launcher_id
+                        );
+                    }
+                }
+                if (installer.default_launcher_id != ""
+                    && !installer.launcher_ids.contains (installer.default_launcher_id)) {
+                    throw new IOError.FAILED (
+                        "Installer '%s' has unsupported default launcher '%s'",
+                        installer.id,
+                        installer.default_launcher_id
+                    );
+                }
+
+                var patch_ids = new Gee.HashSet<string> ();
+                foreach (var patch in installer.patches) {
+                    if (patch.id == "" || !patch_ids.add (patch.id)) {
+                        throw new IOError.FAILED (
+                            "Installer '%s' has an empty or duplicate patch id", installer.id
+                        );
+                    }
+                    if (patch.patch_type != "pe_characteristic"
+                        || patch.setting != "large_address_aware"
+                        || patch.flag != "IMAGE_FILE_LARGE_ADDRESS_AWARE"
+                        || patch.target.strip () == "") {
+                        throw new IOError.FAILED (
+                            "Installer '%s' has unsupported patch '%s'", installer.id, patch.id
+                        );
+                    }
+                }
+
+                foreach (var redist_id in installer.redists) {
+                    if (!redists.has_key (redist_id)) {
+                        throw new IOError.FAILED (
+                            "Installer '%s' references unknown redist '%s'", installer.id, redist_id
+                        );
+                    }
+                }
+            }
+
+            var component_ids = new Gee.HashSet<string> ();
+            foreach (var component in components) {
+                if (component.id == "" || !component_ids.add (component.id)) {
+                    throw new IOError.FAILED ("Component has an empty or duplicate id");
+                }
+                foreach (var installer_id in component.installer_ids) {
+                    if (!installer_ids.contains (installer_id)) {
+                        throw new IOError.FAILED (
+                            "Component '%s' references unknown installer '%s'",
+                            component.id,
+                            installer_id
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

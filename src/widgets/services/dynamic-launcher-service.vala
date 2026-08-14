@@ -151,8 +151,15 @@ namespace Lumoria.Widgets.Services {
 
         private string build_desktop_entry (Models.PrefixEntry entry, string entrypoint_id) throws Error {
             var key_file = new KeyFile ();
+            var installer = Models.SpecRepository.shared ().require_installer (
+                entry.installer_id
+            );
             key_file.set_string ("Desktop Entry", "Type", "Application");
-            key_file.set_string ("Desktop Entry", "Comment", _("Final Fantasy XI Launcher for Linux"));
+            key_file.set_string (
+                "Desktop Entry",
+                "Comment",
+                _("%s launcher for Linux").printf (installer.display_label ())
+            );
             key_file.set_boolean ("Desktop Entry", "Terminal", false);
             key_file.set_string_list ("Desktop Entry", "Categories", { "Game" });
             key_file.set_boolean ("Desktop Entry", "StartupNotify", true);

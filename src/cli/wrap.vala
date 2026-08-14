@@ -78,7 +78,7 @@ namespace Lumoria.Cli {
         var inhibitor = new Utils.ScreenInhibitor ();
         if (Utils.Preferences.saved_screen_inhibitor ()) {
             string inhibit_error;
-            if (inhibitor.start ("Running Final Fantasy XI Online", WRAP_INHIBIT_RESOLVE_WAIT_MS, out inhibit_error)) {
+            if (inhibitor.start ("Running a Windows application", WRAP_INHIBIT_RESOLVE_WAIT_MS, out inhibit_error)) {
                 wrap_log ("screensaver inhibit active");
             } else {
                 wrap_log ("screensaver inhibit failed: %s".printf (inhibit_error));

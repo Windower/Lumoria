@@ -119,6 +119,7 @@ namespace Lumoria.Models {
         public string path { get; set; default = ""; }
         public string uri { get; set; default = ""; }
         public PortalPathRef? path_portal { get; set; default = null; }
+        public string installer_id { get; set; default = "ffxi"; }
         public string runner_id { get; set; default = ""; }
         public string runner_version { get; set; default = "latest"; }
         public string launcher_id { get; set; default = ""; }
@@ -169,6 +170,7 @@ namespace Lumoria.Models {
         }
         public PrefixRunnerState? runner_state { get; set; default = null; }
         public PrefixPostInstallSpec? post_install_spec { get; set; default = null; }
+
         public string resolved_path () {
             if (FileUtils.test (path, FileTest.EXISTS)) return path;
             if (uri != "") {
@@ -248,6 +250,7 @@ namespace Lumoria.Models {
             if (path_portal != null && !path_portal.is_empty ()) {
                 obj.set_object_member ("path_portal", path_portal.to_json ());
             }
+            obj.set_string_member ("installer_id", installer_id);
             obj.set_string_member ("runner_id", runner_id);
             obj.set_string_member ("runner_version", runner_version);
             if (launcher_id != "") obj.set_string_member ("launcher_id", launcher_id);
@@ -387,6 +390,8 @@ namespace Lumoria.Models {
             if (obj.has_member ("path_portal")) {
                 e.path_portal = PortalPathRef.from_json (obj.get_object_member ("path_portal"));
             }
+            e.installer_id = json_string (obj, "installer_id", "ffxi").strip ();
+            if (e.installer_id == "") e.installer_id = "empty-wine-prefix";
             e.runner_id = json_string (obj, "runner_id");
             e.runner_version = json_string (obj, "runner_version", "latest");
             e.launcher_id = json_string (obj, "launcher_id");
@@ -442,6 +447,11 @@ namespace Lumoria.Models {
             e.runner_support_files = json_string_array (obj, "runner_support_files");
             if (obj.has_member ("runner_state")) {
                 e.runner_state = PrefixRunnerState.from_json (obj.get_object_member ("runner_state"));
+            }
+            if (e.installer_id == "empty-wine-prefix") {
+                e.region = "";
+                e.launcher_id = "";
+                e.large_address_aware = null;
             }
             return e;
         }

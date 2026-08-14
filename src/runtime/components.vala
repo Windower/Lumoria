@@ -41,7 +41,7 @@ namespace Lumoria.Runtime {
         RuntimeLog logger
     ) {
         var defaults = Utils.Preferences.instance ();
-        foreach (var spec in Models.ComponentSpec.load_all_from_resource ()) {
+        foreach (var spec in Models.SpecRepository.shared ().components) {
             if (!is_component_active (spec, entry, defaults, null)) continue;
             if (!entry.applied_components.has_key (spec.id)) continue;
             var applied = entry.applied_components[spec.id];
@@ -75,7 +75,7 @@ namespace Lumoria.Runtime {
         LaunchPolicy launch_policy = LaunchPolicy.INTERACTIVE
     ) throws Error {
         var result = new ComponentResult ();
-        var specs = Models.ComponentSpec.load_all_from_resource ();
+        var specs = Models.SpecRepository.shared ().components;
         var defaults = Utils.Preferences.instance ();
         var arch = entry != null ? resolve_effective_wine_arch (entry) : "";
         if (arch == "") arch = "win64";
@@ -132,7 +132,11 @@ namespace Lumoria.Runtime {
                                 logger,
                                 component_policy
                             );
-                            if (record != null) {
+                            if (record == null) {
+                                throw new IOError.FAILED (
+                                    "Component %s did not produce an install record".printf (spec.id)
+                                );
+                            } else {
                                 if (entry != null) {
                                     component_ready = store_applied_component_record (
                                         entry,
@@ -175,7 +179,11 @@ namespace Lumoria.Runtime {
                             logger,
                             component_policy
                         );
-                        if (record != null) {
+                        if (record == null) {
+                            throw new IOError.FAILED (
+                                "Component %s did not produce an install record".printf (spec.id)
+                            );
+                        } else {
                             if (entry != null) {
                                 component_ready = store_applied_component_record (
                                     entry,
@@ -204,7 +212,7 @@ namespace Lumoria.Runtime {
                     add_component_overrides (result, spec);
                 }
             } catch (Error e) {
-                logger.typed (LogType.WARN, "Component %s failed: %s".printf (spec.id, e.message));
+                throw new IOError.FAILED ("Component %s failed: %s".printf (spec.id, e.message));
             }
         }
 
@@ -239,7 +247,7 @@ namespace Lumoria.Runtime {
         Models.Entrypoint? entrypoint = null
     ) {
         var defaults = Utils.Preferences.instance ();
-        foreach (var spec in Models.ComponentSpec.load_all_from_resource ()) {
+        foreach (var spec in Models.SpecRepository.shared ().components) {
             if (spec.id != "dxvk") continue;
             return is_component_active (
                 spec,
@@ -286,8 +294,7 @@ namespace Lumoria.Runtime {
         vars["COMPONENT"] = "";
         vars["PREFIX"] = pfx_path;
         vars["ARCH"] = arch;
-        set_game_install_vars (vars, arch);
-        vars["REGION"] = entry != null ? entry.region : "us";
+        if (!populate_component_installer_vars (vars, spec, entry)) return false;
 
         if (record.version != "" && record.version != "latest") {
             var adapter = new Models.ComponentToolAdapter (spec);
@@ -364,7 +371,7 @@ namespace Lumoria.Runtime {
 
     private Gee.ArrayList<ResolvedComponentSelection> resolve_component_selections (Models.PrefixEntry? entry) {
         var selections = new Gee.ArrayList<ResolvedComponentSelection> ();
-        var specs = Models.ComponentSpec.load_all_from_resource ();
+        var specs = Models.SpecRepository.shared ().components;
         var defaults = Utils.Preferences.instance ();
 
         foreach (var spec in specs) {
@@ -390,6 +397,7 @@ namespace Lumoria.Runtime {
         Utils.Preferences defaults,
         Gee.HashMap<string, Models.RuntimeComponentOverride>? entrypoint_overrides
     ) {
+        if (entry != null && !spec.supports_installer (entry.installer_id)) return false;
         if (entrypoint_overrides != null && entrypoint_overrides.has_key (spec.id)) {
             var ov = entrypoint_overrides[spec.id];
             if (ov.enabled != null) return (bool) ov.enabled;
@@ -495,8 +503,11 @@ namespace Lumoria.Runtime {
         vars["COMPONENT"] = installed_path;
         vars["PREFIX"] = pfx_path;
         vars["ARCH"] = arch;
-        set_game_install_vars (vars, arch);
-        vars["REGION"] = entry != null ? entry.region : "us";
+        if (!populate_component_installer_vars (vars, spec, entry)) {
+            throw new IOError.FAILED (
+                "Component '%s' is incompatible with this installation", spec.id
+            );
+        }
 
         foreach (var step in spec.steps) {
             if (step.when != null && !step.when.evaluate (vars)) continue;
@@ -655,6 +666,29 @@ namespace Lumoria.Runtime {
             only = full;
         }
         return only;
+    }
+
+    private bool populate_component_installer_vars (
+        Gee.HashMap<string, string> vars,
+        Models.ComponentSpec component,
+        Models.PrefixEntry? entry
+    ) {
+        if (entry == null) return component.installer_ids.size == 0;
+        var installer = Models.SpecRepository.shared ().installer (entry.installer_id);
+        if (installer == null || !component.supports_installer (installer.id)) return false;
+
+        foreach (var value in installer.variables.entries) {
+            vars[value.key] = value.value;
+        }
+        resolve_prefix_vars (vars, entry);
+        foreach (var rule in installer.variable_rules) {
+            if (rule.when != null && !rule.when.evaluate (vars)) continue;
+            foreach (var value in rule.vars.entries) {
+                vars[value.key] = Utils.expand_vars (value.value, vars);
+            }
+        }
+        Utils.resolve_var_references (vars);
+        return true;
     }
 
 }

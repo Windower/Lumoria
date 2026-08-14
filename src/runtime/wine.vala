@@ -39,31 +39,6 @@ namespace Lumoria.Runtime {
         }
     }
 
-    public string program_files_dir_for_arch (string arch) {
-        return Utils.normalize_wine_arch (arch) == "win32"
-            ? "drive_c/Program Files"
-            : "drive_c/Program Files (x86)";
-    }
-
-    public string square_enix_dir_for_arch (string arch) {
-        return Path.build_filename (program_files_dir_for_arch (arch), "PlayOnline", "SquareEnix");
-    }
-
-    public string playonline_dir_for_arch (string arch) {
-        return Path.build_filename (square_enix_dir_for_arch (arch), "PlayOnlineViewer");
-    }
-
-    public string ffxi_dir_for_arch (string arch) {
-        return Path.build_filename (square_enix_dir_for_arch (arch), "FINAL FANTASY XI");
-    }
-
-    public void set_game_install_vars (Gee.HashMap<string, string> vars, string arch) {
-        vars["PROGRAM_FILES"] = program_files_dir_for_arch (arch);
-        vars["SE_DIR"] = square_enix_dir_for_arch (arch);
-        vars["POL_DIR"] = playonline_dir_for_arch (arch);
-        vars["FFXI_DIR"] = ffxi_dir_for_arch (arch);
-    }
-
     public void apply_runtime_logging_policy (WineEnv env) {
         if (!Utils.Preferences.instance ().keep_runtime_logs) {
             env.set_var ("WINEDEBUG", WINE_DEBUG_OFF);
@@ -364,6 +339,45 @@ namespace Lumoria.Runtime {
         }
     }
 
+    public class WineRuntimeRequest : Object {
+        public Models.RunnerSpec runner_spec { get; set; }
+        public string variant_id { get; set; default = ""; }
+        public string runner_version { get; set; default = "latest"; }
+        public string prefix_root { get; set; default = ""; }
+        public string wine_arch { get; set; default = ""; }
+        public string sync_mode { get; set; default = ""; }
+        public string wine_debug { get; set; default = ""; }
+        public bool? wine_wayland = null;
+        public bool? large_address_aware = null;
+        public Gee.HashMap<string, string> environment_overrides {
+            get; owned set; default = new Gee.HashMap<string, string> ();
+        }
+        public DownloadProgress? download_progress = null;
+        public LaunchPolicy launch_policy { get; set; default = LaunchPolicy.INTERACTIVE; }
+        public Models.PrefixRunnerState? runner_state { get; set; default = null; }
+
+        public static WineRuntimeRequest from_prefix (
+            Models.PrefixEntry entry,
+            Models.RunnerSpec runner_spec,
+            LaunchPolicy launch_policy = LaunchPolicy.INTERACTIVE
+        ) {
+            var request = new WineRuntimeRequest ();
+            request.runner_spec = runner_spec;
+            request.variant_id = entry.variant_id;
+            request.runner_version = entry.runner_version;
+            request.prefix_root = entry.resolved_path ();
+            request.wine_arch = entry.wine_arch;
+            request.sync_mode = entry.sync_mode;
+            request.wine_debug = entry.wine_debug;
+            request.wine_wayland = entry.wine_wayland;
+            request.large_address_aware = entry.large_address_aware;
+            request.environment_overrides = entry.runtime_env_vars;
+            request.launch_policy = launch_policy;
+            request.runner_state = entry.runner_state;
+            return request;
+        }
+    }
+
     public class WineRuntime : Object {
         public Models.RunnerSpec     runner_spec    { get; private set; }
         public Models.RunnerVariant  variant        { get; private set; }
@@ -396,41 +410,33 @@ namespace Lumoria.Runtime {
     }
 
     public WineRuntime prepare_wine_runtime (
-        Models.RunnerSpec runner_spec,
-        string variant_id,
-        string runner_version,
-        string prefix_root,
-        string wine_arch_override,
-        string sync_mode,
-        string wine_debug,
-        bool? wine_wayland,
-        bool? large_address_aware,
-        Gee.HashMap<string, string>? entry_runtime_env_vars,
-        DownloadProgress? download_progress_cb,
-        RuntimeLog logger,
-        LaunchPolicy launch_policy = LaunchPolicy.INTERACTIVE,
-        Models.PrefixRunnerState? runner_state = null
+        WineRuntimeRequest request,
+        RuntimeLog logger
     ) throws Error {
+        var runner_spec = request.runner_spec;
+        var variant_id = request.variant_id;
+        var runner_version = request.runner_version;
+        var prefix_root = request.prefix_root;
         var resolved_version = resolve_runner_version_for_policy (
             runner_spec,
             variant_id,
             runner_version,
-            launch_policy,
-            runner_state
+            request.launch_policy,
+            request.runner_state
         );
         var extract = download_and_extract_runner (
             runner_spec,
             variant_id,
             resolved_version,
-            download_progress_cb,
+            request.download_progress,
             logger,
-            launch_policy == LaunchPolicy.INTERACTIVE
+            request.launch_policy == LaunchPolicy.INTERACTIVE
         );
         var paths = resolve_wine_paths (extract.extracted_to, runner_spec, variant_id);
         var variant = runner_spec.effective_variant (variant_id);
         var pfx_path = install_prefix_path (prefix_root);
-        var arch = wine_arch_override != "" ? wine_arch_override : variant.wine_arch;
-        var wayland_pref = Utils.Preferences.resolve_wine_wayland (wine_wayland);
+        var arch = request.wine_arch != "" ? request.wine_arch : variant.wine_arch;
+        var wayland_pref = Utils.Preferences.resolve_wine_wayland (request.wine_wayland);
         if (!wayland_pref && !Utils.EnvironmentInfo.has_x11_display ()) {
             logger.typed (
                 LogType.WARN,
@@ -443,18 +449,16 @@ namespace Lumoria.Runtime {
         var env = build_wine_env (
             paths, runner_spec, variant_id,
             pfx_path, arch,
-            Utils.Preferences.resolve_sync_mode (sync_mode),
-            Utils.Preferences.resolve_wine_debug (wine_debug),
+            Utils.Preferences.resolve_sync_mode (request.sync_mode),
+            Utils.Preferences.resolve_wine_debug (request.wine_debug),
             false,
             wayland_pref
         );
-        if (Utils.Preferences.resolve_large_address_aware (large_address_aware)) {
+        if (Utils.Preferences.resolve_large_address_aware (request.large_address_aware)) {
             env.set_var ("WINE_LARGE_ADDRESS_AWARE", "1");
         }
         apply_env_overrides (env, Utils.Preferences.instance ().get_runtime_env_vars ());
-        if (entry_runtime_env_vars != null) {
-            apply_env_overrides (env, entry_runtime_env_vars);
-        }
+        apply_env_overrides (env, request.environment_overrides);
         apply_runtime_logging_policy (env);
         return new WineRuntime (
             runner_spec, variant, extract.version, extract,
@@ -1024,6 +1028,9 @@ namespace Lumoria.Runtime {
             cancellable.disconnect (cancel_handler);
         }
 
+        if (command_state.was_timed_out ()) {
+            throw new IOError.TIMED_OUT ("Wine command timed out");
+        }
         if (command_state.was_cancelled () || (cancellable != null && cancellable.is_cancelled ())) {
             throw new IOError.CANCELLED ("Cancelled");
         }
@@ -1084,28 +1091,38 @@ namespace Lumoria.Runtime {
         }
 
         char buf[4096];
+        var pending = new StringBuilder ();
         size_t bytes_read;
         IOStatus st;
         try {
             while (true) {
                 st = channel.read_chars (buf, out bytes_read);
-                if (st == IOStatus.EOF || bytes_read == 0) break;
                 if (st == IOStatus.AGAIN) {
                     Thread.usleep (10000);
                     continue;
                 }
-                var chunk = ((string) buf).substring (0, (long) bytes_read);
+                if (st == IOStatus.EOF) break;
+                if (bytes_read == 0) continue;
+
+                uint8[] bytes = new uint8[bytes_read + 1];
+                Memory.copy (bytes, buf, bytes_read);
+                bytes[bytes_read] = 0;
+                var chunk = ((string) bytes).make_valid ();
                 append_retained_output (output, chunk, max_retained_bytes);
-                if (line_prefix != "") {
-                    var lines = chunk.split ("\n");
-                    for (int i = 0; i < lines.length; i++) {
-                        if (lines[i] == "" && i == lines.length - 1) continue;
-                        emit_log ("%s%s\n".printf (line_prefix, lines[i]));
-                    }
-                } else {
-                    emit_log (chunk);
+                pending.append (chunk);
+
+                var text = pending.str;
+                var end = text.last_index_of_char ('\n');
+                if (end < 0) continue;
+
+                var complete = text.substring (0, end + 1);
+                pending.erase (0, end + 1);
+                foreach (var line in complete.split ("\n")) {
+                    if (line == "") continue;
+                    emit_log ("%s%s\n".printf (line_prefix, line));
                 }
             }
+            if (pending.len > 0) emit_log ("%s%s\n".printf (line_prefix, pending.str));
         } catch (Error e) {
             warning ("Failed to read fd for log: %s", e.message);
         }
@@ -1149,7 +1166,7 @@ namespace Lumoria.Runtime {
     public void resolve_prefix_vars (
         Gee.HashMap<string, string> vars,
         Models.PrefixEntry? entry,
-        RuntimeLog logger
+        RuntimeLog? logger = null
     ) {
         if (entry == null) return;
         var keys = new Gee.ArrayList<string> ();
@@ -1161,7 +1178,7 @@ namespace Lumoria.Runtime {
             var resolved = resolve_prefix_field (entry, field);
             if (resolved != null) {
                 vars[k] = resolved;
-            } else {
+            } else if (logger != null) {
                 logger.typed (LogType.WARN, "unknown prefix field '%s' in %s".printf (field, k));
             }
         }
@@ -1171,7 +1188,7 @@ namespace Lumoria.Runtime {
         switch (field) {
             case "id":             return entry.id;
             case "name":           return entry.name;
-            case "path":           return entry.path;
+            case "path":           return entry.resolved_path ();
             case "uri":            return entry.uri;
             case "runner_id":      return entry.runner_id;
             case "runner_version": return entry.runner_version;
@@ -1181,6 +1198,7 @@ namespace Lumoria.Runtime {
             case "wine_debug":     return entry.wine_debug;
             case "sync_mode":      return entry.sync_mode;
             case "region":         return entry.region;
+            case "installer_id":   return entry.installer_id;
             default:               return null;
         }
     }

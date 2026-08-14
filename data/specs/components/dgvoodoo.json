@@ -6,6 +6,7 @@
   "checksum_regex": "",
   "default_version": "latest",
   "source_archive": "zip",
+  "installers": ["ffxi"],
   "system_env_defaults": {},
   "overrides": {
     "d3d8": "n,b",

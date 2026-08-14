@@ -10,6 +10,34 @@ namespace Lumoria.Runtime {
         public string error_message { get; set; default = ""; }
     }
 
+    public class LaunchRequest : Object {
+        public Models.PrefixEntry entry { get; set; }
+        public Gee.ArrayList<Models.RunnerSpec> runner_specs { get; set; }
+        public Gee.ArrayList<Models.LauncherSpec> launcher_specs { get; set; }
+        public string entrypoint_id { get; set; default = ""; }
+        public string custom_exe { get; set; default = ""; }
+        public string[] custom_wine_args { get; set; default = {}; }
+        public LaunchPolicy launch_policy { get; set; default = LaunchPolicy.INTERACTIVE; }
+    }
+
+    public RunResult run_launch_request (
+        LaunchRequest request,
+        RuntimeStatusCallback? status_cb = null,
+        UpdateDecisionCallback? update_decision_cb = null
+    ) throws Error {
+        return run_prefix (
+            request.entry,
+            request.runner_specs,
+            request.launcher_specs,
+            request.entrypoint_id,
+            request.custom_exe,
+            request.custom_wine_args,
+            request.launch_policy,
+            status_cb,
+            update_decision_cb
+        );
+    }
+
     public enum UpdateDecision {
         UPDATE,
         STAY,
@@ -56,18 +84,17 @@ namespace Lumoria.Runtime {
             }
         }
 
-        string exe;
-        string[] wine_args;
-        if (custom_exe != "") {
-            exe = custom_exe;
-            wine_args = custom_wine_args != null ? custom_wine_args : new string[] {};
-        } else {
-            resolve_launcher_exe (entry, launcher_specs, active_entrypoint_id, out exe, out wine_args);
-        }
-
-        var active_entrypoint = custom_exe == ""
-            ? resolve_launch_entrypoint (entry, launcher_specs, active_entrypoint_id)
-            : null;
+        var launch_plan = resolve_launch_plan (
+            entry,
+            launcher_specs,
+            active_entrypoint_id,
+            custom_exe,
+            custom_wine_args
+        );
+        var exe = launch_plan.executable;
+        var wine_args = launch_plan.args;
+        var active_entrypoint = launch_plan.entrypoint;
+        active_entrypoint_id = launch_plan.entrypoint_id;
         var ctx = prepare_runtime_context (
             entry,
             runner_specs,
@@ -252,34 +279,23 @@ namespace Lumoria.Runtime {
     ) throws Error {
         var runner_spec = resolve_runner_spec_for_entry (entry, runner_specs);
         confirm_pending_updates (entry, runner_spec, logger, launch_policy, update_decision_cb);
-        var runtime = prepare_wine_runtime (
-            runner_spec, entry.variant_id, entry.runner_version,
-            entry.resolved_path (), entry.wine_arch,
-            entry.sync_mode, entry.wine_debug, entry.wine_wayland,
-            entry.large_address_aware,
-            null, null, logger,
-            launch_policy,
-            entry.runner_state
-        );
+        var runtime_request = WineRuntimeRequest.from_prefix (entry, runner_spec, launch_policy);
+        var runtime = prepare_wine_runtime (runtime_request, logger);
         ensure_prefix_runner_ready (entry, runtime, logger, true, launch_policy, status_cb);
 
         if (disable_mscoree) {
             runtime.env.add_dll_override ("mscoree", DLL_DISABLED);
         }
-        try {
-            var comp_result = apply_enabled_components (
-                runtime.paths,
-                runtime.prefix_path,
-                entry,
-                active_entrypoint,
-                logger,
-                launch_policy
-            );
-            foreach (var ov in comp_result.dll_overrides.entries) {
-                runtime.env.add_dll_override (ov.key, ov.value);
-            }
-        } catch (Error comp_err) {
-            logger.typed (LogType.WARN, "Component application failed: %s".printf (comp_err.message));
+        var comp_result = apply_enabled_components (
+            runtime.paths,
+            runtime.prefix_path,
+            entry,
+            active_entrypoint,
+            logger,
+            launch_policy
+        );
+        foreach (var ov in comp_result.dll_overrides.entries) {
+            runtime.env.add_dll_override (ov.key, ov.value);
         }
         apply_prefix_runtime_dll_overrides (runtime.env, entry, logger);
         apply_env_overrides (runtime.env, Utils.Preferences.instance ().get_runtime_env_vars ());
@@ -803,44 +819,6 @@ namespace Lumoria.Runtime {
         }
     }
 
-    private RunResult spawn_tracked_process (
-        string executable_label,
-        string work_dir,
-        Gee.ArrayList<string> argv,
-        WineEnv env,
-        RuntimeLog logger
-    ) throws Error {
-        var spawn_argv = Utils.arraylist_to_strv (argv);
-
-        int child_pid;
-        int stdout_fd;
-        int stderr_fd;
-        Process.spawn_async_with_pipes (
-            work_dir,
-            spawn_argv,
-            env.to_spawn_strv (),
-            CHILD_SPAWN_FLAGS,
-            null,
-            out child_pid,
-            null,
-            out stdout_fd,
-            out stderr_fd
-        );
-
-        var logger_copy = logger;
-        var pid_copy = child_pid;
-        new Thread<bool> ("run-logger", () => {
-            drain_pipes_to_log (logger_copy, stdout_fd, stderr_fd, pid_copy);
-            return true;
-        });
-
-        var run_result = new RunResult ();
-        run_result.pid = child_pid;
-        run_result.executable = executable_label;
-        run_result.log_path = logger.log_path;
-        return run_result;
-    }
-
     private string generate_session_id () {
         return "%08x-%04x".printf (
             (uint32) GLib.get_real_time (),
@@ -848,25 +826,4 @@ namespace Lumoria.Runtime {
         );
     }
 
-    private void drain_pipes_to_log (RuntimeLog logger, int stdout_fd, int stderr_fd, int child_pid) {
-
-        var stdout_sb = new StringBuilder ();
-        var stderr_sb = new StringBuilder ();
-
-        LogFunc write_to_log = (msg) => {
-            logger.emit_line (msg);
-        };
-
-        int exit_code = drain_spawned_process (
-            child_pid,
-            stdout_fd,
-            stderr_fd,
-            stdout_sb,
-            stderr_sb,
-            write_to_log
-        );
-        logger.emit_line ("\n");
-        logger.typed (LogType.EXIT, "code=%d".printf (exit_code));
-        logger.close ();
-    }
 }

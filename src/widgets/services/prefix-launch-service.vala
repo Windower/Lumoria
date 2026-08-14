@@ -77,14 +77,13 @@ namespace Lumoria.Widgets.Services {
             var callbacks = new LaunchCallbacks ((owned) on_toast, (owned) on_status, (owned) on_complete);
             var bridge = make_update_bridge ((owned) update_presenter);
             run_launch_worker ("launch-worker", () => {
-                var result = Runtime.run_prefix (
-                    entry,
-                    runner_specs,
-                    launcher_specs,
-                    entrypoint_id,
-                    "",
-                    null,
-                    Runtime.LaunchPolicy.INTERACTIVE,
+                var request = new Runtime.LaunchRequest ();
+                request.entry = entry;
+                request.runner_specs = runner_specs;
+                request.launcher_specs = launcher_specs;
+                request.entrypoint_id = entrypoint_id;
+                var result = Runtime.run_launch_request (
+                    request,
                     (message) => notify_status (message, callbacks),
                     decision_callback (bridge)
                 );
@@ -105,14 +104,13 @@ namespace Lumoria.Widgets.Services {
             var callbacks = new LaunchCallbacks ((owned) on_toast, (owned) on_status, (owned) on_complete);
             var bridge = make_update_bridge ((owned) update_presenter);
             run_launch_worker ("launch-exe-worker", () => {
-                var result = Runtime.run_prefix (
-                    entry,
-                    runner_specs,
-                    launcher_specs,
-                    "",
-                    exe_path,
-                    null,
-                    Runtime.LaunchPolicy.INTERACTIVE,
+                var request = new Runtime.LaunchRequest ();
+                request.entry = entry;
+                request.runner_specs = runner_specs;
+                request.launcher_specs = launcher_specs;
+                request.custom_exe = exe_path;
+                var result = Runtime.run_launch_request (
+                    request,
                     (message) => notify_status (message, callbacks),
                     decision_callback (bridge)
                 );

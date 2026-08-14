@@ -16,6 +16,50 @@ namespace Lumoria.Runtime {
         public LaunchTargetSection section { get; set; default = LaunchTargetSection.MAIN; }
     }
 
+    public class LaunchPlan : Object {
+        public string entrypoint_id { get; set; default = ""; }
+        public string executable { get; set; default = ""; }
+        public string[] args { get; set; default = {}; }
+        public Models.Entrypoint? entrypoint { get; set; default = null; }
+        public bool custom_executable { get; set; default = false; }
+    }
+
+    public LaunchPlan resolve_launch_plan (
+        Models.PrefixEntry entry,
+        Gee.ArrayList<Models.LauncherSpec> launcher_specs,
+        string entrypoint_id,
+        string custom_exe = "",
+        string[]? custom_args = null
+    ) throws Error {
+        Models.SpecRepository.shared ().require_installer (entry.installer_id);
+        var plan = new LaunchPlan ();
+        plan.entrypoint_id = entrypoint_id != ""
+            ? entrypoint_id
+            : resolve_effective_entrypoint_id (entry, launcher_specs);
+        plan.custom_executable = custom_exe != "";
+        if (plan.custom_executable) {
+            plan.executable = custom_exe;
+            plan.args = custom_args != null ? custom_args : new string[0];
+            return plan;
+        }
+
+        string resolved_exe;
+        string[] resolved_args;
+        resolve_launcher_exe (
+            entry,
+            launcher_specs,
+            plan.entrypoint_id,
+            out resolved_exe,
+            out resolved_args
+        );
+        plan.executable = resolved_exe;
+        plan.args = resolved_args;
+        plan.entrypoint = resolve_launch_entrypoint (
+            entry, launcher_specs, plan.entrypoint_id
+        );
+        return plan;
+    }
+
     public string launch_target_section_title (LaunchTargetSection section) {
         switch (section) {
             case LaunchTargetSection.WINDOWER_PROFILES:
@@ -63,7 +107,7 @@ namespace Lumoria.Runtime {
         return "win64";
     }
 
-    private class LaunchContext : Object {
+    private class SpecContext : Object {
         public string pfx_path = "";
         public Models.InstallerSpec installer_spec;
         public Models.LauncherSpec? launcher;
@@ -71,15 +115,19 @@ namespace Lumoria.Runtime {
         public Gee.HashMap<string, string> vars;
     }
 
-    private LaunchContext make_launch_context (
+    private SpecContext make_spec_context (
         Models.PrefixEntry entry,
         Gee.ArrayList<Models.LauncherSpec>? launcher_specs
-    ) {
-        var ctx = new LaunchContext ();
+    ) throws Error {
+        var ctx = new SpecContext ();
         ctx.pfx_path = install_prefix_path (entry.resolved_path ());
-        ctx.installer_spec = Models.InstallerSpec.load_from_resource ();
-        var specs = launcher_specs ?? Models.LauncherSpec.load_all_from_resource ();
-        ctx.launcher = entry.launcher_id != "" ? find_launcher_by_id (specs, entry.launcher_id) : null;
+        var repository = Models.SpecRepository.shared ();
+        ctx.installer_spec = repository.require_installer (entry.installer_id);
+        var specs = launcher_specs ?? repository.launchers;
+        ctx.launcher = entry.launcher_id == ""
+            || !ctx.installer_spec.supports_launcher (entry.launcher_id)
+            ? null
+            : find_launcher_by_id (specs, entry.launcher_id);
         ctx.post_install = load_prefix_post_install_spec (entry);
         ctx.vars = build_launch_vars (ctx.pfx_path, entry, ctx.installer_spec, ctx.launcher, ctx.post_install);
         return ctx;
@@ -91,14 +139,11 @@ namespace Lumoria.Runtime {
         string entrypoint_id,
         out string exe,
         out string[] args
-    ) {
-        exe = Path.build_filename (
-            ffxi_dir_for_arch (resolve_effective_wine_arch (entry)),
-            "polboot.exe"
-        );
+    ) throws Error {
+        exe = "";
         args = {};
 
-        var ctx = make_launch_context (entry, launcher_specs);
+        var ctx = make_spec_context (entry, launcher_specs);
 
         if (entrypoint_id != "") {
             foreach (var custom_ep in entry.custom_entrypoints) {
@@ -134,12 +179,37 @@ namespace Lumoria.Runtime {
             }
         }
 
-        if (ctx.launcher == null) return;
+        if (ctx.launcher != null) {
+            var launcher_entrypoint = find_entrypoint (ctx.launcher.entrypoints, "");
+            if (launcher_entrypoint == null) {
+                throw new IOError.FAILED (
+                    "Launcher '%s' has no default entrypoint", ctx.launcher.id
+                );
+            }
+            apply_entrypoint (launcher_entrypoint, ctx.vars, out exe, out args);
+            return;
+        }
 
-        var ep = find_entrypoint (ctx.launcher.entrypoints, "");
-        if (ep == null) return;
+        var installer_entrypoint = find_entrypoint (
+            ctx.installer_spec.entrypoints, ""
+        );
+        if (installer_entrypoint != null) {
+            apply_entrypoint (installer_entrypoint, ctx.vars, out exe, out args);
+            return;
+        }
 
-        apply_entrypoint (ep, ctx.vars, out exe, out args);
+        if (entry.custom_entrypoints.size > 0) {
+            var custom_entrypoint = entry.custom_entrypoints[0];
+            exe = Utils.resolve_user_path (
+                custom_entrypoint.exe, custom_entrypoint.exe_portal
+            );
+            args = arraylist_to_strv (custom_entrypoint.args);
+            return;
+        }
+
+        throw new IOError.FAILED (
+            "No default launch target is available. Configure an entrypoint or choose an executable."
+        );
     }
 
     public void apply_launch_env (
@@ -147,8 +217,8 @@ namespace Lumoria.Runtime {
         Gee.ArrayList<Models.LauncherSpec>? launcher_specs,
         string entrypoint_id,
         WineEnv env
-    ) {
-        var ctx = make_launch_context (entry, launcher_specs);
+    ) throws Error {
+        var ctx = make_spec_context (entry, launcher_specs);
 
         apply_env_rules (env, ctx.installer_spec.env, ctx.vars);
         if (ctx.launcher != null) apply_env_rules (env, ctx.launcher.env, ctx.vars);
@@ -163,15 +233,15 @@ namespace Lumoria.Runtime {
         Models.PrefixEntry entry,
         Gee.ArrayList<Models.LauncherSpec>? launcher_specs,
         string entrypoint_id
-    ) {
+    ) throws Error {
         if (entrypoint_id == "") return null;
-        var ctx = make_launch_context (entry, launcher_specs);
+        var ctx = make_spec_context (entry, launcher_specs);
         return find_launch_entrypoint (entry, ctx, entrypoint_id);
     }
 
     private Models.Entrypoint? find_launch_entrypoint (
         Models.PrefixEntry entry,
-        LaunchContext ctx,
+        SpecContext ctx,
         string entrypoint_id
     ) {
         foreach (var ep in entry.custom_entrypoints) {
@@ -196,7 +266,7 @@ namespace Lumoria.Runtime {
     public Gee.ArrayList<Models.Entrypoint> list_entrypoints (
         Models.PrefixEntry entry,
         Gee.ArrayList<Models.LauncherSpec> launcher_specs
-    ) {
+    ) throws Error {
         return list_entrypoints_with_custom (entry, launcher_specs, entry.custom_entrypoints);
     }
 
@@ -204,9 +274,9 @@ namespace Lumoria.Runtime {
         Models.PrefixEntry entry,
         Gee.ArrayList<Models.LauncherSpec> launcher_specs,
         Gee.ArrayList<Models.Entrypoint> custom_list
-    ) {
+    ) throws Error {
         var all = new Gee.ArrayList<Models.Entrypoint> ();
-        var ctx = make_launch_context (entry, launcher_specs);
+        var ctx = make_spec_context (entry, launcher_specs);
         var base_vars = build_launch_vars (ctx.pfx_path, entry, ctx.installer_spec, ctx.launcher, null);
 
         expand_entrypoints (all, ctx.installer_spec.entrypoints, base_vars);
@@ -223,7 +293,7 @@ namespace Lumoria.Runtime {
         Gee.ArrayList<Models.LauncherSpec> launcher_specs,
         Gee.ArrayList<Models.Entrypoint>? custom_list = null,
         Gee.ArrayList<string>? warnings = null
-    ) {
+    ) throws Error {
         var targets = new Gee.ArrayList<LaunchTarget> ();
         var entrypoints = list_entrypoints_with_custom (
             entry,
@@ -267,11 +337,13 @@ namespace Lumoria.Runtime {
         Models.PrefixEntry entry,
         Gee.ArrayList<Models.LauncherSpec> launcher_specs,
         Gee.ArrayList<string>? warnings = null
-    ) {
+    ) throws Error {
         var actions = new Gee.ArrayList<Models.SpecAction> ();
         var seen = new Gee.HashSet<string> ();
 
-        var installer = Models.InstallerSpec.load_from_resource ();
+        var installer = Models.SpecRepository.shared ().require_installer (
+            entry.installer_id
+        );
         append_unique_actions (actions, seen, installer.actions);
 
         Models.LauncherSpec? launcher = null;
@@ -420,12 +492,16 @@ namespace Lumoria.Runtime {
     public string resolve_effective_entrypoint_id (
         Models.PrefixEntry entry,
         Gee.ArrayList<Models.LauncherSpec> launcher_specs
-    ) {
+    ) throws Error {
         if (entry.launch_entrypoint_id != "") {
             return entry.launch_entrypoint_id;
         }
 
-        if (entry.launcher_id != "") {
+        var installer_spec = Models.SpecRepository.shared ().require_installer (
+            entry.installer_id
+        );
+        if (entry.launcher_id != ""
+            && installer_spec.supports_launcher (entry.launcher_id)) {
             var launcher = find_launcher_by_id (launcher_specs, entry.launcher_id);
             if (launcher != null) {
                 var ep = find_entrypoint (launcher.entrypoints, "");
@@ -433,9 +509,12 @@ namespace Lumoria.Runtime {
             }
         }
 
-        var installer_spec = Models.InstallerSpec.load_from_resource ();
         var ep = find_entrypoint (installer_spec.entrypoints, "");
         if (ep != null) return ep.id;
+
+        if (entry.custom_entrypoints.size > 0) {
+            return entry.custom_entrypoints[0].id;
+        }
 
         return "";
     }
@@ -455,8 +534,6 @@ namespace Lumoria.Runtime {
         vars["FONTS"] = Path.build_filename (pfx_path, "drive_c", "windows", "Fonts");
         var arch = resolve_effective_wine_arch (entry);
         vars["ARCH"] = arch;
-        set_game_install_vars (vars, arch);
-        vars["REGION"] = entry.region;
         merge_vars (vars, installer_spec.variables);
         apply_launch_variable_rules (vars, installer_spec.variable_rules);
         if (launcher != null) {

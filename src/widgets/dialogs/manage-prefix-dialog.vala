@@ -10,6 +10,7 @@ namespace Lumoria.Widgets.Dialogs {
         private int prefix_index;
         private Gee.ArrayList<Models.RunnerSpec> runner_specs;
         private Gee.ArrayList<Models.LauncherSpec> launcher_specs;
+        private Models.InstallerSpec? installer_spec;
 
         private OptionListRow runner_combo;
         private OptionListRow variant_combo;
@@ -85,6 +86,9 @@ namespace Lumoria.Widgets.Dialogs {
             this.prefix_index = prefix_index;
             this.runner_specs = Models.RunnerSpec.filter_for_environment (runner_specs, Utils.is_sandboxed ());
             this.launcher_specs = launcher_specs;
+            this.installer_spec = Models.SpecRepository.shared ().installer (
+                registry.prefixes[prefix_index].installer_id
+            );
             update_dialog_size ();
             bind_host_size ();
             selected_runner_version = registry.prefixes[prefix_index].runner_version != ""
@@ -156,6 +160,13 @@ namespace Lumoria.Widgets.Dialogs {
             path_row.subtitle = entry.resolved_path ();
             path_row.subtitle_selectable = true;
             info_group.add (path_row);
+
+            var installer_row = new Adw.ActionRow ();
+            installer_row.title = _("Installation");
+            installer_row.subtitle = installer_spec != null
+                ? installer_spec.display_label ()
+                : _("Unknown installer: %s").printf (entry.installer_id);
+            info_group.add (installer_row);
 
             var default_row = new Adw.ActionRow ();
             default_row.title = _("Quick Launch");
@@ -293,11 +304,13 @@ namespace Lumoria.Widgets.Dialogs {
 
             runner_content.append (runner_opts_group);
 
-            var component_specs = Models.ComponentSpec.load_all_from_resource ();
+            var component_specs = Models.SpecRepository.shared ().components;
             if (component_specs.size > 0) {
                 var comp_group = SettingsShared.build_group (_("Runtime Components"), 12, 12, 12);
 
                 foreach (var spec in component_specs) {
+                    if (installer_spec == null
+                        || !spec.supports_installer (installer_spec.id)) continue;
                     var override_entry = entry.runtime_component_overrides.has_key (spec.id)
                         ? entry.runtime_component_overrides[spec.id]
                         : new Models.RuntimeComponentOverride ();
@@ -497,14 +510,18 @@ namespace Lumoria.Widgets.Dialogs {
 
             advanced_content.append (prelaunch_group);
 
-            if (Utils.Preferences.instance ().experimental_features) {
+            var large_address_patch = installer_patch_for_setting (
+                "large_address_aware"
+            );
+            if (large_address_patch != null
+                && Utils.Preferences.instance ().experimental_features) {
                 var patches_group = SettingsShared.build_group (_("Patches"), 12, 12, 12);
                 var laa_default = Utils.Preferences.instance ().large_address_aware ? _("enabled") : _("disabled");
                 laa_combo = SettingsShared.build_toggle_override_combo (
-                    _("Large Address Aware"),
+                    large_address_patch.name,
                     entry.large_address_aware,
                     laa_default,
-                    _("Toggle the Large Address Aware flag on PlayOnline before launch by default.")
+                    _("Toggle the Large Address Aware flag on the installer target before launch by default.")
                 );
                 patches_group.add (laa_combo);
                 advanced_content.append (patches_group);
@@ -801,9 +818,21 @@ namespace Lumoria.Widgets.Dialogs {
 
         private Gee.ArrayList<Runtime.LaunchTarget> current_launch_targets () {
             var manifest_warnings = new Gee.ArrayList<string> ();
-            var targets = Runtime.list_launch_targets (registry.prefixes[prefix_index], launcher_specs, custom_entries, manifest_warnings);
+            var targets = new Gee.ArrayList<Runtime.LaunchTarget> ();
+            try {
+                targets = Runtime.list_launch_targets (
+                    registry.prefixes[prefix_index],
+                    launcher_specs,
+                    custom_entries,
+                    manifest_warnings
+                );
+            } catch (Error e) {
+                manifest_warnings.add (e.message);
+            }
             foreach (var msg in manifest_warnings) {
-                toast_overlay.add_toast (new Adw.Toast (msg));
+                if (toast_overlay != null) {
+                    toast_overlay.add_toast (new Adw.Toast (msg));
+                }
             }
             return targets;
         }
@@ -816,13 +845,19 @@ namespace Lumoria.Widgets.Dialogs {
             }
             var entry = registry.prefixes[prefix_index];
             if (entry.launch_entrypoint_id != "") return entry.launch_entrypoint_id;
-            return Runtime.resolve_effective_entrypoint_id (entry, launcher_specs);
+            try {
+                return Runtime.resolve_effective_entrypoint_id (
+                    entry, launcher_specs
+                );
+            } catch (Error e) {
+                return "";
+            }
         }
 
         private void refresh_entrypoint_models () {
             var entrypoint_model = new Gtk.StringList (null);
             entrypoint_values.clear ();
-            entrypoint_model.append (_("Automatic (launcher/installer default)"));
+            entrypoint_model.append (automatic_entrypoint_label ());
             entrypoint_values.add ("");
             foreach (var target in current_launch_targets ()) {
                 entrypoint_model.append (target.selector_label);
@@ -843,7 +878,7 @@ namespace Lumoria.Widgets.Dialogs {
         private void update_entrypoint_combo_subtitle () {
             var selected_id = current_selected_entrypoint_id ();
             if (selected_id == "") {
-                entrypoint_combo.subtitle = _("Automatic (launcher/installer default)");
+                entrypoint_combo.subtitle = automatic_entrypoint_label ();
                 return;
             }
 
@@ -852,6 +887,28 @@ namespace Lumoria.Widgets.Dialogs {
                 entrypoint_combo.subtitle = target.selector_label;
                 return;
             }
+        }
+
+        private string automatic_entrypoint_label () {
+            var entry = registry.prefixes[prefix_index];
+            if (entry.launcher_id != "" && installer_spec != null
+                && installer_spec.supports_launcher (entry.launcher_id)) {
+                return _("Automatic (launcher default)");
+            }
+            if (installer_spec != null && installer_spec.entrypoints.size > 0) {
+                return _("Automatic (installation default)");
+            }
+            return _("Automatic (first custom entrypoint)");
+        }
+
+        private Models.InstallerPatch? installer_patch_for_setting (
+            string setting
+        ) {
+            if (installer_spec == null) return null;
+            foreach (var patch in installer_spec.patches) {
+                if (patch.setting == setting) return patch;
+            }
+            return null;
         }
 
         private void rebuild_shortcuts_ui () {
@@ -1586,7 +1643,7 @@ namespace Lumoria.Widgets.Dialogs {
         }
 
         private void build_packages_page (Gtk.Box content, Models.PrefixEntry entry) {
-            package_specs = Models.RedistSpec.load_all_from_resource ();
+            package_specs = Models.SpecRepository.shared ().redists;
             package_installed_rows = new Gee.HashMap<string, Gtk.Widget> ();
             package_available_rows = new Gee.HashMap<string, Gtk.Widget> ();
             packages_installed_empty_row = null;

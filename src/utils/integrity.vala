@@ -71,7 +71,19 @@ namespace Lumoria.Utils {
             if (FileUtils.test (dest, FileTest.EXISTS)) {
                 FileUtils.remove (dest);
             }
-            download_file_sync (url, dest, progress);
+            var partial = dest + ".part";
+            if (FileUtils.test (partial, FileTest.EXISTS)) FileUtils.remove (partial);
+            try {
+                download_file_sync (url, partial, progress);
+                if (!validate_downloaded_file (partial, expected_size, expected_checksum, context, algorithm)) {
+                    throw new IOError.FAILED ("Downloaded file is invalid for %s: %s", context, dest);
+                }
+                if (FileUtils.rename (partial, dest) != 0) {
+                    throw new IOError.FAILED ("Failed to commit downloaded file for %s", context);
+                }
+            } finally {
+                if (FileUtils.test (partial, FileTest.EXISTS)) FileUtils.remove (partial);
+            }
         }
         if (!validate_downloaded_file (dest, expected_size, expected_checksum, context, algorithm)) {
             throw new IOError.FAILED ("Downloaded file is invalid for %s: %s", context, dest);

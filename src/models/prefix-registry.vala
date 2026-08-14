@@ -83,9 +83,10 @@ namespace Lumoria.Models {
                 var parser = new Json.Parser ();
                 parser.load_from_file (path);
                 var root = parser.get_root ().get_object ();
+                var changed = needs_installer_migration (root);
                 reg.prefixes = parse_json_array<PrefixEntry> (root, "prefixes", (o) => PrefixEntry.from_json (o));
                 reg.default_prefix_id = json_string (root, "default_prefix_id");
-                var changed = reg.backfill_runner_state ();
+                changed = reg.backfill_runner_state () || changed;
                 changed = reg.migrate_duplicate_custom_entry_ids () || changed;
                 changed = reg.backfill_portal_path_refs () || changed;
                 if (changed) {
@@ -95,6 +96,17 @@ namespace Lumoria.Models {
                 warning ("Failed to load prefix registry: %s", e.message);
             }
             return reg;
+        }
+
+        private static bool needs_installer_migration (Json.Object root) {
+            if (!root.has_member ("prefixes")) return false;
+            var prefixes = root.get_array_member ("prefixes");
+            for (uint i = 0; i < prefixes.get_length (); i++) {
+                var prefix = prefixes.get_object_element (i);
+                if (!prefix.has_member ("installer_id")) return true;
+                if (json_string (prefix, "installer_id").strip () == "") return true;
+            }
+            return false;
         }
 
         private bool backfill_runner_state () {

@@ -2,16 +2,9 @@ namespace Lumoria.Runtime {
 
     public class InstallOptions : Object {
         public string prefix_path { get; set; default = ""; }
-        public string runner_id { get; set; default = ""; }
-        public string runner_version { get; set; default = "latest"; }
-        public string variant_id { get; set; default = ""; }
-        public string wine_arch { get; set; default = ""; }
-        public string wine_debug { get; set; default = ""; }
-        public bool? wine_wayland = null;
-        public string launcher_id { get; set; default = ""; }
         public string post_install_spec_path { get; set; default = ""; }
         public string post_install_spec_uri { get; set; default = ""; }
-        public Models.PrefixEntry? prefix_entry { get; set; default = null; }
+        public Models.PrefixEntry prefix_entry { get; set; }
     }
 
     public class InstallProgress : Object {
@@ -267,21 +260,33 @@ namespace Lumoria.Runtime {
         try {
             write_install_header (logger, opts);
 
-            var installer_spec = Models.InstallerSpec.load_from_resource ();
-            var launcher = find_launcher_spec (opts.launcher_id);
+            var prefix_entry = opts.prefix_entry;
+            var installer_spec = Models.SpecRepository.shared ().require_installer (
+                prefix_entry.installer_id
+            );
+            var launcher = installer_spec.supports_launcher (prefix_entry.launcher_id)
+                ? find_launcher_spec (prefix_entry.launcher_id)
+                : null;
             var post_install_spec = opts.post_install_spec_path != ""
                 ? Models.PostInstallSpec.load_from_file (opts.post_install_spec_path)
                 : null;
 
-            var all_redists = Models.RedistSpec.load_all_from_resource ();
+            var all_redists = Models.SpecRepository.shared ().redists;
             var combined_redist_ids = merged_redist_ids (installer_spec.redists, launcher);
             if (post_install_spec != null) {
                 combined_redist_ids.add_all (post_install_spec.redists);
             }
             var launcher_redists = ResolvedRedistSet.resolve (combined_redist_ids, all_redists);
 
-            const int FIXED_STEPS = 5;
-            int total_steps = FIXED_STEPS
+            var control_steps = new Gee.ArrayList<string> ();
+            control_steps.add ("Preparing runner\u2026");
+            control_steps.add ("Downloading runner\u2026");
+            control_steps.add ("Predownloading enabled components\u2026");
+            control_steps.add ("Creating wine prefix\u2026");
+            control_steps.add ("Applying components\u2026");
+            if (post_install_spec != null) control_steps.add ("Backing up post install spec\u2026");
+
+            int total_steps = control_steps.size
                 + installer_spec.downloads.size + installer_spec.steps.size
                 + (launcher != null ? launcher.downloads.size + launcher.steps.size : 0)
                 + launcher_redists.step_count
@@ -291,30 +296,30 @@ namespace Lumoria.Runtime {
 
             var rep = new StepReporter (total_steps, progress, logger, cancellable);
 
-            rep.label ("Preparing runner\u2026");
+            rep.label (control_steps[0]);
             var runner_spec = Models.RunnerSpec.find_or_default (
                 Models.RunnerSpec.filter_for_host (Models.RunnerSpec.load_all_from_resource ()),
-                opts.runner_id
+                prefix_entry.runner_id
             );
             logger.emit_line ("Using runner: %s %s\n".printf (
                 runner_spec.display_label (),
-                Utils.Preferences.resolve_version (opts.runner_id, opts.runner_version)
+                Utils.Preferences.resolve_version (prefix_entry.runner_id, prefix_entry.runner_version)
             ));
 
             rep.label ("Downloading %s\u2026".printf (runner_spec.display_label ()));
-            var prefix_entry = opts.prefix_entry ?? Models.PrefixRegistry
-                .load (Utils.prefix_registry_path ())
-                .by_path (opts.prefix_path);
-            var runtime = prepare_wine_runtime (
-                runner_spec, opts.variant_id, opts.runner_version,
-                opts.prefix_path, opts.wine_arch,
-                opts.prefix_entry != null ? opts.prefix_entry.sync_mode : "",
-                opts.wine_debug, opts.wine_wayland,
-                prefix_entry != null ? prefix_entry.large_address_aware : null,
-                prefix_entry != null ? prefix_entry.runtime_env_vars : null,
-                rep.download_progress_cb (),
-                logger
-            );
+            var runtime_request = new WineRuntimeRequest ();
+            runtime_request.runner_spec = runner_spec;
+            runtime_request.variant_id = prefix_entry.variant_id;
+            runtime_request.runner_version = prefix_entry.runner_version;
+            runtime_request.prefix_root = opts.prefix_path;
+            runtime_request.wine_arch = prefix_entry.wine_arch;
+            runtime_request.sync_mode = prefix_entry.sync_mode;
+            runtime_request.wine_debug = prefix_entry.wine_debug;
+            runtime_request.wine_wayland = prefix_entry.wine_wayland;
+            runtime_request.large_address_aware = prefix_entry.large_address_aware;
+            runtime_request.environment_overrides = prefix_entry.runtime_env_vars;
+            runtime_request.download_progress = rep.download_progress_cb ();
+            var runtime = prepare_wine_runtime (runtime_request, logger);
             log_runtime_paths (logger, runtime);
 
             var pfx_path = runtime.prefix_path;
@@ -322,10 +327,18 @@ namespace Lumoria.Runtime {
             var env = runtime.env;
             var wineboot_mscoree_policy = resolve_wineboot_mscoree_policy (installer_spec, launcher);
 
-            var installer_vars = make_install_vars (pfx_path, "installer", installer_spec.id, installer_spec.variables);
+            var installer_vars = make_install_vars (
+                pfx_path, "installer", installer_spec.id, installer_spec.variables
+            );
             installer_vars["WINEBOOT_MSCOREE"] = wineboot_mscoree_policy;
             inject_redist_vars (installer_vars, launcher_redists);
-            inject_prefix_context (installer_vars, runtime, prefix_entry, logger, installer_spec.variable_rules);
+            inject_prefix_context (
+                installer_vars,
+                runtime,
+                prefix_entry,
+                logger,
+                installer_spec.variable_rules
+            );
             apply_env_rules (env, installer_spec.env, installer_vars);
 
             var launcher_vars = launcher != null
@@ -361,7 +374,8 @@ namespace Lumoria.Runtime {
             }
 
             var installer_phase = new InstallPhase (
-                installer_spec.downloads, installer_spec.steps,
+                installer_spec.downloads,
+                installer_spec.steps,
                 launcher_redists, installer_vars, prefix_entry
             );
             var launcher_phase = launcher != null
@@ -385,17 +399,15 @@ namespace Lumoria.Runtime {
                 post_phase.run_downloads (rep, "Downloading post install artifacts");
             }
 
-            rep.label ("Predownloading enabled components\u2026");
+            rep.label (control_steps[2]);
             logger.banner ("Predownloading enabled components");
-            predownload_enabled_components (null, logger);
+            predownload_enabled_components (prefix_entry, logger);
 
-            rep.label ("Creating wine prefix\u2026");
+            rep.label (control_steps[3]);
             guard_against_existing_prefix (pfx_path);
             logger.banner ("Creating wine prefix");
             create_wine_prefix (paths, env, logger, cancellable, wineboot_mscoree_policy);
-            if (prefix_entry != null) {
-                ensure_prefix_runner_ready (prefix_entry, runtime, logger, false);
-            }
+            ensure_prefix_runner_ready (prefix_entry, runtime, logger, false);
             logger.emit_line ("Wine prefix created at: %s\n\n".printf (pfx_path));
 
             resolve_computed_vars (installer_vars, paths, env, logger);
@@ -410,9 +422,9 @@ namespace Lumoria.Runtime {
             }
             log_install_vars (logger, installer_vars);
 
-            rep.label ("Applying components\u2026");
+            rep.label (control_steps[4]);
             logger.banner ("Applying enabled components");
-            var component_warning = apply_components_with_warning (paths, env, prefix_entry, pfx_path, logger);
+            apply_components (paths, env, prefix_entry, pfx_path, logger);
 
             installer_phase.run_steps (rep, paths, env, "Run installer steps");
             if (launcher_phase != null) {
@@ -425,7 +437,7 @@ namespace Lumoria.Runtime {
 
             shutdown_wineserver (paths, env, logger);
             progress.progress_changed (1.0);
-            announce_install_finished (progress, logger, component_warning);
+            announce_install_finished (progress, logger);
         } catch (IOError.CANCELLED e) {
             announce_install_failure (progress, logger, "INSTALL CANCELLED", "Installation cancelled.", e.message);
         } catch (Error e) {
@@ -458,28 +470,23 @@ namespace Lumoria.Runtime {
             logger.emit_line ("Action: %s\n\n".printf (action.display_label ()));
 
             var action_redists = ResolvedRedistSet.resolve (
-                action.redists, Models.RedistSpec.load_all_from_resource ()
+                action.redists, Models.SpecRepository.shared ().redists
             );
             int total_steps = 1 + action.downloads.size + action.steps.size + action_redists.step_count;
             var rep = new StepReporter (total_steps, progress, logger, cancellable);
 
             rep.label ("Preparing action\u2026");
             var runner_spec = Models.RunnerSpec.find_or_default (runner_specs, entry.runner_id);
-            var runtime = prepare_wine_runtime (
-                runner_spec, entry.variant_id, entry.runner_version,
-                entry.path, entry.wine_arch,
-                entry.sync_mode, entry.wine_debug, entry.wine_wayland,
-                entry.large_address_aware,
-                entry.runtime_env_vars, null, logger
-            );
+            var runtime_request = WineRuntimeRequest.from_prefix (entry, runner_spec);
+            var runtime = prepare_wine_runtime (runtime_request, logger);
             ensure_prefix_runner_ready (entry, runtime, logger);
 
             var cache_root = ensure_cache_subdir (Path.build_filename ("actions", entry.id), action.id);
             var vars = build_action_vars (runtime.prefix_path, cache_root, entry, launcher_specs, action);
             vars["ARCH"] = runtime.wine_arch;
-            set_game_install_vars (vars, runtime.wine_arch);
-            vars["REGION"] = entry.region;
-            var installer_spec = Models.InstallerSpec.load_from_resource ();
+            var installer_spec = Models.SpecRepository.shared ().require_installer (
+                entry.installer_id
+            );
             Models.LauncherSpec? launcher = null;
             if (entry.launcher_id != "") {
                 foreach (var spec in launcher_specs) {
@@ -494,6 +501,7 @@ namespace Lumoria.Runtime {
             if (post_install_spec_for_action != null) {
                 action_rules.add_all (post_install_spec_for_action.variable_rules);
             }
+            resolve_prefix_vars (vars, entry, logger);
             apply_install_variable_rules (vars, action_rules);
             apply_env_rules (runtime.env, action.env, vars);
             resolve_computed_vars (vars, runtime.paths, runtime.env, logger);
@@ -530,11 +538,14 @@ namespace Lumoria.Runtime {
         });
 
         try {
+            var installer_spec = Models.SpecRepository.shared ().require_installer (
+                entry.installer_id
+            );
             logger.banner ("Lumoria Redist Install", false);
             logger.emit_line ("Prefix: %s\n".printf (entry.resolved_path ()));
             logger.emit_line ("Redist: %s\n\n".printf (redist_id));
 
-            var all_redists = Models.RedistSpec.load_all_from_resource ();
+            var all_redists = Models.SpecRepository.shared ().redists;
             var ids = new Gee.ArrayList<string> ();
             ids.add (redist_id);
             var resolved = ResolvedRedistSet.resolve (ids, all_redists);
@@ -544,19 +555,18 @@ namespace Lumoria.Runtime {
 
             rep.label ("Preparing runner\u2026");
             var runner_spec = Models.RunnerSpec.find_or_default (runner_specs, entry.runner_id);
-            var runtime = prepare_wine_runtime (
-                runner_spec, entry.variant_id, entry.runner_version,
-                entry.path, entry.wine_arch,
-                entry.sync_mode, entry.wine_debug, entry.wine_wayland,
-                entry.large_address_aware,
-                entry.runtime_env_vars, null, logger
-            );
+            var runtime_request = WineRuntimeRequest.from_prefix (entry, runner_spec);
+            var runtime = prepare_wine_runtime (runtime_request, logger);
             ensure_prefix_runner_ready (entry, runtime, logger);
 
             var cache_root = ensure_cache_subdir ("redist", redist_id);
-            var vars = build_prefix_vars (runtime.prefix_path, cache_root, null);
-            vars["ARCH"] = runtime.wine_arch;
-            vars["REGION"] = entry.region;
+            var vars = build_prefix_vars (
+                runtime.prefix_path, cache_root, installer_spec.variables
+            );
+            inject_prefix_context (
+                vars, runtime, entry, logger, installer_spec.variable_rules
+            );
+            apply_env_rules (runtime.env, installer_spec.env, vars);
             resolve_computed_vars (vars, runtime.paths, runtime.env, logger);
             Utils.resolve_var_references (vars);
 
@@ -585,7 +595,9 @@ namespace Lumoria.Runtime {
         logger.banner ("Lumoria Install Log", false);
         logger.emit_line ("Prefix: %s\n".printf (opts.prefix_path));
         logger.emit_line ("Runner: %s variant=%s version=%s\n".printf (
-            opts.runner_id, opts.variant_id, opts.runner_version
+            opts.prefix_entry.runner_id,
+            opts.prefix_entry.variant_id,
+            opts.prefix_entry.runner_version
         ));
         if (logger.is_disk_enabled ()) {
             logger.emit_line ("Log file: %s\n".printf (logger.log_path));
@@ -595,7 +607,7 @@ namespace Lumoria.Runtime {
 
     private Models.LauncherSpec? find_launcher_spec (string launcher_id) {
         if (launcher_id == "") return null;
-        foreach (var ls in Models.LauncherSpec.load_all_from_resource ()) {
+        foreach (var ls in Models.SpecRepository.shared ().launchers) {
             if (ls.id == launcher_id) return ls;
         }
         return null;
@@ -678,28 +690,20 @@ namespace Lumoria.Runtime {
         }
     }
 
-    private string? apply_components_with_warning (
+    private void apply_components (
         WinePaths paths,
         WineEnv env,
         Models.PrefixEntry? prefix_entry,
         string pfx_path,
         RuntimeLog logger
-    ) {
-        try {
-            var comp_result = apply_enabled_components (paths, pfx_path, prefix_entry, null, logger);
-            foreach (var ov in comp_result.dll_overrides.entries) {
-                env.add_dll_override (ov.key, ov.value);
-            }
-            seed_component_env_defaults (prefix_entry, pfx_path, logger);
-            apply_env_overrides (env, Utils.Preferences.instance ().get_runtime_env_vars ());
-            if (prefix_entry != null) {
-                apply_env_overrides (env, prefix_entry.runtime_env_vars);
-            }
-            return null;
-        } catch (Error e) {
-            logger.typed (LogType.WARN, "Component application failed: %s".printf (e.message));
-            return "Component setup failed: %s".printf (e.message);
+    ) throws Error {
+        var comp_result = apply_enabled_components (paths, pfx_path, prefix_entry, null, logger);
+        foreach (var ov in comp_result.dll_overrides.entries) {
+            env.add_dll_override (ov.key, ov.value);
         }
+        seed_component_env_defaults (prefix_entry, pfx_path, logger);
+        apply_env_overrides (env, Utils.Preferences.instance ().get_runtime_env_vars ());
+        if (prefix_entry != null) apply_env_overrides (env, prefix_entry.runtime_env_vars);
     }
 
     private void seed_component_env_defaults (
@@ -757,16 +761,10 @@ namespace Lumoria.Runtime {
 
     private void announce_install_finished (
         InstallProgress progress,
-        RuntimeLog logger,
-        string? component_warning
+        RuntimeLog logger
     ) {
-        if (component_warning != null) {
-            logger.banner ("Install completed with warnings");
-            progress.install_finished (true, "Install complete with warnings.\n%s".printf (component_warning));
-        } else {
-            logger.banner ("Install completed successfully");
-            progress.install_finished (true, "Install complete.");
-        }
+        logger.banner ("Install completed successfully");
+        progress.install_finished (true, "Install complete.");
     }
 
     private void announce_install_failure (
@@ -1588,7 +1586,8 @@ namespace Lumoria.Runtime {
         int packages_processed = 0;
         int fonts_copied_total = 0;
 
-        foreach (var raw_path in step.args) {
+        try {
+          foreach (var raw_path in step.args) {
             packages_processed++;
             var exe_path = expand_path (raw_path, vars);
             var exe_lower = exe_path.down ();
@@ -1622,11 +1621,11 @@ namespace Lumoria.Runtime {
                 fonts_copied_total++;
                 logger.typed (LogType.FONTS, "copied %s".printf (dst));
             }
+          }
+          register_fonts_into_prefix (fonts_dir, tmp_dir, step, vars, paths, env, cancellable, logger);
+        } finally {
+            Utils.remove_recursive (tmp_dir);
         }
-
-        register_fonts_into_prefix (fonts_dir, tmp_dir, step, vars, paths, env, cancellable, logger);
-
-        Utils.remove_recursive (tmp_dir);
         logger.typed (LogType.FONTS, "summary: packages=%d, fonts_copied=%d".printf (packages_processed, fonts_copied_total));
         logger.typed (LogType.FONTS, "installed to %s".printf (fonts_dir));
     }
@@ -1687,7 +1686,7 @@ namespace Lumoria.Runtime {
         logger.typed (LogType.FONTS, "registered %d/%d font(s)".printf (entries.size, declared));
     }
 
-    private Gee.ArrayList<string> collect_font_files (string dir_path) {
+    private Gee.ArrayList<string> collect_font_files (string dir_path) throws Error {
         var results = new Gee.ArrayList<string> ();
         try {
             var dir = Dir.open (dir_path);
@@ -1701,7 +1700,9 @@ namespace Lumoria.Runtime {
                     results.add_all (collect_font_files (path));
                 }
             }
-        } catch (Error e) {}
+        } catch (Error e) {
+            throw new IOError.FAILED ("Failed to scan font directory %s: %s", dir_path, e.message);
+        }
         return results;
     }
 
@@ -1870,7 +1871,6 @@ namespace Lumoria.Runtime {
         Gee.ArrayList<Models.EnvRule>? variable_rules = null
     ) {
         vars["ARCH"] = runtime.wine_arch;
-        set_game_install_vars (vars, runtime.wine_arch);
         resolve_prefix_vars (vars, entry, logger);
         if (variable_rules != null) {
             apply_install_variable_rules (vars, variable_rules);
@@ -1907,7 +1907,11 @@ namespace Lumoria.Runtime {
         Models.LauncherSpec? launcher,
         Models.PostInstallSpec post_install_spec
     ) {
-        var vars = build_prefix_vars (pfx_path, cache_path, installer_spec.variables);
+        var vars = build_prefix_vars (
+            pfx_path,
+            cache_path,
+            installer_spec.variables
+        );
         if (launcher != null) {
             foreach (var e in launcher.variables.entries) {
                 vars[e.key] = e.value;
@@ -1925,8 +1929,10 @@ namespace Lumoria.Runtime {
         Models.PrefixEntry entry,
         Gee.ArrayList<Models.LauncherSpec> launcher_specs,
         Models.SpecAction action
-    ) {
-        var installer_spec = Models.InstallerSpec.load_from_resource ();
+    ) throws Error {
+        var installer_spec = Models.SpecRepository.shared ().require_installer (
+            entry.installer_id
+        );
         Models.LauncherSpec? launcher = null;
         if (entry.launcher_id != "") {
             foreach (var spec in launcher_specs) {
@@ -1937,7 +1943,11 @@ namespace Lumoria.Runtime {
             }
         }
         var post_install_spec = Runtime.load_prefix_post_install_spec (entry);
-        var vars = build_prefix_vars (pfx_path, cache_path, installer_spec.variables);
+        var vars = build_prefix_vars (
+            pfx_path,
+            cache_path,
+            installer_spec.variables
+        );
         if (launcher != null) {
             foreach (var e in launcher.variables.entries) vars[e.key] = e.value;
         }
@@ -1952,7 +1962,7 @@ namespace Lumoria.Runtime {
         Models.PrefixEntry entry,
         Gee.ArrayList<Models.LauncherSpec> launcher_specs,
         string action_id
-    ) {
+    ) throws Error {
         foreach (var action in Runtime.list_spec_actions (entry, launcher_specs)) {
             if (action.id == action_id) return action;
         }
