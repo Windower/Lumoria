@@ -97,20 +97,51 @@ namespace Lumoria.Runtime {
 
                 var component_ready = spec.steps.size == 0;
 
-                if (prefix_active) {
-                    var component_policy = launch_policy;
-                    if (
-                        launch_policy == LaunchPolicy.OFFLINE_FAST_START &&
-                        (applied == null || is_deferred_component_version (applied.version))
-                    ) {
-                        component_policy = LaunchPolicy.INTERACTIVE;
+                if (launch_policy == LaunchPolicy.OFFLINE_FAST_START) {
+                    if (prefix_active) {
+                        var desired_version = resolve_component_version_for_policy (
+                            spec,
+                            entry,
+                            defaults,
+                            applied,
+                            launch_policy
+                        );
+                        if (applied == null || applied.version != desired_version) {
+                            throw new IOError.FAILED (
+                                "Component %s is not prepared for shortcut launch. Open Lumoria to prepare this prefix.",
+                                spec.id
+                            );
+                        }
+                        if (!component_record_matches_arch (spec, applied, pfx_path, entry, arch)) {
+                            throw new IOError.FAILED (
+                                "Component %s files are incomplete for shortcut launch. Open Lumoria to repair this prefix.",
+                                spec.id
+                            );
+                        }
+                        logger.typed (LogType.COMPONENT, "%s: %s already applied".printf (
+                            spec.id, desired_version
+                        ));
+                        component_ready = true;
+                    } else if (applied != null) {
+                        throw new IOError.FAILED (
+                            "Component %s is disabled but still applied. Open Lumoria to prepare this prefix.",
+                            spec.id
+                        );
                     }
+
+                    if (runtime_active && component_ready) {
+                        add_component_overrides (result, spec);
+                    }
+                    continue;
+                }
+
+                if (prefix_active) {
                     var desired_version = resolve_component_version_for_policy (
                         spec,
                         entry,
                         defaults,
                         applied,
-                        component_policy
+                        launch_policy
                     );
 
                     if (applied != null && applied.version == desired_version) {
@@ -130,7 +161,7 @@ namespace Lumoria.Runtime {
                                 pfx_path,
                                 entry,
                                 logger,
-                                component_policy
+                                launch_policy
                             );
                             if (record == null) {
                                 throw new IOError.FAILED (
@@ -177,7 +208,7 @@ namespace Lumoria.Runtime {
                             pfx_path,
                             entry,
                             logger,
-                            component_policy
+                            launch_policy
                         );
                         if (record == null) {
                             throw new IOError.FAILED (
@@ -435,13 +466,10 @@ namespace Lumoria.Runtime {
 
         if (applied != null && !is_deferred_component_version (applied.version)) return applied.version;
 
-        if (is_deferred_component_version (requested)) {
-            throw new IOError.FAILED (
-                "Component %s has no applied version for offline launch. Open Lumoria to prepare this prefix.",
-                spec.id
-            );
-        }
-        return requested;
+        throw new IOError.FAILED (
+            "Component %s has no applied version for shortcut launch. Open Lumoria to prepare this prefix.",
+            spec.id
+        );
     }
 
     private string resolve_concrete_component_version (

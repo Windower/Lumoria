@@ -365,8 +365,15 @@ namespace Lumoria.Widgets {
                 (msg) => show_toast (msg),
                 (status) => update_launch_status (status),
                 () => end_launch_state (),
-                present_update_decision_dialog
+                present_update_decision_dialog,
+                close_after_successful_launch
             );
+        }
+
+        private void close_after_successful_launch () {
+            if (!Utils.Preferences.instance ().close_after_launch) return;
+            allow_window_close = true;
+            close ();
         }
 
         private void present_update_decision_dialog (

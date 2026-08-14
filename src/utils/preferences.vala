@@ -28,6 +28,7 @@ namespace Lumoria.Utils {
         private bool _experimental_features = false;
         private bool _show_hidden_runner_versions = false;
         private bool _session_manager = true;
+        private bool _close_after_launch = false;
         private bool _gamepad_navigation = false;
         private bool _screen_inhibitor = true;
         private bool _feral_game_mode = false;
@@ -45,6 +46,7 @@ namespace Lumoria.Utils {
         public bool experimental_features { get { return _experimental_features; } }
         public bool show_hidden_runner_versions { get { return _show_hidden_runner_versions; } }
         public bool session_manager { get { return _session_manager; } }
+        public bool close_after_launch { get { return _close_after_launch; } }
         public bool gamepad_navigation { get { return _gamepad_navigation; } }
         public bool screen_inhibitor { get { return _screen_inhibitor; } }
         public bool feral_game_mode { get { return _feral_game_mode; } }
@@ -171,6 +173,12 @@ namespace Lumoria.Utils {
             _session_manager = enabled;
             save ();
             session_manager_changed (enabled);
+        }
+
+        public void set_close_after_launch (bool enabled) {
+            if (_close_after_launch == enabled) return;
+            _close_after_launch = enabled;
+            save ();
         }
 
         public void set_gamepad_navigation (bool enabled) {
@@ -307,6 +315,7 @@ namespace Lumoria.Utils {
             _experimental_features = false;
             _show_hidden_runner_versions = false;
             _session_manager = true;
+            _close_after_launch = false;
             _gamepad_navigation = false;
             _screen_inhibitor = true;
             _feral_game_mode = false;
@@ -384,6 +393,8 @@ namespace Lumoria.Utils {
                     _show_hidden_runner_versions = obj.get_boolean_member ("show_hidden_runner_versions");
                 if (obj.has_member ("session_manager"))
                     _session_manager = obj.get_boolean_member ("session_manager");
+                if (obj.has_member ("close_after_launch"))
+                    _close_after_launch = obj.get_boolean_member ("close_after_launch");
 
                 load_updates (obj);
                 load_logging (obj);
@@ -569,6 +580,7 @@ namespace Lumoria.Utils {
             obj.set_boolean_member ("experimental_features", _experimental_features);
             obj.set_boolean_member ("show_hidden_runner_versions", _show_hidden_runner_versions);
             obj.set_boolean_member ("session_manager", _session_manager);
+            obj.set_boolean_member ("close_after_launch", _close_after_launch);
 
             var upd = new Json.Object ();
             upd.set_boolean_member ("lumoria", _updates_lumoria);

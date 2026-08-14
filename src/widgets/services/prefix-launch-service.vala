@@ -9,6 +9,16 @@ namespace Lumoria.Widgets.Services {
     );
     private delegate string LaunchOperation () throws Error;
 
+    private class LaunchOutcome : Object {
+        public string message { get; private set; }
+        public bool succeeded { get; private set; }
+
+        public LaunchOutcome (string message, bool succeeded) {
+            this.message = message;
+            this.succeeded = succeeded;
+        }
+    }
+
     public class UpdateDecisionBridge : Object {
         private UpdateDialogPresenter presenter;
         private Mutex mutex = Mutex ();
@@ -51,15 +61,18 @@ namespace Lumoria.Widgets.Services {
         public ToastCallback on_toast;
         public StatusCallback? on_status;
         public CompletionCallback? on_complete;
+        public CompletionCallback? on_success;
 
         public LaunchCallbacks (
             owned ToastCallback on_toast,
             owned StatusCallback? on_status,
-            owned CompletionCallback? on_complete
+            owned CompletionCallback? on_complete,
+            owned CompletionCallback? on_success = null
         ) {
             this.on_toast = (owned) on_toast;
             this.on_status = (owned) on_status;
             this.on_complete = (owned) on_complete;
+            this.on_success = (owned) on_success;
         }
     }
 
@@ -72,9 +85,15 @@ namespace Lumoria.Widgets.Services {
             owned ToastCallback on_toast,
             owned StatusCallback? on_status = null,
             owned CompletionCallback? on_complete = null,
-            owned UpdateDialogPresenter? update_presenter = null
+            owned UpdateDialogPresenter? update_presenter = null,
+            owned CompletionCallback? on_success = null
         ) {
-            var callbacks = new LaunchCallbacks ((owned) on_toast, (owned) on_status, (owned) on_complete);
+            var callbacks = new LaunchCallbacks (
+                (owned) on_toast,
+                (owned) on_status,
+                (owned) on_complete,
+                (owned) on_success
+            );
             var bridge = make_update_bridge ((owned) update_presenter);
             run_launch_worker ("launch-worker", () => {
                 var request = new Runtime.LaunchRequest ();
@@ -176,28 +195,29 @@ namespace Lumoria.Widgets.Services {
             LaunchCallbacks callbacks
         ) {
             new Thread<bool> (worker_name, () => {
-                string toast_msg;
+                LaunchOutcome outcome;
                 try {
-                    toast_msg = operation ();
+                    outcome = new LaunchOutcome (operation (), true);
                 } catch (Error e) {
                     if (e is IOError.CANCELLED) {
-                        toast_msg = _("Launch cancelled.");
+                        outcome = new LaunchOutcome (_("Launch cancelled."), false);
                     } else {
-                        toast_msg = _("Launch failed: %s").printf (e.message);
+                        outcome = new LaunchOutcome (_("Launch failed: %s").printf (e.message), false);
                     }
                 }
-                notify_ui (toast_msg, callbacks);
+                notify_ui (outcome, callbacks);
                 return true;
             });
         }
 
         private void notify_ui (
-            string message,
+            LaunchOutcome outcome,
             LaunchCallbacks callbacks
         ) {
             Idle.add (() => {
-                callbacks.on_toast (message);
+                callbacks.on_toast (outcome.message);
                 if (callbacks.on_complete != null) callbacks.on_complete ();
+                if (outcome.succeeded && callbacks.on_success != null) callbacks.on_success ();
                 return false;
             });
         }

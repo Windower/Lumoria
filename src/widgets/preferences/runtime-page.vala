@@ -5,6 +5,7 @@ namespace Lumoria.Widgets.Preferences {
         private const int FERAL_GAME_MODE_PROBE_TIMEOUT_MS = 1500;
 
         private Adw.SwitchRow logging_row;
+        private Adw.SwitchRow close_after_launch_row;
         private Adw.SwitchRow screen_inhibitor_row;
         private Adw.SwitchRow feral_game_mode_row;
         private Adw.SwitchRow wayland_row;
@@ -36,6 +37,16 @@ namespace Lumoria.Widgets.Preferences {
                 update_debug_combo_state ();
             });
             general_group.add (logging_row);
+
+            close_after_launch_row = new Adw.SwitchRow ();
+            close_after_launch_row.title = _("Close Lumoria After Launch");
+            close_after_launch_row.active = prefs.close_after_launch;
+            close_after_launch_row.notify["active"].connect (() => {
+                if (prefs.close_after_launch != close_after_launch_row.active) {
+                    prefs.set_close_after_launch (close_after_launch_row.active);
+                }
+            });
+            general_group.add (close_after_launch_row);
 
             screen_inhibitor_row = new Adw.SwitchRow ();
             screen_inhibitor_row.title = _("Keep Display Awake While Playing");
