@@ -2,9 +2,11 @@ namespace Lumoria.Widgets.Preferences {
 
     public class RuntimePage : Gtk.Box {
         private const int SCREEN_INHIBITOR_PROBE_TIMEOUT_MS = 1500;
+        private const int FERAL_GAME_MODE_PROBE_TIMEOUT_MS = 1500;
 
         private Adw.SwitchRow logging_row;
         private Adw.SwitchRow screen_inhibitor_row;
+        private Adw.SwitchRow feral_game_mode_row;
         private Adw.SwitchRow wayland_row;
         private OptionListRow sync_mode_combo;
         private OptionListRow debug_combo;
@@ -12,6 +14,7 @@ namespace Lumoria.Widgets.Preferences {
         private Lumoria.Widgets.EnvVarsEditor global_env_editor;
         private Gtk.Label env_validation_label;
         private bool updating_screen_inhibitor_row = false;
+        private bool updating_feral_game_mode_row = false;
 
         public RuntimePage () {
             Object (orientation: Gtk.Orientation.VERTICAL, spacing: 0);
@@ -46,6 +49,19 @@ namespace Lumoria.Widgets.Preferences {
             });
             general_group.add (screen_inhibitor_row);
             check_screen_inhibitor_support ();
+
+            feral_game_mode_row = new Adw.SwitchRow ();
+            feral_game_mode_row.title = _("Enable Feral GameMode");
+            feral_game_mode_row.sensitive = false;
+            feral_game_mode_row.active = prefs.feral_game_mode;
+            feral_game_mode_row.notify["active"].connect (() => {
+                if (updating_feral_game_mode_row) return;
+                if (prefs.feral_game_mode != feral_game_mode_row.active) {
+                    prefs.set_feral_game_mode (feral_game_mode_row.active);
+                }
+            });
+            general_group.add (feral_game_mode_row);
+            check_feral_game_mode_support ();
 
             append (general_group);
 
@@ -129,6 +145,24 @@ namespace Lumoria.Widgets.Preferences {
                     screen_inhibitor_row.active = supported && Utils.Preferences.instance ().screen_inhibitor;
                     screen_inhibitor_row.sensitive = supported;
                     updating_screen_inhibitor_row = false;
+                    return Source.REMOVE;
+                });
+                return true;
+            });
+        }
+
+        private void check_feral_game_mode_support () {
+            new Thread<bool> ("feral-game-mode-probe", () => {
+                string error;
+                var supported = Utils.FeralGameModePortal.probe (FERAL_GAME_MODE_PROBE_TIMEOUT_MS, out error);
+                Idle.add (() => {
+                    updating_feral_game_mode_row = true;
+                    feral_game_mode_row.active = supported && Utils.Preferences.instance ().feral_game_mode;
+                    feral_game_mode_row.sensitive = supported;
+                    feral_game_mode_row.subtitle = supported
+                        ? ""
+                        : _("Feral GameMode is not available through the desktop portal");
+                    updating_feral_game_mode_row = false;
                     return Source.REMOVE;
                 });
                 return true;

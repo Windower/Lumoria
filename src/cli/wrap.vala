@@ -12,12 +12,61 @@ namespace Lumoria.Cli {
     private const int WRAP_REAP_WAIT_MS = 1000;
     private const int WRAP_LOG_RELAY_JOIN_WAIT_MS = 1000;
     private const int WRAP_INHIBIT_RESOLVE_WAIT_MS = 2000;
-    private const string WRAP_MODE_LEGACY = "legacy";
+    private const int WRAP_FERAL_GAME_MODE_WAIT_MS = 2000;
 
     private int wrap_signal_state = 0;
     private int wrap_signal_number = 0;
     private Thread<void>? log_relay_thread = null;
     private bool log_relay_done = false;
+
+    private class WrapProcessIntegrations : Object {
+        private Utils.FeralGameModePortal? feral_game_mode = null;
+        private Gee.HashSet<int> feral_game_mode_seen_pids = new Gee.HashSet<int> ();
+
+        public void start () {
+            if (!Utils.Preferences.saved_feral_game_mode ()) return;
+
+            var candidate = new Utils.FeralGameModePortal ();
+            string error;
+            if (candidate.start (WRAP_FERAL_GAME_MODE_WAIT_MS, out error)) {
+                feral_game_mode = candidate;
+                wrap_log ("Feral GameMode active for wrapper pid=%d".printf ((int) Posix.getpid ()));
+                poll ();
+            } else {
+                wrap_log ("Feral GameMode failed: %s".printf (error));
+            }
+        }
+
+        public void poll () {
+            if (feral_game_mode == null) return;
+
+            foreach (var pid in Utils.ProcessTree.monitored_descendants ((int) Posix.getpid ())) {
+                if (feral_game_mode_seen_pids.contains (pid)) continue;
+                feral_game_mode_seen_pids.add (pid);
+
+                var process_name = Utils.ProcessTree.process_comm (pid) ?? "unknown";
+                string error;
+                if (feral_game_mode.register_target (pid, WRAP_FERAL_GAME_MODE_WAIT_MS, out error)) {
+                    wrap_log ("Feral GameMode registered pid=%d process=%s".printf (pid, process_name));
+                } else {
+                    wrap_log ("Feral GameMode target failed pid=%d process=%s: %s".printf (
+                        pid, process_name, error
+                    ));
+                }
+            }
+        }
+
+        public void shutdown () {
+            if (feral_game_mode == null) return;
+
+            string error;
+            if (feral_game_mode.stop (WRAP_FERAL_GAME_MODE_WAIT_MS, out error)) {
+                wrap_log ("Feral GameMode released");
+            } else {
+                wrap_log ("Feral GameMode release failed: %s".printf (error));
+            }
+        }
+    }
 
     public int cmd_wrap (string[] args) {
         string log_path = "";
@@ -85,13 +134,19 @@ namespace Lumoria.Cli {
             }
         }
 
-        var mode = Environment.get_variable ("LUMORIA_WRAP_MODE") ?? "";
+        var process_integrations = new WrapProcessIntegrations ();
+        process_integrations.start ();
+
         var poll_ms = wrap_poll_interval_ms ();
         int initial_signal = 0;
-        var initial_code = mode == WRAP_MODE_LEGACY
-            ? legacy_loop (child_pid, out initial_signal)
-            : watcher_loop (child_pid, poll_ms, out initial_signal);
+        var initial_code = watcher_loop (
+            child_pid,
+            poll_ms,
+            process_integrations,
+            out initial_signal
+        );
         cleanup_remaining_descendants ();
+        process_integrations.shutdown ();
         if (inhibitor.stop ()) {
             wrap_log ("screensaver inhibit released");
         }
@@ -197,29 +252,12 @@ namespace Lumoria.Cli {
         Posix.close (write_fd);
     }
 
-    private int legacy_loop (int child_pid, out int initial_signal) {
-        int initial_code = -1;
-        initial_signal = 0;
-        bool initial_reaped = false;
-
-        while (true) {
-            int status;
-            var pid = Posix.waitpid (-1, out status, 0);
-            if (pid < 0) break;
-            if (pid == child_pid && !initial_reaped) {
-                initial_reaped = true;
-                if (Process.if_exited (status)) {
-                    initial_code = Process.exit_status (status);
-                } else if (Process.if_signaled (status)) {
-                    initial_signal = Process.term_sig (status);
-                }
-            }
-        }
-
-        return initial_code;
-    }
-
-    private int watcher_loop (int child_pid, int poll_ms, out int initial_signal) {
+    private int watcher_loop (
+        int child_pid,
+        int poll_ms,
+        WrapProcessIntegrations process_integrations,
+        out int initial_signal
+    ) {
         int initial_code = -1;
         initial_signal = 0;
         bool initial_reaped = false;
@@ -230,9 +268,11 @@ namespace Lumoria.Cli {
         install_wrap_signal_handlers ();
 
         try {
+            process_integrations.poll ();
             if (!has_monitored_descendants ()) {
                 wrap_log ("waiting for monitored process to start");
                 while (!has_monitored_descendants ()) {
+                    process_integrations.poll ();
                     reap_children_nonblocking (
                         child_pid, ref initial_code, ref initial_signal, ref initial_reaped, out no_more_children
                     );
@@ -243,6 +283,7 @@ namespace Lumoria.Cli {
             }
 
             while (has_monitored_descendants ()) {
+                process_integrations.poll ();
                 reap_children_nonblocking (
                     child_pid, ref initial_code, ref initial_signal, ref initial_reaped, out no_more_children
                 );

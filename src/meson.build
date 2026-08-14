@@ -32,6 +32,7 @@ lumoria_sources = files(
   'utils/storage-cache.vala',
   'utils/process-tree.vala',
   'utils/screen-inhibitor.vala',
+  'utils/feral-game-mode-portal.vala',
 
   'runtime/runner-download.vala',
   'runtime/logging.vala',

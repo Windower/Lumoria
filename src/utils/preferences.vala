@@ -30,6 +30,7 @@ namespace Lumoria.Utils {
         private bool _session_manager = true;
         private bool _gamepad_navigation = false;
         private bool _screen_inhibitor = true;
+        private bool _feral_game_mode = false;
         private string _steam_userdata_dir = "";
         private Models.PortalPathRef? _steam_userdata_dir_portal = null;
 
@@ -46,6 +47,7 @@ namespace Lumoria.Utils {
         public bool session_manager { get { return _session_manager; } }
         public bool gamepad_navigation { get { return _gamepad_navigation; } }
         public bool screen_inhibitor { get { return _screen_inhibitor; } }
+        public bool feral_game_mode { get { return _feral_game_mode; } }
 
         public string resolved_steam_userdata_dir () {
             return Utils.resolve_user_path (_steam_userdata_dir, _steam_userdata_dir_portal);
@@ -79,22 +81,30 @@ namespace Lumoria.Utils {
         }
 
         public static bool saved_screen_inhibitor () {
+            return saved_power_boolean ("screen_inhibitor", true);
+        }
+
+        public static bool saved_feral_game_mode () {
+            return saved_power_boolean ("feral_game_mode", false);
+        }
+
+        private static bool saved_power_boolean (string member, bool fallback) {
             var file_path = Path.build_filename (config_dir (), "preferences.json");
-            if (!FileUtils.test (file_path, FileTest.EXISTS)) return true;
+            if (!FileUtils.test (file_path, FileTest.EXISTS)) return fallback;
 
             try {
                 var parser = new Json.Parser ();
                 parser.load_from_file (file_path);
                 var obj = parser.get_root ().get_object ();
-                if (!obj.has_member ("power")) return true;
+                if (!obj.has_member ("power")) return fallback;
 
                 var power_obj = obj.get_object_member ("power");
-                if (!power_obj.has_member ("screen_inhibitor")) return true;
+                if (!power_obj.has_member (member)) return fallback;
 
-                return power_obj.get_boolean_member ("screen_inhibitor");
+                return power_obj.get_boolean_member (member);
             } catch (Error e) {
                 warning ("Failed to load power preferences: %s", e.message);
-                return true;
+                return fallback;
             }
         }
 
@@ -173,6 +183,12 @@ namespace Lumoria.Utils {
         public void set_screen_inhibitor (bool enabled) {
             if (_screen_inhibitor == enabled) return;
             _screen_inhibitor = enabled;
+            save ();
+        }
+
+        public void set_feral_game_mode (bool enabled) {
+            if (_feral_game_mode == enabled) return;
+            _feral_game_mode = enabled;
             save ();
         }
 
@@ -293,6 +309,7 @@ namespace Lumoria.Utils {
             _session_manager = true;
             _gamepad_navigation = false;
             _screen_inhibitor = true;
+            _feral_game_mode = false;
 
             component_versions.clear ();
             component_enabled.clear ();
@@ -518,6 +535,8 @@ namespace Lumoria.Utils {
             var power_obj = obj.get_object_member ("power");
             if (power_obj.has_member ("screen_inhibitor"))
                 _screen_inhibitor = power_obj.get_boolean_member ("screen_inhibitor");
+            if (power_obj.has_member ("feral_game_mode"))
+                _feral_game_mode = power_obj.get_boolean_member ("feral_game_mode");
         }
 
         private void load_runtime (Json.Object obj) {
@@ -577,6 +596,7 @@ namespace Lumoria.Utils {
 
             var power_obj = new Json.Object ();
             power_obj.set_boolean_member ("screen_inhibitor", _screen_inhibitor);
+            power_obj.set_boolean_member ("feral_game_mode", _feral_game_mode);
             obj.set_object_member ("power", power_obj);
 
             var runtime_obj = new Json.Object ();
