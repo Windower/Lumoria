@@ -2,7 +2,7 @@
   "id": "dxvk-sarek",
   "name": "DXVK-Sarek",
   "github_repo": "pythonlover02/DXVK-Sarek",
-  "asset_regex": "dxvk-sarek-(dyasync-)?v.*\\.tar\\.gz$",
+  "asset_regex": "dxvk-sarek-(dyasync-)?v?[0-9].*\\.tar\\.gz$",
   "checksum_regex": "",
   "default_version": "latest",
   "system_env_defaults": {},

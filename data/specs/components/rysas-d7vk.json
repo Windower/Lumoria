@@ -1,6 +1,6 @@
 {
   "id": "rysas-d7vk",
-  "name": "D7VK (rysas devel)",
+  "name": "D7VK v1.8 (rysas-devel)",
   "github_repo": "rysas/d7vk",
   "asset_regex": "d7vk-.*\\.zip$",
   "checksum_regex": "",
