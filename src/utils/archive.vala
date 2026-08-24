@@ -11,6 +11,10 @@ namespace Lumoria.Utils {
     private const uint8[] RAR5_SIGNATURE = { 0x52, 0x61, 0x72, 0x21, 0x1a, 0x07 };
 
     public static void extract_archive (string archive_path, string extract_to) throws Error {
+        if (is_cab_path (archive_path)) {
+            extract_cab_archive (archive_path, extract_to);
+            return;
+        }
         extract_archive_multi ({ archive_path }, extract_to);
     }
 
@@ -86,6 +90,11 @@ namespace Lumoria.Utils {
             throw new IOError.FAILED ("Failed to resolve extraction directory: %s", extract_to);
         }
 
+        if (archive_paths.length == 1 && is_cab_path (archive_paths[0])) {
+            extract_cab_archive (archive_paths[0], extract_to);
+            return;
+        }
+
         try {
             extract_archive_multi_libarchive (archive_paths, extract_root);
         } catch (Error e) {
@@ -107,6 +116,10 @@ namespace Lumoria.Utils {
                 FileUtils.remove (rar_payload_path);
             }
         }
+    }
+
+    private static bool is_cab_path (string path) {
+        return path.down ().has_suffix (".cab");
     }
 
     private static int find_rar_sfx_offset (string path) {

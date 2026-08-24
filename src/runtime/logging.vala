@@ -89,17 +89,15 @@ namespace Lumoria.Runtime {
 
         public void close () {
             mutex.lock ();
-            if (stream == null) {
-                mutex.unlock ();
-                return;
+            if (stream != null) {
+                try { stream.flush (); } catch (Error e) {
+                    warning ("Failed to flush log stream: %s", e.message);
+                }
+                try { stream.close (); } catch (Error e) {
+                    warning ("Failed to close log stream: %s", e.message);
+                }
+                stream = null;
             }
-            try { stream.flush (); } catch (Error e) {
-                warning ("Failed to flush log stream: %s", e.message);
-            }
-            try { stream.close (); } catch (Error e) {
-                warning ("Failed to close log stream: %s", e.message);
-            }
-            stream = null;
             mutex.unlock ();
         }
 
@@ -140,18 +138,11 @@ namespace Lumoria.Runtime {
             if (!force_disk && !Utils.Preferences.instance ().keep_runtime_logs) {
                 return "";
             }
-            var log_dir = Path.build_filename (prefix_path, "logs");
-            if (Utils.ensure_dir (log_dir) && FileUtils.test (log_dir, FileTest.IS_DIR)) {
-                return Path.build_filename (log_dir, filename);
+            var log_dir = Utils.resolve_log_dir (prefix_path);
+            if (log_dir == "") {
+                return "";
             }
-
-            var fallback_dir = Path.build_filename (Utils.cache_dir (), "runtime-logs");
-            if (Utils.ensure_dir (fallback_dir) && FileUtils.test (fallback_dir, FileTest.IS_DIR)) {
-                warning ("Could not create prefix log directory %s; using %s", log_dir, fallback_dir);
-                return Path.build_filename (fallback_dir, filename);
-            }
-
-            return "";
+            return Path.build_filename (log_dir, filename);
         }
 
         private static string tag_name (LogType tag) {

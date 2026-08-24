@@ -10,7 +10,7 @@ namespace Lumoria.Runtime {
     public class InstallProgress : Object {
         public signal void step_changed (string description);
         public signal void progress_changed (double fraction);
-        public signal void log_message (string message);
+        public signal void log_ready (string path);
         public signal void install_finished (bool success, string message);
     }
 
@@ -253,9 +253,7 @@ namespace Lumoria.Runtime {
         InstallProgress progress,
         Cancellable? cancellable
     ) {
-        var logger = RuntimeLog.for_install (opts.prefix_path, (msg) => {
-            progress.log_message (msg);
-        });
+        var logger = initialize_install_log (opts.prefix_path, progress);
 
         try {
             write_install_header (logger, opts);
@@ -455,9 +453,7 @@ namespace Lumoria.Runtime {
         InstallProgress progress,
         Cancellable? cancellable
     ) {
-        var logger = RuntimeLog.for_install (entry.resolved_path (), (msg) => {
-            progress.log_message (msg);
-        });
+        var logger = initialize_install_log (entry.resolved_path (), progress);
 
         try {
             var action = find_spec_action (entry, launcher_specs, action_id);
@@ -533,9 +529,7 @@ namespace Lumoria.Runtime {
         InstallProgress progress,
         Cancellable? cancellable
     ) {
-        var logger = RuntimeLog.for_install (entry.resolved_path (), (msg) => {
-            progress.log_message (msg);
-        });
+        var logger = initialize_install_log (entry.resolved_path (), progress);
 
         try {
             var installer_spec = Models.SpecRepository.shared ().require_installer (
@@ -589,6 +583,14 @@ namespace Lumoria.Runtime {
         } finally {
             logger.close ();
         }
+    }
+
+    private RuntimeLog initialize_install_log (string prefix_path, InstallProgress progress) {
+        var logger = RuntimeLog.for_install (prefix_path);
+        if (logger.is_disk_enabled ()) {
+            progress.log_ready (logger.log_path);
+        }
+        return logger;
     }
 
     private void write_install_header (RuntimeLog logger, InstallOptions opts) {
@@ -2059,13 +2061,9 @@ namespace Lumoria.Runtime {
     }
 
     private string create_msiexec_log_path (Models.InstallStep step, Gee.HashMap<string, string> vars) {
-        string logs_dir;
-        if (vars.has_key ("PREFIX") && vars["PREFIX"] != "") {
-            logs_dir = Path.build_filename (vars["PREFIX"], "logs");
-        } else {
-            logs_dir = Path.build_filename (Utils.cache_dir (), "install-logs");
-        }
-        Utils.ensure_dir (logs_dir);
+        var logs_dir = Utils.resolve_log_dir (
+            vars.has_key ("PREFIX") ? vars["PREFIX"] : ""
+        );
 
         var stamp = new DateTime.now_local ().format ("%Y%m%d-%H%M%S");
         var label = sanitize_filename_token (step.description != "" ? step.description : step.command);

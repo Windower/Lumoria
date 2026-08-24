@@ -23,6 +23,29 @@ namespace Lumoria.Utils {
         return Path.build_filename (Environment.get_user_data_dir (), "lumoria");
     }
 
+    public static string prefix_log_dir (string prefix_path) {
+        return Path.build_filename (prefix_path, "logs");
+    }
+
+    public static string cache_log_dir () {
+        return Path.build_filename (cache_dir (), "logs");
+    }
+
+    public static string resolve_log_dir (string prefix_path) {
+        if (prefix_path != "") {
+            var dir = prefix_log_dir (prefix_path);
+            if (ensure_dir (dir) && FileUtils.test (dir, FileTest.IS_DIR)) {
+                return dir;
+            }
+            warning ("Could not create prefix log directory %s; using cache", dir);
+        }
+        var fallback = cache_log_dir ();
+        if (ensure_dir (fallback) && FileUtils.test (fallback, FileTest.IS_DIR)) {
+            return fallback;
+        }
+        return "";
+    }
+
     public static string session_manager_log_dir () {
         return Path.build_filename (data_dir (), "session", "logs");
     }
