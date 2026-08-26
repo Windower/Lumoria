@@ -68,6 +68,18 @@
   </screenshots>
 
   <releases>
+  <release version="0.1.25" date="2026-08-26">
+    <description>
+      <ul>
+        <li>Major installer and launcher overhaul. Empty prefixes can now be created.</li>
+        <li>CAB files now extract correctly on Arch.</li>
+        <li>Feral GameMode support.</li>
+        <li>Installer log is less spammy and no longer lags the UI.</li>
+        <li>DXVK-Sarek updates.</li>
+        <li>Preference to close Lumoria after launching.</li>
+      </ul>
+    </description>
+  </release>
     <release version="0.1.23" date="2026-07-08">
       <description>
         <ul>
