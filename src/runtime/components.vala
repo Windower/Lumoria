@@ -669,31 +669,31 @@ namespace Lumoria.Runtime {
         var component_path = vars["COMPONENT"];
         var src = Utils.expand_vars (step_src, vars);
         if (FileUtils.test (src, FileTest.EXISTS)) return src;
-
-        // Some archives add one extra top-level directory before the real payload.
-        if (!src.has_prefix (component_path + "/")) return src;
-
-        string? nested = single_child_dir (component_path);
-        if (nested == null) return src;
+        if (component_path == "" || !src.has_prefix (component_path + "/")) return src;
 
         var suffix = src.substring (component_path.length + 1);
-        var fallback = Path.build_filename (nested, suffix);
-        if (FileUtils.test (fallback, FileTest.EXISTS)) return fallback;
-        return src;
+        return find_nested_component_src (component_path, suffix, 3) ?? src;
     }
 
-    private string? single_child_dir (string path) throws Error {
-        var dir = Dir.open (path);
-        string? name;
-        string? only = null;
-        while ((name = dir.read_name ()) != null) {
-            if (name == "." || name == "..") continue;
-            var full = Path.build_filename (path, name);
-            if (!FileUtils.test (full, FileTest.IS_DIR)) continue;
-            if (only != null) return null;
-            only = full;
+    private string? find_nested_component_src (string root, string suffix, int max_depth) {
+        var dirs = new Gee.ArrayList<string> ();
+        var depths = new Gee.ArrayList<int> ();
+        dirs.add (root);
+        depths.add (0);
+
+        for (int i = 0; i < dirs.size; i++) {
+            var dir = dirs[i];
+            var depth = depths[i];
+            var candidate = Path.build_filename (dir, suffix);
+            if (FileUtils.test (candidate, FileTest.EXISTS)) return candidate;
+            if (depth >= max_depth) continue;
+
+            foreach (var name in Utils.list_dirs (dir)) {
+                dirs.add (Path.build_filename (dir, name));
+                depths.add (depth + 1);
+            }
         }
-        return only;
+        return null;
     }
 
     private bool populate_component_installer_vars (
