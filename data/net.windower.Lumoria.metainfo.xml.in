@@ -68,6 +68,14 @@
   </screenshots>
 
   <releases>
+  <release version="0.1.26" date="2026-09-01">
+  <description>
+    <ul>
+      <li>Fix bad download links.</li>
+      <li>Fix expansion of DXVK-Sarek 1.13+ zip files.</li>
+    </ul>
+  </description>
+  </release>
   <release version="0.1.25" date="2026-08-26">
     <description>
       <ul>
