@@ -1,189 +1,108 @@
 namespace Lumoria.Runtime {
 
-    public enum LaunchTargetSection {
-        MAIN,
-        WINDOWER_PROFILES,
-        ACTIONS
-    }
-
-    public class LaunchTarget : Object {
-        public string id { get; set; default = ""; }
-        public string label { get; set; default = ""; }
-        public string selector_label { get; set; default = ""; }
-        public string description { get; set; default = ""; }
-        public string icon { get; set; default = ""; }
-        public bool is_action { get; set; default = false; }
-        public LaunchTargetSection section { get; set; default = LaunchTargetSection.MAIN; }
-    }
-
-    public class LaunchPlan : Object {
-        public string entrypoint_id { get; set; default = ""; }
-        public string executable { get; set; default = ""; }
-        public string[] args { get; set; default = {}; }
-        public Models.Entrypoint? entrypoint { get; set; default = null; }
-        public bool custom_executable { get; set; default = false; }
-    }
-
     public LaunchPlan resolve_launch_plan (
-        Models.PrefixEntry entry,
-        Gee.ArrayList<Models.LauncherSpec> launcher_specs,
+        ManifestContext ctx,
         string entrypoint_id,
         string custom_exe = "",
         string[]? custom_args = null
     ) throws Error {
-        Models.SpecRepository.shared ().require_installer (entry.installer_id);
         var plan = new LaunchPlan ();
-        plan.entrypoint_id = entrypoint_id != ""
-            ? entrypoint_id
-            : resolve_effective_entrypoint_id (entry, launcher_specs);
-        plan.custom_executable = custom_exe != "";
-        if (plan.custom_executable) {
-            plan.executable = custom_exe;
+        plan.entrypoint_id = entrypoint_id != "" ? entrypoint_id : resolve_effective_entrypoint_id (ctx);
+        if (custom_exe != "") {
+            plan.executable = resolve_host_path (custom_exe, ctx.pfx_path);
             plan.args = custom_args != null ? custom_args : new string[0];
             return plan;
         }
 
         string resolved_exe;
         string[] resolved_args;
-        resolve_launcher_exe (
-            entry,
-            launcher_specs,
-            plan.entrypoint_id,
-            out resolved_exe,
-            out resolved_args
-        );
+        resolve_launcher_exe (ctx, plan.entrypoint_id, out resolved_exe, out resolved_args);
         plan.executable = resolved_exe;
         plan.args = resolved_args;
-        plan.entrypoint = resolve_launch_entrypoint (
-            entry, launcher_specs, plan.entrypoint_id
-        );
+        plan.entrypoint = find_launch_entrypoint (ctx, plan.entrypoint_id);
         return plan;
     }
 
-    public string launch_target_section_title (LaunchTargetSection section) {
-        switch (section) {
-            case LaunchTargetSection.WINDOWER_PROFILES:
-                return _("Windower profiles");
-            case LaunchTargetSection.ACTIONS:
-                return _("Actions");
-            default:
-                return _("Programs");
-        }
+    public string effective_wine_arch (Models.PrefixEntry entry) throws Error {
+        var spec = Models.RunnerManifest.resolve_for_entry (Models.ManifestRepository.shared ().host_runners, entry);
+        return spec.effective_variant (entry.variant_id).effective_arch (entry.wine_arch);
     }
 
-    public string launch_target_subtitle (
-        LaunchTarget target,
-        string active_target_id
-    ) {
-        if (target.id == active_target_id) {
-            return _("Default for this prefix");
-        }
-        if (target.section == LaunchTargetSection.WINDOWER_PROFILES) {
-            return "";
-        }
-        if (target.section == LaunchTargetSection.ACTIONS) {
-            return target.description;
-        }
-        if (target.selector_label != target.label) {
-            return target.selector_label;
-        }
-        return "";
-    }
-
-    public string resolve_effective_wine_arch (Models.PrefixEntry entry) {
-        var explicit_arch = Utils.normalize_wine_arch (entry.wine_arch);
-        if (explicit_arch != "") return explicit_arch;
-
-        try {
-            var runner_specs = Models.RunnerSpec.filter_for_host (Models.RunnerSpec.load_all_from_resource ());
-            var spec = Models.RunnerSpec.find_by_id (runner_specs, entry.runner_id);
-            if (spec != null) {
-                var arch = Utils.normalize_wine_arch (spec.effective_variant (entry.variant_id).wine_arch);
-                if (arch != "") return arch;
-            }
-        } catch (Error e) {
-        }
-
-        return "win64";
-    }
-
-    private class SpecContext : Object {
+    /* Everything a launch needs from the manifests, loaded once and handed to each resolver. */
+    public class ManifestContext : Object {
+        public Models.PrefixEntry entry;
         public string pfx_path = "";
-        public Models.InstallerSpec installer_spec;
-        public Models.LauncherSpec? launcher;
-        public Models.PostInstallSpec? post_install;
+        public Models.InstallerManifest installer_manifest;
+        public Models.LauncherManifest? launcher;
+        public Gee.ArrayList<Models.LoadedPostInstall> post_installs;
+        public string arch = "";
         public Gee.HashMap<string, string> vars;
     }
 
-    private SpecContext make_spec_context (
+    public ManifestContext make_manifest_context (
         Models.PrefixEntry entry,
-        Gee.ArrayList<Models.LauncherSpec>? launcher_specs
+        Gee.ArrayList<Models.LauncherManifest>? launcher_manifests
     ) throws Error {
-        var ctx = new SpecContext ();
-        ctx.pfx_path = install_prefix_path (entry.resolved_path ());
-        var repository = Models.SpecRepository.shared ();
-        ctx.installer_spec = repository.require_installer (entry.installer_id);
-        var specs = launcher_specs ?? repository.launchers;
-        ctx.launcher = entry.launcher_id == ""
-            || !ctx.installer_spec.supports_launcher (entry.launcher_id)
-            ? null
-            : find_launcher_by_id (specs, entry.launcher_id);
-        ctx.post_install = load_prefix_post_install_spec (entry);
-        ctx.vars = build_launch_vars (ctx.pfx_path, entry, ctx.installer_spec, ctx.launcher, ctx.post_install);
+        var ctx = new ManifestContext ();
+        ctx.entry = entry;
+        ctx.pfx_path = PrefixPaths.from_entry (entry).wine_prefix;
+        var repository = Models.ManifestRepository.shared ();
+        ctx.installer_manifest = repository.require_installer (entry.installer_id);
+        var specs = launcher_manifests ?? repository.launchers;
+        ctx.launcher = Models.find_by_id<Models.LauncherManifest> (specs, entry.launcher_id);
+        ctx.post_installs = load_prefix_post_installs (entry);
+        ctx.arch = effective_wine_arch (entry);
+        ctx.vars = build_launch_vars (ctx.pfx_path, entry, ctx.installer_manifest, ctx.arch, ctx.launcher, ctx.post_installs);
         return ctx;
     }
 
-    public void resolve_launcher_exe (
-        Models.PrefixEntry entry,
-        Gee.ArrayList<Models.LauncherSpec> launcher_specs,
+    private void resolve_launcher_exe (
+        ManifestContext ctx,
         string entrypoint_id,
         out string exe,
         out string[] args
     ) throws Error {
         exe = "";
         args = {};
-
-        var ctx = make_spec_context (entry, launcher_specs);
+        var entry = ctx.entry;
 
         if (entrypoint_id != "") {
-            foreach (var custom_ep in entry.custom_entrypoints) {
-                if (custom_ep.id == entrypoint_id) {
-                    exe = Utils.resolve_user_path (custom_ep.exe, custom_ep.exe_portal);
-                    args = arraylist_to_strv (custom_ep.args);
+            var custom_ep = entry.custom_entrypoint (entrypoint_id);
+            if (custom_ep != null) {
+                apply_custom_entrypoint (custom_ep, out exe, out args);
+                return;
+            }
+
+            var profile_name = launcher_profile_name_from_entry_id (entrypoint_id);
+            if (profile_name != null
+                && ctx.launcher != null
+                && ctx.launcher.supports_feature (FEATURE_PROFILES)) {
+                var wep = find_entrypoint (ctx.launcher.entrypoints, "");
+                if (wep != null) {
+                    apply_entrypoint (wep, ctx.vars, out exe, out args);
+                    var wl = new Gee.ArrayList<string> ();
+                    foreach (var a in args) wl.add (a);
+                    wl.add ("-p");
+                    wl.add (profile_name.strip () == "" ? "Default" : profile_name);
+                    args = Utils.strv (wl);
                     return;
                 }
             }
 
-            var wname = windower_profile_name_from_entry_id (entrypoint_id);
-            if (wname != null && entry.launcher_id == "windower4") {
-                var wlauncher = find_launcher_by_id (launcher_specs, "windower4");
-                if (wlauncher != null) {
-                    var wvars = build_launch_vars (ctx.pfx_path, entry, ctx.installer_spec, wlauncher, null);
-                    var wep = find_entrypoint (wlauncher.entrypoints, "");
-                    if (wep != null) {
-                        apply_entrypoint (wep, wvars, out exe, out args);
-                        var wl = new Gee.ArrayList<string> ();
-                        foreach (var a in args) wl.add (a);
-                        wl.add ("-p");
-                        wl.add (wname.strip () == "" ? "Default" : wname);
-                        args = arraylist_to_strv (wl);
-                        return;
-                    }
-                }
-            }
-
-            var ep = find_launch_entrypoint (entry, ctx, entrypoint_id);
+            var ep = find_launch_entrypoint (ctx, entrypoint_id);
             if (ep != null) {
                 apply_entrypoint (ep, ctx.vars, out exe, out args);
                 return;
             }
+
+            throw new LumoriaError.NOT_FOUND (_("Launch target not found: %s").printf (entrypoint_id));
         }
 
         if (ctx.launcher != null) {
             var launcher_entrypoint = find_entrypoint (ctx.launcher.entrypoints, "");
             if (launcher_entrypoint == null) {
-                throw new IOError.FAILED (
-                    "Launcher '%s' has no default entrypoint", ctx.launcher.id
+                throw new LumoriaError.INVALID_MANIFEST (
+                    _("Launcher '%s' has no default entrypoint").printf (ctx.launcher.id)
                 );
             }
             apply_entrypoint (launcher_entrypoint, ctx.vars, out exe, out args);
@@ -191,7 +110,7 @@ namespace Lumoria.Runtime {
         }
 
         var installer_entrypoint = find_entrypoint (
-            ctx.installer_spec.entrypoints, ""
+            ctx.installer_manifest.entrypoints, ""
         );
         if (installer_entrypoint != null) {
             apply_entrypoint (installer_entrypoint, ctx.vars, out exe, out args);
@@ -199,268 +118,263 @@ namespace Lumoria.Runtime {
         }
 
         if (entry.custom_entrypoints.size > 0) {
-            var custom_entrypoint = entry.custom_entrypoints[0];
-            exe = Utils.resolve_user_path (
-                custom_entrypoint.exe, custom_entrypoint.exe_portal
-            );
-            args = arraylist_to_strv (custom_entrypoint.args);
+            apply_custom_entrypoint (entry.custom_entrypoints[0], out exe, out args);
             return;
         }
 
-        throw new IOError.FAILED (
-            "No default launch target is available. Configure an entrypoint or choose an executable."
+        throw new LumoriaError.NOT_FOUND (
+            _("No default launch target is available. Configure an entrypoint or choose an executable.")
         );
     }
 
+    private void apply_custom_entrypoint (Models.Entrypoint custom, out string exe, out string[] args) {
+        exe = Utils.resolve_user_path (custom.exe, custom.exe_portal);
+        args = Utils.strv (custom.args);
+    }
+
     public void apply_launch_env (
-        Models.PrefixEntry entry,
-        Gee.ArrayList<Models.LauncherSpec>? launcher_specs,
+        ManifestContext ctx,
         string entrypoint_id,
-        WineEnv env
-    ) throws Error {
-        var ctx = make_spec_context (entry, launcher_specs);
+        WineEnv env,
+        WinePaths? paths = null,
+        RuntimeLog? logger = null
+    ) {
+        finalize_manifest_vars (ctx.vars, paths, env, logger);
 
-        apply_env_rules (env, ctx.installer_spec.env, ctx.vars);
+        apply_env_rules (env, ctx.installer_manifest.env, ctx.vars);
         if (ctx.launcher != null) apply_env_rules (env, ctx.launcher.env, ctx.vars);
-        if (ctx.post_install != null) apply_env_rules (env, ctx.post_install.env, ctx.vars);
+        foreach (var loaded in ctx.post_installs) {
+            apply_env_rules (env, loaded.spec.env, ctx.vars);
+        }
 
-        if (entrypoint_id == "") return;
-        var ep = find_launch_entrypoint (entry, ctx, entrypoint_id);
+        var ep = find_launch_entrypoint (ctx, entrypoint_id);
         if (ep != null) apply_env_rules (env, ep.env, ctx.vars);
     }
 
-    public Models.Entrypoint? resolve_launch_entrypoint (
-        Models.PrefixEntry entry,
-        Gee.ArrayList<Models.LauncherSpec>? launcher_specs,
-        string entrypoint_id
-    ) throws Error {
-        if (entrypoint_id == "") return null;
-        var ctx = make_spec_context (entry, launcher_specs);
-        return find_launch_entrypoint (entry, ctx, entrypoint_id);
+    public string finalize_launch_text (
+        string? text,
+        WinePaths paths,
+        WineEnv env,
+        RuntimeLog logger
+    ) {
+        if (text == null || !text.contains ("${winepath:")) return text ?? "";
+        var vars = new Gee.HashMap<string, string> ();
+        vars["__launch"] = text;
+        finalize_manifest_vars (vars, paths, env, logger);
+        return vars["__launch"];
     }
 
-    private Models.Entrypoint? find_launch_entrypoint (
-        Models.PrefixEntry entry,
-        SpecContext ctx,
-        string entrypoint_id
-    ) {
-        foreach (var ep in entry.custom_entrypoints) {
-            if (ep.id == entrypoint_id) return ep;
+    private Models.Entrypoint? find_launch_entrypoint (ManifestContext ctx, string entrypoint_id) {
+        if (entrypoint_id == "") return null;
+        var custom = ctx.entry.custom_entrypoint (entrypoint_id);
+        if (custom != null) return custom;
+        var ep = find_active_entrypoint (ctx.installer_manifest.entrypoints, entrypoint_id, ctx.vars);
+        if (ep == null && ctx.launcher != null) {
+            ep = find_active_entrypoint (ctx.launcher.entrypoints, entrypoint_id, ctx.vars);
         }
-        foreach (var ep in ctx.installer_spec.entrypoints) {
-            if (ep.id == entrypoint_id && (ep.when == null || ep.when.evaluate (ctx.vars))) return ep;
-        }
-        if (ctx.launcher != null) {
-            foreach (var ep in ctx.launcher.entrypoints) {
-                if (ep.id == entrypoint_id && (ep.when == null || ep.when.evaluate (ctx.vars))) return ep;
-            }
-        }
-        if (ctx.post_install != null) {
-            foreach (var ep in ctx.post_install.entrypoints) {
-                if (ep.id == entrypoint_id && (ep.when == null || ep.when.evaluate (ctx.vars))) return ep;
-            }
+        if (ep != null) return ep;
+
+        string script_instance;
+        string script_local;
+        var scoped = Models.PrefixAction.parse_script_id (entrypoint_id, out script_instance, out script_local);
+        foreach (var loaded in ctx.post_installs) {
+            if (scoped && loaded.metadata.id != script_instance) continue;
+            ep = find_active_entrypoint (loaded.spec.entrypoints, scoped ? script_local : entrypoint_id, ctx.vars);
+            if (ep != null) return ep;
         }
         return null;
     }
 
-    public Gee.ArrayList<Models.Entrypoint> list_entrypoints (
-        Models.PrefixEntry entry,
-        Gee.ArrayList<Models.LauncherSpec> launcher_specs
-    ) throws Error {
-        return list_entrypoints_with_custom (entry, launcher_specs, entry.custom_entrypoints);
+    /* The entrypoint with id whose when clause holds for vars. */
+    private Models.Entrypoint? find_active_entrypoint (
+        Gee.ArrayList<Models.Entrypoint> eps,
+        string id,
+        Gee.HashMap<string, string> vars
+    ) {
+        foreach (var ep in eps) {
+            if (ep.id == id && (ep.when == null || ep.when.evaluate (vars))) return ep;
+        }
+        return null;
     }
 
-    public Gee.ArrayList<Models.Entrypoint> list_entrypoints_with_custom (
-        Models.PrefixEntry entry,
-        Gee.ArrayList<Models.LauncherSpec> launcher_specs,
+    internal Gee.ArrayList<Models.Entrypoint> entrypoints_from_context (
+        ManifestContext ctx,
         Gee.ArrayList<Models.Entrypoint> custom_list
-    ) throws Error {
+    ) {
         var all = new Gee.ArrayList<Models.Entrypoint> ();
-        var ctx = make_spec_context (entry, launcher_specs);
-        var base_vars = build_launch_vars (ctx.pfx_path, entry, ctx.installer_spec, ctx.launcher, null);
-
-        expand_entrypoints (all, ctx.installer_spec.entrypoints, base_vars);
-        if (ctx.launcher != null) expand_entrypoints (all, ctx.launcher.entrypoints, base_vars);
-        if (ctx.post_install != null) expand_entrypoints (all, ctx.post_install.entrypoints, ctx.vars);
-
-        foreach (var ep in custom_list) all.add (ep);
-
+        expand_entrypoints (all, ctx.installer_manifest.entrypoints, ctx.vars);
+        if (ctx.launcher != null) expand_entrypoints (all, ctx.launcher.entrypoints, ctx.vars);
+        foreach (var loaded in ctx.post_installs) {
+            expand_entrypoints (all, loaded.spec.entrypoints, ctx.vars, loaded.metadata.id);
+        }
+        all.add_all (custom_list);
         return all;
     }
 
-    public Gee.ArrayList<LaunchTarget> list_launch_targets (
+    public string launcher_dir (
         Models.PrefixEntry entry,
-        Gee.ArrayList<Models.LauncherSpec> launcher_specs,
-        Gee.ArrayList<Models.Entrypoint>? custom_list = null,
-        Gee.ArrayList<string>? warnings = null
-    ) throws Error {
-        var targets = new Gee.ArrayList<LaunchTarget> ();
-        var entrypoints = list_entrypoints_with_custom (
-            entry,
-            launcher_specs,
-            custom_list ?? entry.custom_entrypoints
-        );
-        foreach (var ep in entrypoints) {
-            var target = new LaunchTarget ();
-            target.id = ep.id;
-            target.label = ep.display_label ();
-            target.selector_label = target.label;
-            target.section = LaunchTargetSection.MAIN;
-            targets.add (target);
+        Gee.ArrayList<Models.LauncherManifest> launcher_manifests
+    ) {
+        try {
+            return launcher_dir_from_context (make_manifest_context (entry, launcher_manifests));
+        } catch (Error e) {
+            warning ("Failed to resolve launcher directory for %s: %s", entry.id, e.message);
+            return "";
         }
-
-        foreach (var ep in list_windower_profile_entrypoints (entry)) {
-            var target = new LaunchTarget ();
-            target.id = ep.id;
-            target.label = ep.display_label ();
-            target.selector_label = _("Windower - Profile (%s)").printf (target.label);
-            target.section = LaunchTargetSection.WINDOWER_PROFILES;
-            targets.add (target);
-        }
-
-        foreach (var action in list_spec_actions (entry, launcher_specs, warnings)) {
-            var target = new LaunchTarget ();
-            target.id = action.id;
-            target.label = action.display_label ();
-            target.selector_label = target.label;
-            target.description = action.description;
-            target.icon = action.icon;
-            target.section = LaunchTargetSection.ACTIONS;
-            target.is_action = true;
-            targets.add (target);
-        }
-
-        return targets;
     }
 
-    public Gee.ArrayList<Models.SpecAction> list_spec_actions (
-        Models.PrefixEntry entry,
-        Gee.ArrayList<Models.LauncherSpec> launcher_specs,
-        Gee.ArrayList<string>? warnings = null
-    ) throws Error {
-        var actions = new Gee.ArrayList<Models.SpecAction> ();
+    public string launcher_dir_from_context (ManifestContext ctx) {
+        if (ctx.launcher == null) return "";
+        var ep = find_entrypoint (ctx.launcher.entrypoints, "");
+        if (ep == null || ep.exe == "") return "";
+        string exe;
+        string[] args;
+        apply_entrypoint (ep, ctx.vars, out exe, out args);
+        if (exe.strip () == "") return "";
+        return Path.get_dirname (resolve_host_path (exe, ctx.pfx_path));
+    }
+
+    internal Models.Entrypoint? find_local_entrypoint (
+        string id,
+        Models.LauncherManifest? launcher,
+        Models.InstallerManifest? installer,
+        Gee.ArrayList<Models.Entrypoint> custom,
+        Models.PrefixEntry? entry = null
+    ) {
+        if (id == "") return null;
+        var ep = launcher != null ? Models.find_by_id<Models.Entrypoint> (launcher.entrypoints, id) : null;
+        ep = ep ?? (installer != null ? Models.find_by_id<Models.Entrypoint> (installer.entrypoints, id) : null);
+        ep = ep ?? Models.find_by_id<Models.Entrypoint> (custom, id);
+        if (ep != null || entry == null) return ep;
+        string script_instance;
+        string script_local;
+        var script = Models.PrefixAction.parse_script_id (id, out script_instance, out script_local);
+        foreach (var loaded in load_prefix_post_installs (entry)) {
+            if (script && loaded.metadata.id != script_instance) continue;
+            ep = Models.find_by_id<Models.Entrypoint> (loaded.spec.entrypoints, script ? script_local : id);
+            if (ep != null) return ep;
+        }
+        return null;
+    }
+
+    internal LaunchTarget launch_target_from_entrypoint (
+        Models.Entrypoint ep,
+        Models.LauncherManifest? launcher
+    ) {
+        var target = new LaunchTarget ();
+        target.id = ep.id;
+        target.label = ep.display_label ();
+        target.selector_label = target.label;
+        if (ep.icon != "") target.icon = ep.icon;
+        if (Models.PrefixEntry.is_custom_entry_id (ep.id)) {
+            target.section = LaunchTargetSection.CUSTOM;
+        } else if (is_launcher_target_id (launcher, ep.id)) {
+            target.section = LaunchTargetSection.LAUNCHER;
+            if (target.icon == "" && launcher != null && launcher.icon != "") target.icon = launcher.icon;
+        } else {
+            target.section = LaunchTargetSection.LAUNCH;
+        }
+        return target;
+    }
+
+    internal LaunchTarget launch_target_from_profile (
+        string id,
+        string profile_name,
+        Models.LauncherManifest launcher
+    ) {
+        var target = new LaunchTarget ();
+        target.id = id;
+        target.label = launcher_profile_display_label (profile_name);
+        target.selector_label = _("Profile (%s)").printf (target.label);
+        target.section = LaunchTargetSection.LAUNCHER_PROFILES;
+        if (launcher.icon != "") target.icon = launcher.icon;
+        return target;
+    }
+
+    internal bool is_launcher_target_id (Models.LauncherManifest? launcher, string id) {
+        if (launcher == null || id == "") return false;
+        foreach (var ep in launcher.entrypoints) {
+            if (ep.id == id) return true;
+        }
+        foreach (var action in launcher.actions) {
+            if (action.id == id) return true;
+        }
+        return false;
+    }
+
+    internal string post_install_group_title (Models.PrefixEntry entry, string instance_id) {
+        foreach (var spec in entry.post_install_manifests) {
+            if (spec.id != instance_id) continue;
+            return spec.name != "" ? spec.name : spec.manifest_id;
+        }
+        return _("Scripts");
+    }
+
+    internal Gee.ArrayList<Models.ManifestAction> actions_from_context (
+        ManifestContext ctx,
+        Gee.ArrayList<string>? warnings,
+        bool allow_network
+    ) {
+        var actions = new Gee.ArrayList<Models.ManifestAction> ();
         var seen = new Gee.HashSet<string> ();
 
-        var installer = Models.SpecRepository.shared ().require_installer (
-            entry.installer_id
+        append_unique_actions (actions, seen, ctx.installer_manifest.actions);
+        if (ctx.launcher != null) {
+            append_unique_actions (actions, seen, ctx.launcher.actions);
+        }
+        foreach (var loaded in ctx.post_installs) {
+            append_script_actions (actions, seen, loaded);
+        }
+
+        expand_remote_manifest_actions (
+            ctx.installer_manifest, seen, actions, ctx.vars, warnings, allow_network
         );
-        append_unique_actions (actions, seen, installer.actions);
-
-        Models.LauncherSpec? launcher = null;
-        if (entry.launcher_id != "") {
-            launcher = find_launcher_by_id (launcher_specs, entry.launcher_id);
-            if (launcher != null) {
-                append_unique_actions (actions, seen, launcher.actions);
-            }
+        if (ctx.launcher != null) {
+            expand_remote_manifest_actions (ctx.launcher, seen, actions, ctx.vars, warnings, allow_network);
         }
-
-        var post_install = load_prefix_post_install_spec (entry);
-        if (post_install != null) {
-            append_unique_actions (actions, seen, post_install.actions);
-        }
-
-        var pfx_path = install_prefix_path (entry.resolved_path ());
-        var vars = build_launch_vars (pfx_path, entry, installer, launcher, post_install);
-
-        expand_remote_manifest_actions (installer, seen, actions, vars, warnings);
-        if (launcher != null) {
-            expand_remote_manifest_actions (launcher, seen, actions, vars, warnings);
-        }
-        if (post_install != null) {
-            expand_remote_manifest_actions (post_install, seen, actions, vars, warnings);
+        foreach (var loaded in ctx.post_installs) {
+            expand_remote_manifest_actions (
+                loaded.spec, seen, actions, ctx.vars, warnings, allow_network, loaded.metadata.id
+            );
         }
 
         return actions;
     }
 
-    private void expand_remote_manifest_actions (
-        Models.InstallableSpec spec,
-        Gee.HashSet<string> seen,
-        Gee.ArrayList<Models.SpecAction> actions,
-        Gee.HashMap<string, string> vars,
-        Gee.ArrayList<string>? warnings
+    internal Models.ManifestAction? find_manifest_action_in_context (
+        ManifestContext ctx,
+        string action_id
     ) {
-        if (spec.remote_manifest_actions.size == 0) return;
-
-        var dl_dir = Path.build_filename (Utils.cache_dir (), "remote-manifests", "downloads");
-
-        foreach (var tmpl in spec.remote_manifest_actions) {
-            var manifest_url = Utils.expand_vars (tmpl.manifest_url, vars);
-            if (manifest_url == "" || tmpl.manifest_schema == null) continue;
-
-            var url_hash = Checksum.compute_for_string (ChecksumType.SHA256, manifest_url).substring (0, 16);
-            var cache_path = Path.build_filename (
-                Utils.cache_dir (), "remote-manifests",
-                url_hash + ".json"
-            );
-
-            Gee.ArrayList<Utils.RemoteManifestFile> files;
-            try {
-                files = Utils.fetch_remote_manifest_sync (manifest_url, tmpl.manifest_schema, cache_path, vars);
-            } catch (Error e) {
-                var msg = _("Remote manifest unavailable (%s): %s").printf (manifest_url, e.message);
-                warning (msg);
-                if (warnings != null) warnings.add (msg);
-                continue;
-            }
-
-            foreach (var file in files) {
-                var action_id = Models.expand_manifest_template (tmpl.id_template, file.item_fields, vars);
-                if (action_id == "" || seen.contains (action_id)) continue;
-
-                var dl = new Models.DownloadItem ();
-                dl.id = action_id;
-                dl.url = file.download_url;
-                dl.dest = Path.build_filename (dl_dir, url_hash, file.filename);
-                dl.sha256 = file.checksum;
-                dl.checksum_algorithm = file.checksum_algorithm;
-
-                var step = new Models.InstallStep ();
-                step.step_type = "extract";
-                step.src = dl.dest;
-                step.dst = tmpl.dst;
-
-                var action = new Models.SpecAction ();
-                action.id = action_id;
-                action.name = Models.expand_manifest_template (tmpl.name_template, file.item_fields, vars);
-                action.description = Models.expand_manifest_template (tmpl.description, file.item_fields, vars);
-                action.icon = tmpl.icon;
-                action.downloads.add (dl);
-                action.steps.add (step);
-
-                actions.add (action);
-                seen.add (action_id);
-            }
+        foreach (var action in actions_from_context (ctx, null, true)) {
+            if (action.id == action_id) return action;
         }
-    }
-
-    public Models.PostInstallSpec? load_prefix_post_install_spec (Models.PrefixEntry entry) {
-        var metadata = entry.post_install_spec;
-        if (metadata == null) return null;
-
-        if (metadata.backup_path != "" && FileUtils.test (metadata.backup_path, FileTest.EXISTS)) {
-            try {
-                return Models.PostInstallSpec.load_from_file (metadata.backup_path);
-            } catch (Error e) {
-                warning ("Failed to load backed up post install spec: %s", e.message);
-            }
-        }
-
-        if (metadata.original_path != "" && FileUtils.test (metadata.original_path, FileTest.EXISTS)) {
-            try {
-                return Models.PostInstallSpec.load_from_file (metadata.original_path);
-            } catch (Error e) {
-                warning ("Failed to load original post install spec: %s", e.message);
-            }
-        }
-
         return null;
     }
 
-    private void append_unique_actions (
-        Gee.ArrayList<Models.SpecAction> target,
+    private void append_script_actions (
+        Gee.ArrayList<Models.ManifestAction> target,
         Gee.HashSet<string> seen,
-        Gee.ArrayList<Models.SpecAction> source
+        Models.LoadedPostInstall loaded
+    ) {
+        foreach (var action in loaded.spec.actions) {
+            if (action.id == "") continue;
+            var remapped = action.copy (
+                Models.PrefixAction.compose_id (
+                    Models.PrefixActionProvider.POST_INSTALL_SCRIPT,
+                    loaded.metadata.id,
+                    action.id
+                )
+            );
+            if (seen.contains (remapped.id)) continue;
+            target.add (remapped);
+            seen.add (remapped.id);
+        }
+    }
+
+    private void append_unique_actions (
+        Gee.ArrayList<Models.ManifestAction> target,
+        Gee.HashSet<string> seen,
+        Gee.ArrayList<Models.ManifestAction> source
     ) {
         foreach (var action in source) {
             if (action.id == "" || seen.contains (action.id)) continue;
@@ -469,130 +383,116 @@ namespace Lumoria.Runtime {
         }
     }
 
-    public string resolve_host_path (string exe, string pfx_path) {
-        var lower = exe.down ();
-        if (lower.has_prefix ("c:\\") || lower.has_prefix ("c:")) {
-            var rest = exe.substring (2);
-            if (rest.has_prefix ("\\") || rest.has_prefix ("/")) rest = rest.substring (1);
-            return Path.build_filename (pfx_path, "drive_c", rest.replace ("\\", "/"));
-        }
-        if (Path.is_absolute (exe)) return exe;
-        return Path.build_filename (pfx_path, exe.replace ("\\", "/"));
-    }
-
-    public string to_wine_path (string pfx_path, string host_exe) {
-        var drive_c = Path.build_filename (pfx_path, "drive_c");
-        if (host_exe.has_prefix (drive_c + "/")) {
-            var rel = host_exe.substring (drive_c.length + 1);
-            return "C:\\" + rel.replace ("/", "\\");
-        }
-        return "Z:" + host_exe.replace ("/", "\\");
-    }
-
-    public string resolve_effective_entrypoint_id (
+    public string resolve_default_entrypoint_id (
         Models.PrefixEntry entry,
-        Gee.ArrayList<Models.LauncherSpec> launcher_specs
-    ) throws Error {
-        if (entry.launch_entrypoint_id != "") {
-            return entry.launch_entrypoint_id;
+        Gee.ArrayList<Models.LauncherManifest> launcher_manifests
+    ) {
+        try {
+            return resolve_effective_entrypoint_id (make_manifest_context (entry, launcher_manifests));
+        } catch (Error e) {
+            warning ("Failed to resolve default entrypoint for %s: %s", entry.id, e.message);
+            return fallback_entrypoint_id (entry, launcher_manifests);
         }
+    }
 
-        var installer_spec = Models.SpecRepository.shared ().require_installer (
-            entry.installer_id
-        );
-        if (entry.launcher_id != ""
-            && installer_spec.supports_launcher (entry.launcher_id)) {
-            var launcher = find_launcher_by_id (launcher_specs, entry.launcher_id);
-            if (launcher != null) {
-                var ep = find_entrypoint (launcher.entrypoints, "");
-                if (ep != null) return ep.id;
+    private string resolve_effective_entrypoint_id (ManifestContext ctx) {
+        var entry = ctx.entry;
+        if (entry.launch_entrypoint_id != "") {
+            if (launcher_profile_name_from_entry_id (entry.launch_entrypoint_id) != null
+                && ctx.launcher != null
+                && ctx.launcher.supports_feature (FEATURE_PROFILES)) {
+                return entry.launch_entrypoint_id;
+            }
+            if (find_launch_entrypoint (ctx, entry.launch_entrypoint_id) != null) {
+                return entry.launch_entrypoint_id;
             }
         }
+        return fallback_entrypoint_id (entry, null, ctx);
+    }
 
-        var ep = find_entrypoint (installer_spec.entrypoints, "");
-        if (ep != null) return ep.id;
-
+    private string fallback_entrypoint_id (
+        Models.PrefixEntry entry,
+        Gee.ArrayList<Models.LauncherManifest>? launcher_manifests,
+        ManifestContext? ctx = null
+    ) {
+        var launcher = ctx != null
+            ? ctx.launcher
+            : Models.find_by_id<Models.LauncherManifest> (launcher_manifests, entry.launcher_id);
+        if (launcher != null) {
+            var launcher_ep = find_entrypoint (launcher.entrypoints, "");
+            if (launcher_ep != null) return launcher_ep.id;
+        }
+        var installer = ctx != null
+            ? ctx.installer_manifest
+            : Models.ManifestRepository.shared ().installer (entry.installer_id);
+        if (installer != null) {
+            var ep = find_entrypoint (installer.entrypoints, "");
+            if (ep != null) return ep.id;
+        }
         if (entry.custom_entrypoints.size > 0) {
             return entry.custom_entrypoints[0].id;
         }
-
         return "";
     }
 
-    private Gee.HashMap<string, string> build_launch_vars (
-        string pfx_path,
+    public Gee.HashMap<string, string> message_vars_for_prefix (
         Models.PrefixEntry entry,
-        Models.InstallerSpec installer_spec,
-        Models.LauncherSpec? launcher,
-        Models.PostInstallSpec? post_install
+        Gee.ArrayList<Models.LauncherManifest>? launcher_manifests = null
+    ) {
+        try {
+            return make_manifest_context (entry, launcher_manifests).vars;
+        } catch (Error e) {
+            warning ("Failed to build message variables for %s: %s", entry.id, e.message);
+            return new Gee.HashMap<string, string> ();
+        }
+    }
+
+    public Gee.HashMap<string, string> message_vars_for_draft (
+        Models.InstallerManifest? installer,
+        Models.LauncherManifest? launcher,
+        string region = ""
     ) {
         var vars = new Gee.HashMap<string, string> ();
-        vars["PREFIX"] = pfx_path;
-        vars["WINDOWS"] = Path.build_filename (pfx_path, "drive_c", "windows");
-        vars["SYSTEM32"] = Path.build_filename (pfx_path, "drive_c", "windows", "system32");
-        vars["SYSWOW64"] = Path.build_filename (pfx_path, "drive_c", "windows", "syswow64");
-        vars["FONTS"] = Path.build_filename (pfx_path, "drive_c", "windows", "Fonts");
-        var arch = resolve_effective_wine_arch (entry);
-        vars["ARCH"] = arch;
-        merge_vars (vars, installer_spec.variables);
-        apply_launch_variable_rules (vars, installer_spec.variable_rules);
+        set_arch_vars (vars, "win64");
+        if (installer != null) {
+            merge_vars (vars, installer.variables);
+            apply_variable_rules (vars, installer.variable_rules);
+        }
         if (launcher != null) {
             merge_vars (vars, launcher.variables);
-            apply_launch_variable_rules (vars, launcher.variable_rules);
+            apply_variable_rules (vars, launcher.variable_rules);
         }
-        if (post_install != null) merge_vars (vars, post_install.variables);
-        resolve_prefix_launch_vars (vars, entry);
-        Utils.resolve_var_references (vars);
+        var draft = new Models.PrefixEntry ();
+        draft.region = region;
+        draft.launcher_id = launcher != null ? launcher.id : "";
+        draft.installer_id = installer != null ? installer.id : "";
+        resolve_prefix_vars (vars, draft);
+        finalize_manifest_vars (vars);
         return vars;
     }
 
-    private void apply_launch_variable_rules (
-        Gee.HashMap<string, string> vars,
-        Gee.ArrayList<Models.EnvRule> rules
+    public Gee.HashMap<string, string> build_launch_vars (
+        string pfx_path,
+        Models.PrefixEntry entry,
+        Models.InstallerManifest installer_manifest,
+        string arch,
+        Models.LauncherManifest? launcher = null,
+        Gee.ArrayList<Models.LoadedPostInstall>? post_installs = null
     ) {
-        foreach (var rule in rules) {
-            if (rule.when != null && !rule.when.evaluate (vars)) continue;
-            foreach (var entry in rule.vars.entries) {
-                vars[entry.key] = Utils.expand_vars (entry.value, vars);
-            }
+        var vars = new Gee.HashMap<string, string> ();
+        seed_manifest_vars (vars, pfx_path, installer_manifest);
+        set_arch_vars (vars, arch);
+        apply_variable_rules (vars, installer_manifest.variable_rules);
+        if (launcher != null) {
+            merge_vars (vars, launcher.variables);
+            apply_variable_rules (vars, launcher.variable_rules);
         }
-    }
-
-    private void resolve_prefix_launch_vars (Gee.HashMap<string, string> vars, Models.PrefixEntry entry) {
-        var keys = new Gee.ArrayList<string> ();
-        foreach (var k in vars.keys) keys.add (k);
-        foreach (var k in keys) {
-            var raw = vars[k];
-            if (!raw.has_prefix ("${prefix.") || !raw.has_suffix ("}")) continue;
-            var field = raw.substring (9, raw.length - 10);
-            string? resolved = null;
-            switch (field) {
-                case "region":         resolved = entry.region; break;
-                case "wine_arch":      resolved = entry.wine_arch; break;
-                case "runner_id":      resolved = entry.runner_id; break;
-                case "variant_id":     resolved = entry.variant_id; break;
-                case "launcher_id":    resolved = entry.launcher_id; break;
-                case "sync_mode":      resolved = entry.sync_mode; break;
-                default: break;
-            }
-            if (resolved != null) vars[k] = resolved;
+        if (post_installs != null) {
+            foreach (var loaded in post_installs) merge_vars (vars, loaded.spec.variables);
         }
-    }
-
-    private void merge_vars (Gee.HashMap<string, string> dst, Gee.HashMap<string, string> src) {
-        foreach (var e in src.entries) {
-            dst[e.key] = e.value;
-        }
-    }
-
-    private Models.LauncherSpec? find_launcher_by_id (
-        Gee.ArrayList<Models.LauncherSpec> specs,
-        string id
-    ) {
-        foreach (var spec in specs) {
-            if (spec.id == id) return spec;
-        }
-        return null;
+        resolve_prefix_vars (vars, entry);
+        finalize_manifest_vars (vars);
+        return vars;
     }
 
     private void apply_entrypoint (
@@ -612,44 +512,33 @@ namespace Lumoria.Runtime {
     private void expand_entrypoints (
         Gee.ArrayList<Models.Entrypoint> target,
         Gee.ArrayList<Models.Entrypoint> source,
-        Gee.HashMap<string, string> vars
+        Gee.HashMap<string, string> vars,
+        string script_instance_id = ""
     ) {
         foreach (var ep in source) {
             if (ep.when != null && !ep.when.evaluate (vars)) continue;
-            var copy = new Models.Entrypoint ();
-            copy.id = ep.id;
-            copy.name = ep.name;
-            copy.label = ep.label;
+            var copy = ep.copy ();
+            if (script_instance_id != "") {
+                copy.id = Models.PrefixAction.compose_id (
+                    Models.PrefixActionProvider.POST_INSTALL_SCRIPT,
+                    script_instance_id,
+                    ep.id
+                );
+            }
             copy.exe = Utils.expand_vars (ep.exe, vars);
-            copy.is_default = ep.is_default;
-            copy.prelaunch_script = ep.prelaunch_script;
-            copy.prelaunch_script_portal = ep.prelaunch_script_portal;
-            copy.exe_portal = ep.exe_portal;
-            copy.args = new Gee.ArrayList<string> ();
-            copy.args.add_all (ep.args);
+            copy.name = Utils.expand_vars (ep.name, vars);
+            copy.label = Utils.expand_vars (ep.label, vars);
+            copy.icon = Utils.expand_vars (ep.icon, vars);
             target.add (copy);
         }
     }
 
-    private string[] arraylist_to_strv (Gee.ArrayList<string> list) {
-        var result = new string[list.size];
-        for (int i = 0; i < list.size; i++) {
-            result[i] = list[i];
-        }
-        return result;
-    }
-
     private Models.Entrypoint? find_entrypoint (Gee.ArrayList<Models.Entrypoint> eps, string id) {
-        if (id != "") {
-            foreach (var ep in eps) {
-                if (ep.id == id) return ep;
-            }
-        }
+        var matched = Models.find_by_id<Models.Entrypoint> (eps, id);
+        if (matched != null) return matched;
         foreach (var ep in eps) {
             if (ep.is_default) return ep;
         }
-        if (eps.size > 0) return eps[0];
-        return null;
+        return eps.size > 0 ? eps[0] : null;
     }
-
 }

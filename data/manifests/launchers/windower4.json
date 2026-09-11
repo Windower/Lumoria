@@ -1,0 +1,53 @@
+{
+  "$schema": "https://manifests.lumoria.dev/1/schemas/launcher.json",
+  "id": "windower4",
+  "name": "Windower 4",
+  "default": true,
+  "recommended": true,
+  "icon": "windower-app",
+  "features": ["profiles"],
+  "variables": {
+    "WINDOWER": "drive_c/Windower4",
+    "BRAND": "#339933"
+  },
+  "links": {
+    "website": "https://www.windower.net/",
+    "docs": "https://docs.windower.net/",
+    "help": "https://discord.gg/aUrHCvk"
+  },
+  "messages": {
+    "new-prefix": [
+      {
+        "style": "info",
+        "body": "Windower is a third-party program for Final Fantasy XI that offers many enhancements to the game. You can install plugins, write Lua scripts, and customize the interface to fit how you play."
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "id": "windower",
+      "name": "Windower",
+      "exe": "${var.WINDOWER}/Windower.exe",
+      "args": [],
+      "default": true
+    }
+  ],
+  "downloads": [
+    {
+      "id": "windower4",
+      "url": "https://update.windower.net/live/Windower.exe",
+      "dest": "${var.CACHE}/windower/Windower.exe"
+    }
+  ],
+  "redists": [
+    "dotnet48"
+  ],
+  "steps": [
+    {
+      "type": "copy",
+      "description": "Install Windower 4",
+      "src": "${var.CACHE}/windower/Windower.exe",
+      "dst": "${var.PREFIX}/${var.WINDOWER}"
+    }
+  ]
+}

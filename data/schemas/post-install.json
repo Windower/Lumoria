@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://manifests.lumoria.dev/1/schemas/post-install.json",
+  "title": "Lumoria post-install manifest",
+  "allOf": [
+    { "$ref": "installable.json" }
+  ],
+  "unevaluatedProperties": true
+}

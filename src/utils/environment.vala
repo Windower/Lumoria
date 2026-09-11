@@ -46,5 +46,36 @@ namespace Lumoria.Utils {
             var display = Environment.get_variable ("DISPLAY");
             return display != null && display.strip () != "";
         }
+
+        public static string host_etc_path (string name) {
+            var host = Path.build_filename ("/run/host/etc", name);
+            if (is_flatpak () && FileUtils.test (host, FileTest.EXISTS)) return host;
+            return Path.build_filename ("/etc", name);
+        }
+    }
+
+    public delegate string KeyValueTransform (string value);
+
+    public static string? key_value_file_value (
+        string path,
+        string key,
+        KeyValueTransform? transform = null
+    ) {
+        string content;
+        try {
+            FileUtils.get_contents (path, out content);
+        } catch (Error e) {
+            return null;
+        }
+        foreach (var line in content.split ("\n")) {
+            var trimmed = line.strip ();
+            if (trimmed == "" || trimmed.has_prefix ("#")) continue;
+            var eq = trimmed.index_of_char ('=');
+            if (eq <= 0) continue;
+            if (trimmed.substring (0, eq) != key) continue;
+            var raw = trimmed.substring (eq + 1);
+            return transform != null ? transform (raw) : raw.strip ();
+        }
+        return null;
     }
 }

@@ -10,4 +10,10 @@ namespace Config {
     public const string LOCALE_DIR;
     [CCode (cname = "RESOURCE_BASE")]
     public const string RESOURCE_BASE;
+    [CCode (cname = "MANIFEST_FORMAT_VERSION")]
+    public const int MANIFEST_FORMAT_VERSION;
+    [CCode (cname = "CONFIG_FORMAT_VERSION")]
+    public const int CONFIG_FORMAT_VERSION;
+    [CCode (cname = "MANIFEST_BASE_URL")]
+    public const string MANIFEST_BASE_URL;
 }

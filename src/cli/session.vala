@@ -1,8 +1,6 @@
 namespace Lumoria.Cli {
 
     private const int SESSION_IDLE_TIMEOUT_SECS = 30;
-    private const int SESSION_WRAP_ENV_FD = 3;
-    private const int SESSION_FD_SCAN_LIMIT = 1024;
     private const int STOP_DESCENDANT_WAIT_MS = 5000;
     private const int STOP_DESCENDANT_KILL_WAIT_MS = 1000;
     private const int STOP_WRAP_WAIT_MS = 500;
@@ -36,15 +34,7 @@ namespace Lumoria.Cli {
         if (names.size == 0) {
             names = Utils.ProcessTree.direct_child_process_names (wrap_pid);
         }
-        return session_process_names_to_array (names);
-    }
-
-    private string[] session_process_names_to_array (Gee.ArrayList<string> names) {
-        var result = new string[names.size];
-        for (var i = 0; i < names.size; i++) {
-            result[i] = names[i];
-        }
-        return result;
+        return Utils.strv (names);
     }
 
     private string session_format_process_label (string[] processes) {
@@ -54,7 +44,7 @@ namespace Lumoria.Cli {
             if (label.len > 0) label.append (", ");
             label.append (process);
         }
-        return label.len > 0 ? label.str : "Starting…";
+        return label.len > 0 ? label.str : _("Starting...");
     }
 
     private SessionLaunchInfo session_launch_info_from_processes (int wrap_pid, string prefix_id, string log_path) {
@@ -90,23 +80,36 @@ namespace Lumoria.Cli {
         private MainLoop main_loop;
         private SocketService socket_service;
         private string socket_path;
+        private string token_path;
+        private string token = "";
         private uint idle_source_id = 0;
         private bool exit_when_empty = false;
+        private int lock_fd = -1;
 
         public SessionManagerService (MainLoop loop, string socket_path) {
             this.main_loop = loop;
             this.socket_path = socket_path;
+            this.token_path = session_token_path ();
             this.launches = new Gee.HashMap<int, LaunchState> ();
             this.socket_service = new SocketService ();
             schedule_idle_exit ();
         }
 
         public void start () throws Error {
-            var socket_file = File.new_for_path (socket_path);
-            var socket_dir = socket_file.get_parent ();
-            if (socket_dir != null) {
-                Utils.ensure_dir (socket_dir.get_path ());
+            var socket_dir = Path.get_dirname (socket_path);
+            Utils.ensure_private_dir (socket_dir);
+            try {
+                lock_fd = Utils.acquire_exclusive_lock (Utils.session_lock_path ());
+            } catch (IOError.EXISTS e) {
+                if (session_ping ()) {
+                    throw new IOError.EXISTS ("session manager already running");
+                }
+                throw new IOError.FAILED ("session manager lock is held but the socket is not ready");
             }
+            FileUtils.unlink (socket_path);
+
+            token = session_mint_token ();
+            Utils.write_text_atomic (token_path, token + "\n", 0600);
 
             var address = new UnixSocketAddress (socket_path);
             socket_service.add_address (
@@ -121,6 +124,12 @@ namespace Lumoria.Cli {
                 return true;
             });
             socket_service.start ();
+            if (FileUtils.chmod (socket_path, 0600) != 0) {
+                throw new IOError.FAILED (
+                    "Failed to restrict session socket: %s",
+                    Posix.strerror (Posix.errno)
+                );
+            }
             stderr.printf ("lumoria session-manager: socket ready at %s\n", socket_path);
             session_log ("socket ready at %s".printf (socket_path));
         }
@@ -128,6 +137,11 @@ namespace Lumoria.Cli {
         public void stop_service () {
             socket_service.stop ();
             FileUtils.unlink (socket_path);
+            FileUtils.unlink (token_path);
+            if (lock_fd >= 0) {
+                Posix.close (lock_fd);
+                lock_fd = -1;
+            }
         }
 
         public uint launch (
@@ -138,7 +152,6 @@ namespace Lumoria.Cli {
             string cwd,
             string[] argv
         ) throws GLib.IOError {
-            var self_exe = Utils.current_executable_path () ?? "lumoria";
             session_log ("launch request prefix=%s cwd=%s log=%s argv=%s".printf (
                 prefix_id,
                 cwd != "" ? cwd : "(default)",
@@ -146,67 +159,27 @@ namespace Lumoria.Cli {
                 string.joinv (" ", argv)
             ));
 
-            var wrapped = new Gee.ArrayList<string> ();
-            wrapped.add (self_exe);
-            wrapped.add ("wrap");
-            wrapped.add ("--log");
-            wrapped.add (log_path);
-            wrapped.add ("--env-fd");
-            wrapped.add (SESSION_WRAP_ENV_FD.to_string ());
-            if (cwd != "") {
-                wrapped.add ("--cwd");
-                wrapped.add (cwd);
-            }
-            wrapped.add ("--");
-            foreach (var arg in argv) wrapped.add (arg);
-            var wrapped_strv = Utils.arraylist_to_strv (wrapped);
-
-            var env_payload = string.joinv ("\n", env);
-            var env_pipe = new int[2];
-            if (Posix.pipe (env_pipe) != 0) {
-                throw new GLib.IOError.FAILED ("Failed to create environment pipe: %s",
-                    Posix.strerror (Posix.errno));
-            }
-
-            var child_pid = Posix.fork ();
-            if (child_pid < 0) {
-                Posix.close (env_pipe[0]);
-                Posix.close (env_pipe[1]);
-                session_log ("launch fork failed prefix=%s error=%s".printf (
-                    prefix_id,
-                    Posix.strerror (Posix.errno)
-                ));
-                throw new GLib.IOError.FAILED ("Failed to fork: %s", Posix.strerror (Posix.errno));
-            }
-
-            if (child_pid == 0) {
-                Posix.close (env_pipe[1]);
-                if (env_pipe[0] != SESSION_WRAP_ENV_FD) {
-                    Posix.dup2 (env_pipe[0], SESSION_WRAP_ENV_FD);
-                    Posix.close (env_pipe[0]);
-                }
-                if (cwd != "") Posix.chdir (cwd);
-                session_close_fds (SESSION_WRAP_ENV_FD);
-                Posix.execvp (wrapped_strv[0], wrapped_strv);
-                Posix._exit (127);
-            }
-
-            Posix.close (env_pipe[0]);
+            Subprocess child;
             try {
-                session_write_all_fd (env_pipe[1], env_payload);
-            } finally {
-                Posix.close (env_pipe[1]);
+                child = Utils.spawn_wrap (log_path, cwd, string.joinv ("\n", env), argv);
+            } catch (Error e) {
+                session_log ("launch fork failed prefix=%s error=%s".printf (prefix_id, e.message));
+                throw new GLib.IOError.FAILED ("%s", e.message);
             }
+            var child_pid = int.parse (child.get_identifier ());
 
             cancel_idle_exit ();
             exit_when_empty = false;
             launches[child_pid] = new LaunchState (child_pid, prefix_id, wineserver_path, log_path, env);
             session_log ("spawned wrap pid=%d prefix=%s".printf (child_pid, prefix_id));
 
-            var pid_copy = child_pid;
-            ChildWatch.add ((Pid) child_pid, (pid, status) => {
-                Process.close_pid (pid);
-                on_wrap_exited (pid_copy, status);
+            child.wait_async.begin (null, (obj, res) => {
+                try {
+                    child.wait_async.end (res);
+                } catch (Error e) {
+                    session_log ("wait failed pid=%d error=%s".printf (child_pid, e.message));
+                }
+                on_wrap_exited (child_pid, child.get_status ());
             });
 
             return (uint) child_pid;
@@ -236,23 +209,19 @@ namespace Lumoria.Cli {
         public Gee.ArrayList<SessionLaunchInfo> list_launches () {
             var result = new Gee.ArrayList<SessionLaunchInfo> ();
             foreach (var entry in launches.entries) {
-                result.add (launch_info_for_state (entry.key, entry.value));
+                result.add (session_launch_info_from_processes (entry.key, entry.value.prefix_id, entry.value.log_path));
             }
             return result;
         }
 
-        private SessionLaunchInfo launch_info_for_state (int wrap_pid, LaunchState state) {
-            return session_launch_info_from_processes (wrap_pid, state.prefix_id, state.log_path);
-        }
-
         private void stop_wrap_tree (LaunchState state) {
-            Utils.ProcessTree.signal_monitored_descendants (state.pid, Posix.Signal.TERM);
-            if (!Utils.ProcessTree.wait_for_monitored_descendants (state.pid, STOP_DESCENDANT_WAIT_MS)) {
-                for (var i = 0; i < 3; i++) {
-                    Utils.ProcessTree.signal_monitored_descendants (state.pid, Posix.Signal.KILL);
-                }
-                Utils.ProcessTree.wait_for_monitored_descendants (state.pid, STOP_DESCENDANT_KILL_WAIT_MS);
+            if (state.wineserver_path != "") {
+                var status = Runtime.shutdown_wineserver_bin (state.wineserver_path, state.env);
+                session_log ("wineserver -k prefix=%s status=%d".printf (state.prefix_id, status));
             }
+            Utils.ProcessTree.terminate_descendants (
+                state.pid, STOP_DESCENDANT_WAIT_MS, STOP_DESCENDANT_KILL_WAIT_MS, 3
+            );
 
             if (Utils.ProcessTree.process_alive (state.pid)) {
                 Posix.kill ((Posix.pid_t) state.pid, Posix.Signal.TERM);
@@ -302,9 +271,13 @@ namespace Lumoria.Cli {
 
         private async void handle_connection (SocketConnection connection) {
             try {
-                var input = new DataInputStream (connection.input_stream);
                 var output = new DataOutputStream (connection.output_stream);
-                string? line = input.read_line (null);
+                if (!peer_uid_allowed (connection)) {
+                    write_response (output, false, "unauthorized");
+                    return;
+                }
+                var input = new DataInputStream (connection.input_stream);
+                string? line = yield input.read_line_async (Priority.DEFAULT, null, null);
                 if (line == null || line.strip () == "") {
                     write_response (output, false, "empty request");
                     return;
@@ -317,11 +290,23 @@ namespace Lumoria.Cli {
             }
         }
 
+        private bool peer_uid_allowed (SocketConnection connection) {
+            try {
+                var creds = connection.socket.get_credentials ();
+                return creds.get_unix_user () == Posix.getuid ();
+            } catch (Error e) {
+                session_log ("rejected peer credentials: %s".printf (e.message));
+                return false;
+            }
+        }
+
         private string handle_request (string request) {
             try {
-                var parser = new Json.Parser ();
-                parser.load_from_data (request);
-                var obj = parser.get_root ().get_object ();
+                var obj = Models.parse_data_object (request);
+                var provided = obj.has_member ("token") ? obj.get_string_member ("token") : "";
+                if (!session_token_matches (token, provided)) {
+                    return error_response ("unauthorized");
+                }
                 var method = obj.get_string_member ("method");
 
                 switch (method) {
@@ -349,74 +334,46 @@ namespace Lumoria.Cli {
         }
 
         private string launch_response (Json.Object obj) throws Error {
+            var argv = Models.json_array_to_strv (obj.get_array_member ("argv"));
+            if (argv.length == 0) {
+                throw new IOError.FAILED ("launch argv is empty");
+            }
+            var cwd = obj.has_member ("cwd") ? obj.get_string_member ("cwd") : "";
             var prefix_id = obj.get_string_member ("prefix_id");
             var pid = launch (
                 prefix_id,
                 obj.get_string_member ("wineserver"),
                 obj.get_string_member ("log_path"),
-                json_array_to_strv (obj.get_array_member ("env")),
-                obj.get_string_member ("cwd"),
-                json_array_to_strv (obj.get_array_member ("argv"))
+                Models.json_array_to_strv (obj.get_array_member ("env")),
+                cwd,
+                argv
             );
 
-            var builder = new Json.Builder ();
-            builder.begin_object ();
-            builder.set_member_name ("ok");
-            builder.add_boolean_value (true);
-            builder.set_member_name ("pid");
-            builder.add_int_value ((int64) pid);
-            builder.end_object ();
-            return json_builder_to_string (builder);
+            var root = new Json.Object ();
+            root.set_boolean_member ("ok", true);
+            root.set_int_member ("pid", (int64) pid);
+            return Models.json_object_to_string (root);
         }
 
         private string list_response () {
-            var builder = new Json.Builder ();
-            builder.begin_object ();
-            builder.set_member_name ("ok");
-            builder.add_boolean_value (true);
-            builder.set_member_name ("launches");
-            builder.begin_array ();
+            var launches = new Json.Array ();
             foreach (var info in list_launches ()) {
-                builder.begin_object ();
-                builder.set_member_name ("pid");
-                builder.add_int_value (info.pid);
-                builder.set_member_name ("prefix_id");
-                builder.add_string_value (info.prefix_id);
-                builder.set_member_name ("log_path");
-                builder.add_string_value (info.log_path);
-                builder.set_member_name ("processes");
-                builder.begin_array ();
+                var entry = new Json.Object ();
+                entry.set_int_member ("pid", info.pid);
+                entry.set_string_member ("prefix_id", info.prefix_id);
+                entry.set_string_member ("log_path", info.log_path);
+                var processes = new Json.Array ();
                 foreach (var process in info.processes) {
                     if (process == null || process == "") continue;
-                    builder.add_string_value (process);
+                    processes.add_string_element (process);
                 }
-                builder.end_array ();
-                builder.end_object ();
+                entry.set_array_member ("processes", processes);
+                launches.add_object_element (entry);
             }
-            builder.end_array ();
-            builder.end_object ();
-            return json_builder_to_string (builder);
-        }
-    }
-
-    private void session_close_fds (int keep_fd) {
-        for (int fd = 3; fd < SESSION_FD_SCAN_LIMIT; fd++) {
-            if (fd != keep_fd) Posix.close (fd);
-        }
-    }
-
-    private void session_write_all_fd (int fd, string payload) throws IOError {
-        uint8[] bytes = payload.data;
-        size_t offset = 0;
-        while (offset < bytes.length) {
-            var written = Posix.write (fd, (uint8[]) bytes[offset:bytes.length], bytes.length - offset);
-            if (written < 0) {
-                throw new IOError.FAILED ("Environment pipe write failed: %s",
-                    Posix.strerror (Posix.errno));
-            }
-            if (written == 0)
-                throw new IOError.FAILED ("Environment pipe write: zero bytes written");
-            offset += (size_t) written;
+            var root = new Json.Object ();
+            root.set_boolean_member ("ok", true);
+            root.set_array_member ("launches", launches);
+            return Models.json_object_to_string (root);
         }
     }
 
@@ -426,6 +383,8 @@ namespace Lumoria.Cli {
         var service = new SessionManagerService (loop, session_socket_path ());
         try {
             service.start ();
+        } catch (IOError.EXISTS e) {
+            return 0;
         } catch (Error e) {
             stderr.printf ("lumoria session-manager: failed to start: %s\n", e.message);
             return 1;
@@ -440,7 +399,13 @@ namespace Lumoria.Cli {
         if (!Utils.Preferences.instance ().keep_runtime_logs) return;
 
         var log_dir = Utils.session_manager_log_dir ();
-        Utils.ensure_dir (log_dir);
+        try {
+            Utils.ensure_dir (log_dir);
+        } catch (Error e) {
+            stderr.printf ("lumoria session-manager: could not create log dir %s: %s\n",
+                log_dir, e.message);
+            return;
+        }
         var log_path = Utils.session_manager_log_path ();
         var log_fd = Posix.open (log_path, Posix.O_WRONLY | Posix.O_CREAT | Posix.O_APPEND, 0644);
         if (log_fd < 0) {
@@ -452,13 +417,12 @@ namespace Lumoria.Cli {
         Posix.dup2 (log_fd, Posix.STDOUT_FILENO);
         Posix.dup2 (log_fd, Posix.STDERR_FILENO);
         Posix.close (log_fd);
-        stderr.printf ("\n[%s] lumoria session-manager starting\n",
-            new DateTime.now_local ().format ("%F %T"));
+        stderr.printf ("\n[%s] lumoria session-manager starting\n", Utils.log_time ());
         stderr.flush ();
     }
 
     private void session_log (string message) {
-        stderr.printf ("[%s] %s\n", new DateTime.now_local ().format ("%F %T"), message);
+        stderr.printf ("[%s] %s\n", Utils.log_time (), message);
         stderr.flush ();
     }
 
@@ -466,44 +430,56 @@ namespace Lumoria.Cli {
         if (args.length >= 3) {
             switch (args[2]) {
                 case "stop-all":
-                    return session_client_stop_all ();
+                    return session_cli_call (() => session_stop_all ());
                 case "stop-pid":
                     if (args.length < 4) {
                         stderr.printf ("Usage: lumoria session-manager stop-pid <wrap-pid>\n");
                         return 1;
                     }
-                    return session_client_stop_pid (int.parse (args[3]));
+                    return session_cli_call (() => session_stop_pid (int.parse (args[3])));
                 case "stop":
                     if (args.length < 4) {
                         stderr.printf ("Usage: lumoria session-manager stop <prefix-id>\n");
                         return 1;
                     }
-                    return session_client_stop_prefix (args[3]);
+                    return session_cli_call (() => session_stop_prefix (args[3]));
             }
         }
         return run_session_service ();
     }
 
+    public delegate void SessionRequestFill (Json.Object obj);
+
+    public Json.Object session_call (string method, SessionRequestFill? fill = null) throws Error {
+        var obj = session_request (method);
+        if (fill != null) fill (obj);
+        var response = session_send_request (Models.json_object_to_string (obj));
+        if (!response_ok (response))
+            throw new IOError.FAILED ("%s", response_error (response));
+        return Models.parse_data_object (response);
+    }
+
+    private int session_cli_call (owned Utils.FallibleAction op) {
+        try {
+            op ();
+            return 0;
+        } catch (Error e) {
+            stderr.printf ("Failed to connect to session manager: %s\n", e.message);
+            return 1;
+        }
+    }
+
     public bool session_ping () {
         try {
-            var obj = new Json.Object ();
-            obj.set_string_member ("method", "ping");
-            return response_ok (session_send_request (json_object_to_string (obj)));
+            session_call ("ping");
+            return true;
         } catch (Error e) {
             return false;
         }
     }
 
     public Gee.ArrayList<SessionLaunchInfo> session_list_launches () throws Error {
-        var obj = new Json.Object ();
-        obj.set_string_member ("method", "list");
-        var response = session_send_request (json_object_to_string (obj));
-        if (!response_ok (response))
-            throw new IOError.FAILED ("%s", response_error (response));
-
-        var parser = new Json.Parser ();
-        parser.load_from_data (response);
-        var root = parser.get_root ().get_object ();
+        var root = session_call ("list");
         var launches = new Gee.ArrayList<SessionLaunchInfo> ();
         var array = root.get_array_member ("launches");
         for (uint i = 0; i < array.get_length (); i++) {
@@ -517,7 +493,7 @@ namespace Lumoria.Cli {
             for (uint j = 0; j < process_array.get_length (); j++) {
                 processes.add (process_array.get_string_element (j));
             }
-            var process_names = session_process_names_to_array (processes);
+            var process_names = Utils.strv (processes);
 
             launches.add (new SessionLaunchInfo (
                 (int) entry.get_int_member ("pid"),
@@ -531,66 +507,70 @@ namespace Lumoria.Cli {
     }
 
     public void session_stop_pid (int wrap_pid) throws Error {
-        var obj = new Json.Object ();
-        obj.set_string_member ("method", "stop_pid");
-        obj.set_int_member ("pid", wrap_pid);
-        var response = session_send_request (json_object_to_string (obj));
-        if (!response_ok (response))
-            throw new IOError.FAILED ("%s", response_error (response));
+        session_call ("stop_pid", (obj) => obj.set_int_member ("pid", wrap_pid));
     }
 
     public void session_stop_prefix (string prefix_id) throws Error {
-        var obj = new Json.Object ();
-        obj.set_string_member ("method", "stop");
-        obj.set_string_member ("prefix_id", prefix_id);
-        var response = session_send_request (json_object_to_string (obj));
-        if (!response_ok (response))
-            throw new IOError.FAILED ("%s", response_error (response));
+        session_call ("stop", (obj) => obj.set_string_member ("prefix_id", prefix_id));
     }
 
     public void session_stop_all () throws Error {
-        var obj = new Json.Object ();
-        obj.set_string_member ("method", "stop_all");
-        var response = session_send_request (json_object_to_string (obj));
-        if (!response_ok (response))
-            throw new IOError.FAILED ("%s", response_error (response));
-    }
-
-    private int session_client_stop_all () {
-        try {
-            session_stop_all ();
-            return 0;
-        } catch (Error e) {
-            stderr.printf ("Failed to connect to session manager: %s\n", e.message);
-            return 1;
-        }
-    }
-
-    private int session_client_stop_pid (int wrap_pid) {
-        try {
-            session_stop_pid (wrap_pid);
-            return 0;
-        } catch (Error e) {
-            stderr.printf ("Failed to connect to session manager: %s\n", e.message);
-            return 1;
-        }
-    }
-
-    private int session_client_stop_prefix (string prefix_id) {
-        try {
-            session_stop_prefix (prefix_id);
-            return 0;
-        } catch (Error e) {
-            stderr.printf ("Failed to connect to session manager: %s\n", e.message);
-            return 1;
-        }
+        session_call ("stop_all");
     }
 
     public string session_socket_path () {
         return Path.build_filename (Utils.data_dir (), "session", "manager.sock");
     }
 
-    public string session_send_request (string request) throws Error {
+    public string session_token_path () {
+        return Path.build_filename (Utils.data_dir (), "session", "manager.token");
+    }
+
+    private Json.Object session_request (string method) throws Error {
+        var obj = new Json.Object ();
+        obj.set_string_member ("method", method);
+        obj.set_string_member ("token", session_read_token ());
+        return obj;
+    }
+
+    private string session_read_token () throws Error {
+        string contents;
+        FileUtils.get_contents (session_token_path (), out contents);
+        contents = contents.strip ();
+        if (contents == "") {
+            throw new IOError.FAILED ("session token is empty");
+        }
+        return contents;
+    }
+
+    private string session_mint_token () throws Error {
+        var bytes = new uint8[32];
+        var fd = Posix.open ("/dev/urandom", Posix.O_RDONLY);
+        if (fd < 0) {
+            throw new IOError.FAILED ("Failed to open /dev/urandom: %s", Posix.strerror (Posix.errno));
+        }
+        var got = Posix.read (fd, bytes, bytes.length);
+        Posix.close (fd);
+        if (got != bytes.length) {
+            throw new IOError.FAILED ("Failed to read random session token");
+        }
+        var hex = new StringBuilder.sized (bytes.length * 2);
+        foreach (var b in bytes) {
+            hex.append_printf ("%02x", b);
+        }
+        return hex.str;
+    }
+
+    private bool session_token_matches (string expected, string provided) {
+        if (expected.length == 0 || expected.length != provided.length) return false;
+        uint8 acc = 0;
+        for (int i = 0; i < expected.length; i++) {
+            acc |= expected[i] ^ provided[i];
+        }
+        return acc == 0;
+    }
+
+    private string session_send_request (string request) throws Error {
         var client = new SocketClient ();
         var address = new UnixSocketAddress (session_socket_path ());
         var connection = client.connect (address);
@@ -604,25 +584,20 @@ namespace Lumoria.Cli {
         return response;
     }
 
-    public bool response_ok (string response) {
+    private bool response_ok (string response) {
         try {
-            var parser = new Json.Parser ();
-            parser.load_from_data (response);
-            return parser.get_root ().get_object ().get_boolean_member ("ok");
+            return Models.parse_data_object (response).get_boolean_member ("ok");
         } catch (Error e) {
             return false;
         }
     }
 
-    public string response_error (string response) {
+    private string response_error (string response) {
         try {
-            var parser = new Json.Parser ();
-            parser.load_from_data (response);
-            var obj = parser.get_root ().get_object ();
-            if (obj.has_member ("error")) return obj.get_string_member ("error");
+            return Models.json_string (Models.parse_data_object (response), "error", "session request failed");
         } catch (Error e) {
+            return "session request failed";
         }
-        return "session request failed";
     }
 
     private void write_response (DataOutputStream output, bool ok, string error = "") throws Error {
@@ -633,35 +608,13 @@ namespace Lumoria.Cli {
     private string ok_response () {
         var obj = new Json.Object ();
         obj.set_boolean_member ("ok", true);
-        return json_object_to_string (obj);
+        return Models.json_object_to_string (obj);
     }
 
     private string error_response (string error) {
         var obj = new Json.Object ();
         obj.set_boolean_member ("ok", false);
         obj.set_string_member ("error", error);
-        return json_object_to_string (obj);
-    }
-
-    private string[] json_array_to_strv (Json.Array array) {
-        var values = new Gee.ArrayList<string> ();
-        for (uint i = 0; i < array.get_length (); i++) {
-            values.add (array.get_string_element (i));
-        }
-        return Utils.arraylist_to_strv (values);
-    }
-
-    private string json_object_to_string (Json.Object obj) {
-        var node = new Json.Node (Json.NodeType.OBJECT);
-        node.set_object (obj);
-        var generator = new Json.Generator ();
-        generator.root = node;
-        return generator.to_data (null);
-    }
-
-    private string json_builder_to_string (Json.Builder builder) {
-        var generator = new Json.Generator ();
-        generator.root = builder.get_root ();
-        return generator.to_data (null);
+        return Models.json_object_to_string (obj);
     }
 }

@@ -1,0 +1,16 @@
+[package]
+name = "lumoria_native"
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.93"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+jsonschema = { version = "0.33", default-features = false }
+memmap2 = "0.9"
+msi = "0.10"
+serde_json = "1"
+sevenz-rust2 = { version = "0.22", default-features = false }

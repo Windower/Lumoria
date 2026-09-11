@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://manifests.lumoria.dev/1/schemas/preferences.json",
+  "title": "Lumoria preferences",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format_version"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format_version": { "type": "integer", "minimum": 1 },
+    "runner_id": { "type": "string" },
+    "runner_version": { "type": "string" },
+    "experimental_features": { "type": "boolean" },
+    "show_hidden_tool_versions": { "type": "boolean" },
+    "show_hidden_runner_versions": { "type": "boolean" },
+    "session_manager": { "type": "boolean" },
+    "show_sidebar": { "type": "boolean" },
+    "close_after_launch": { "type": "boolean" },
+    "startup_view": { "enum": ["home", "last-prefix"] },
+    "updates": {
+      "type": "object",
+      "properties": {
+        "lumoria": { "type": "boolean" },
+        "resources": { "type": "boolean" },
+        "runners": { "type": "boolean" },
+        "components": { "type": "boolean" },
+        "manifests_ask": { "type": "boolean" },
+        "manifests_auto": { "type": "boolean" },
+        "skipped_revision": { "type": "string" },
+        "last_checked": { "type": "string" }
+      }
+    },
+    "logging": {
+      "type": "object",
+      "properties": {
+        "keep_files": { "type": "boolean" }
+      }
+    },
+    "wine": {
+      "type": "object",
+      "properties": {
+        "wayland": { "type": "boolean" },
+        "sync_mode": { "type": "string" },
+        "debug": { "type": "string" }
+      }
+    },
+    "patches": {
+      "type": "object",
+      "additionalProperties": { "type": "boolean" }
+    },
+    "input": {
+      "type": "object",
+      "properties": {
+        "gamepad_nav": { "type": "boolean" }
+      }
+    },
+    "power": {
+      "type": "object",
+      "properties": {
+        "screen_inhibitor": { "type": "boolean" },
+        "feral_game_mode": { "type": "boolean" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "env": { "$ref": "defs.json#/$defs/string_map" }
+      }
+    },
+    "components": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "version": { "type": "string" },
+          "enabled": { "type": "boolean" }
+        }
+      }
+    },
+    "steam": {
+      "type": "object",
+      "properties": {
+        "userdata_dir": { "type": "string" },
+        "userdata_dir_portal": { "$ref": "defs.json#/$defs/portal_path" }
+      }
+    }
+  }
+}

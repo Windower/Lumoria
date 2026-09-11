@@ -4,13 +4,16 @@ namespace Lumoria.Utils {
 
     private Soup.Session? _shared_session = null;
 
-    private Soup.Session get_api_session () {
-        if (_shared_session == null) {
-            _shared_session = new Soup.Session ();
-            _shared_session.user_agent = "%s/%s".printf (Config.APP_NAME, Config.APP_VERSION);
-            _shared_session.timeout = API_TIMEOUT_SECONDS;
-            _shared_session.idle_timeout = API_TIMEOUT_SECONDS;
-        }
+    private Soup.Session new_session (uint timeout_seconds) {
+        var session = new Soup.Session ();
+        session.user_agent = "%s/%s".printf (Config.APP_NAME, Config.APP_VERSION);
+        session.timeout = timeout_seconds;
+        session.idle_timeout = timeout_seconds;
+        return session;
+    }
+
+    public Soup.Session get_api_session () {
+        if (_shared_session == null) _shared_session = new_session (API_TIMEOUT_SECONDS);
         return _shared_session;
     }
 
@@ -48,7 +51,7 @@ namespace Lumoria.Utils {
             var a = new GitHubAsset ();
             a.name = Models.json_string (obj, "name");
             a.browser_download_url = Models.json_string (obj, "browser_download_url");
-            a.size = obj.has_member ("size") ? obj.get_int_member ("size") : 0;
+            a.size = Models.json_int (obj, "size");
             return a;
         }
     }
@@ -72,15 +75,9 @@ namespace Lumoria.Utils {
         return null;
     }
 
-    private Gee.ArrayList<GitHubRelease> parse_github_releases_payload (
-        string payload,
-        ssize_t data_len,
-        string repo
-    ) throws Error {
+    private Gee.ArrayList<GitHubRelease> parse_github_releases_payload (string payload, string repo) throws Error {
         var releases = new Gee.ArrayList<GitHubRelease> ();
-        var parser = new Json.Parser ();
-        parser.load_from_data (payload, data_len);
-        var root = parser.get_root ();
+        var root = Models.parse_data_node (payload);
         if (root.get_node_type () != Json.NodeType.ARRAY) {
             throw new IOError.FAILED ("GitHub API payload for %s was not an array", repo);
         }
@@ -106,9 +103,8 @@ namespace Lumoria.Utils {
 
         try {
             string payload;
-            size_t data_len;
-            FileUtils.get_contents (cache_path, out payload, out data_len);
-            releases = parse_github_releases_payload (payload, (ssize_t) data_len, repo);
+            FileUtils.get_contents (cache_path, out payload);
+            releases = parse_github_releases_payload (payload, repo);
             return true;
         } catch (Error e) {
             warning ("Failed to parse GitHub cache at %s: %s; refetching", cache_path, e.message);
@@ -116,30 +112,28 @@ namespace Lumoria.Utils {
         }
     }
 
-    private string read_response_payload (InputStream input, out ssize_t data_len) throws Error {
-        var builder = new ByteArray ();
-        var buf = new uint8[65536];
-        ssize_t n;
-        while ((n = input.read (buf)) > 0) {
-            builder.append (buf[0:n]);
+    private string request_text (Soup.Session session, string url, Cancellable? cancellable) throws Error {
+        var msg = new Soup.Message ("GET", url);
+        var body = session.send_and_read (msg, cancellable);
+        if (msg.status_code != 200) {
+            throw new IOError.FAILED ("Request returned %u for %s", msg.status_code, url);
         }
-        builder.append ({0});
-        data_len = (ssize_t) (builder.len - 1);
-        return (string) builder.data;
+        var data = body.get_data ();
+        return data.length == 0 ? "" : ((string) data).substring (0, data.length);
     }
 
-    private void write_releases_cache (string cache_path, string payload, ssize_t data_len) {
+    private void write_releases_cache (string cache_path, string payload) {
         if (cache_path == "") return;
         try {
-            ensure_dir (Path.get_dirname (cache_path));
-            FileUtils.set_contents (cache_path, payload, data_len);
+            write_text_atomic (cache_path, payload);
         } catch (Error e) {
             warning ("Failed to cache releases: %s", e.message);
         }
     }
 
-    public Gee.ArrayList<GitHubRelease> fetch_github_releases_sync (
+    private Gee.ArrayList<GitHubRelease> fetch_github_releases_url (
         string repo,
+        string url,
         string cache_path,
         int64 cache_ttl_seconds
     ) throws Error {
@@ -148,20 +142,9 @@ namespace Lumoria.Utils {
             return releases;
         }
 
-        var url = "https://api.github.com/repos/%s/releases".printf (repo);
-        var session = get_api_session ();
-        var msg = new Soup.Message ("GET", url);
-
-        var input = session.send (msg, null);
-        if (msg.status_code != 200) {
-            throw new IOError.FAILED ("GitHub API returned %u for %s", msg.status_code, url);
-        }
-
-        ssize_t data_len;
-        var payload = read_response_payload (input, out data_len);
-        releases = parse_github_releases_payload (payload, data_len, repo);
-        write_releases_cache (cache_path, payload, data_len);
-
+        var payload = request_text (get_api_session (), url, null);
+        releases = parse_github_releases_payload (payload, repo);
+        write_releases_cache (cache_path, payload);
         return releases;
     }
 
@@ -175,69 +158,126 @@ namespace Lumoria.Utils {
         var result = new GitHubReleasePage ();
         result.page = page > 0 ? page : 1;
         result.per_page = per_page > 0 ? per_page : 30;
-
         var cache_path = cache_dir != ""
             ? Path.build_filename (cache_dir, "releases-page-%d.json".printf (result.page))
             : "";
-        Gee.ArrayList<GitHubRelease> releases;
-        if (try_read_releases_cache (cache_path, cache_ttl_seconds, repo, out releases)) {
-            result.releases = releases;
-            result.has_more = releases.size >= result.per_page;
-            return result;
-        }
-
-        var url = "https://api.github.com/repos/%s/releases?per_page=%d&page=%d".printf (
+        result.releases = fetch_github_releases_url (
             repo,
-            result.per_page,
-            result.page
+            "https://api.github.com/repos/%s/releases?per_page=%d&page=%d".printf (
+                repo, result.per_page, result.page
+            ),
+            cache_path,
+            cache_ttl_seconds
         );
-        var session = get_api_session ();
-        var msg = new Soup.Message ("GET", url);
-
-        var input = session.send (msg, null);
-        if (msg.status_code != 200) {
-            throw new IOError.FAILED ("GitHub API returned %u for %s", msg.status_code, url);
-        }
-
-        ssize_t data_len;
-        var payload = read_response_payload (input, out data_len);
-        result.releases = parse_github_releases_payload (payload, data_len, repo);
         result.has_more = result.releases.size >= result.per_page;
-        write_releases_cache (cache_path, payload, data_len);
         return result;
     }
 
     public delegate void ProgressCallback (int64 downloaded, int64 total);
 
+    private const uint DOWNLOAD_STALL_SECONDS = 30;
+    private const int DOWNLOAD_ATTEMPTS = 4;
+
+    public string fetch_text_sync (string url, Cancellable? cancellable = null) throws Error {
+        check_cancelled (cancellable);
+        return request_text (get_api_session (), url, cancellable);
+    }
+
     public void download_file_sync (
         string url,
         string dest,
-        ProgressCallback? progress = null
+        ProgressCallback? progress = null,
+        Cancellable? cancellable = null
     ) throws Error {
         ensure_dir (Path.get_dirname (dest));
+        Error? last_error = null;
+        for (int attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt++) {
+            try {
+                download_file_once (url, dest, progress, cancellable);
+                return;
+            } catch (IOError.CANCELLED e) {
+                throw e;
+            } catch (Error e) {
+                last_error = e;
+                check_cancelled (cancellable);
+                if (attempt == DOWNLOAD_ATTEMPTS || !download_error_is_retryable (e)) {
+                    throw e;
+                }
+                warning (
+                    "Download stalled or dropped for %s (attempt %d/%d): %s; resuming",
+                    url, attempt, DOWNLOAD_ATTEMPTS, e.message
+                );
+            }
+        }
+        throw last_error != null ? last_error : new IOError.FAILED ("Download failed for %s", url);
+    }
 
-        var session = new Soup.Session ();
-        session.user_agent = "%s/%s".printf (Config.APP_NAME, Config.APP_VERSION);
-        session.timeout = 0;
-        session.idle_timeout = 60;
+    private bool download_error_is_retryable (Error e) {
+        if (e is IOError.TIMED_OUT || e is IOError.CLOSED || e is IOError.PARTIAL_INPUT) {
+            return true;
+        }
+        if (e is IOError.FAILED && e.message.has_prefix ("Download returned")) {
+            return false;
+        }
+        return e is IOError.FAILED || e is IOError.CONNECTION_CLOSED;
+    }
+
+    /* Stalls surface as IOError.TIMED_OUT through the session's I/O timeout and are retried with a Range resume. */
+    private void download_file_once (
+        string url,
+        string dest,
+        ProgressCallback? progress,
+        Cancellable? cancellable
+    ) throws Error {
+        check_cancelled (cancellable);
+        var session = new_session (DOWNLOAD_STALL_SECONDS);
+
+        var resume_from = FileUtils.test (dest, FileTest.IS_REGULAR)
+            ? file_size_or_zero (dest) : 0;
         var msg = new Soup.Message ("GET", url);
-
-        var input = session.send (msg, null);
-        if (msg.status_code != 200) {
-            throw new IOError.FAILED ("Download returned %u for %s", msg.status_code, url);
+        msg.set_force_http1 (true);
+        if (resume_from > 0) {
+            msg.request_headers.replace ("Range", "bytes=%s-".printf (resume_from.to_string ()));
         }
 
-        var total = msg.response_headers.get_content_length ();
-        var output = File.new_for_path (dest).replace (null, false, FileCreateFlags.NONE);
+        var input = session.send (msg, cancellable);
+        var status = msg.status_code;
+        if (status == Soup.Status.REQUESTED_RANGE_NOT_SATISFIABLE) {
+            FileUtils.remove (dest);
+            throw new IOError.FAILED ("Download range no longer valid for %s", url);
+        }
+        if (status != Soup.Status.OK && status != Soup.Status.PARTIAL_CONTENT) {
+            throw new IOError.FAILED ("Download returned %u for %s", status, url);
+        }
+
+        var resume = resume_from > 0 && status == Soup.Status.PARTIAL_CONTENT;
+        if (resume_from > 0 && !resume) {
+            FileUtils.remove (dest);
+            resume_from = 0;
+        }
+
+        var remaining = msg.response_headers.get_content_length ();
+        var total = remaining > 0 ? resume_from + remaining : 0;
+        var output = resume
+            ? File.new_for_path (dest).append_to (FileCreateFlags.NONE, cancellable)
+            : File.new_for_path (dest).replace (null, false, FileCreateFlags.NONE, cancellable);
         var buf = new uint8[65536];
-        int64 downloaded = 0;
+        int64 downloaded = resume ? resume_from : 0;
         ssize_t n;
-        while ((n = input.read (buf)) > 0) {
-            output.write (buf[0:n]);
+        while ((n = input.read (buf, cancellable)) > 0) {
+            output.write (buf[0:n], cancellable);
             downloaded += n;
             if (progress != null) progress (downloaded, total);
         }
         output.close ();
+
+        if (total > 0 && downloaded < total) {
+            throw new IOError.PARTIAL_INPUT (
+                "Download ended after %s of %s bytes for %s".printf (
+                    downloaded.to_string (), total.to_string (), url
+                )
+            );
+        }
     }
 
     public string format_release_date (string iso8601) {
@@ -246,194 +286,4 @@ namespace Lumoria.Utils {
         if (dt == null) return iso8601;
         return dt.format ("%x");
     }
-
-    public class RemoteManifestFile : Object {
-        public string filename { get; set; default = ""; }
-        public string download_url { get; set; default = ""; }
-        public string checksum { get; set; default = ""; }
-        public string checksum_algorithm { get; set; default = ""; }
-        public string sort_key { get; set; default = ""; }
-        public Gee.HashMap<string, string> item_fields { get; owned set; default = new Gee.HashMap<string, string> (); }
-    }
-
-    private const int64 MANIFEST_CACHE_TTL = 3600;
-
-    private string? try_load_manifest_envelope (string cache_path, int64 ttl) {
-        if (!FileUtils.test (cache_path, FileTest.EXISTS)) return null;
-        try {
-            string raw;
-            FileUtils.get_contents (cache_path, out raw);
-            var parser = new Json.Parser ();
-            parser.load_from_data (raw, raw.length);
-            var obj = parser.get_root ().get_object ();
-            if (ttl >= 0) {
-                var age = (int64) time_t () - obj.get_int_member ("fetched_at");
-                if (age >= ttl) return null;
-            }
-            return obj.get_string_member ("content");
-        } catch (Error e) {
-            return null;
-        }
-    }
-
-    private void write_manifest_envelope (string cache_path, string content) {
-        if (cache_path == "") return;
-        try {
-            ensure_dir (Path.get_dirname (cache_path));
-            var builder = new Json.Builder ();
-            builder.begin_object ();
-            builder.set_member_name ("fetched_at");
-            builder.add_int_value ((int64) time_t ());
-            builder.set_member_name ("content");
-            builder.add_string_value (content);
-            builder.end_object ();
-            var gen = new Json.Generator ();
-            gen.set_root (builder.get_root ());
-            gen.to_file (cache_path);
-        } catch (Error e) {
-            warning ("Failed to write manifest cache %s: %s", cache_path, e.message);
-        }
-    }
-
-    private Gee.ArrayList<RemoteManifestFile> parse_manifest_payload (
-        string payload,
-        Models.RemoteManifestSchema schema,
-        Gee.HashMap<string, string> vars
-    ) throws Error {
-        var parser = new Json.Parser ();
-        parser.load_from_data (payload, payload.length);
-        var target_node = parser.get_root ();
-
-        if (schema.files_path != "") {
-            foreach (var segment in schema.files_path.split (".")) {
-                if (target_node.get_node_type () != Json.NodeType.OBJECT) {
-                    throw new IOError.FAILED ("files_path '%s': not an object at '%s'", schema.files_path, segment);
-                }
-                var obj = target_node.get_object ();
-                if (!obj.has_member (segment)) {
-                    throw new IOError.FAILED ("files_path '%s': field '%s' not found", schema.files_path, segment);
-                }
-                target_node = obj.get_member (segment);
-            }
-        }
-
-        Json.Array arr;
-        if (target_node.get_node_type () == Json.NodeType.ARRAY) {
-            arr = target_node.get_array ();
-        } else if (target_node.get_node_type () == Json.NodeType.OBJECT) {
-            arr = new Json.Array ();
-            arr.add_element (target_node);
-        } else {
-            throw new IOError.FAILED ("Manifest files_path target is not an array or object");
-        }
-
-        var files = new Gee.ArrayList<RemoteManifestFile> ();
-
-        for (uint i = 0; i < arr.get_length (); i++) {
-            var item_node = arr.get_element (i);
-            if (item_node.get_node_type () != Json.NodeType.OBJECT) continue;
-            var item = item_node.get_object ();
-
-            var fields = manifest_item_to_string_map (item);
-
-            if (schema.available_field != "" &&
-                fields.has_key (schema.available_field) &&
-                fields[schema.available_field] == "false") continue;
-
-            if (schema.filter != null && !schema.filter.evaluate (vars, fields)) continue;
-
-            var download_url = Models.expand_manifest_template (schema.url_template, fields, vars);
-            if (download_url == "") continue;
-
-            string filename;
-            if (schema.filename_field != "" && fields.has_key (schema.filename_field)) {
-                filename = fields[schema.filename_field];
-            } else {
-                filename = Path.get_basename (download_url.split ("?")[0]);
-            }
-            if (filename == "") continue;
-
-            var checksum = schema.checksum_field != "" && fields.has_key (schema.checksum_field)
-                ? fields[schema.checksum_field] : "";
-
-            var algorithm = "";
-            if (schema.checksum_algorithm_field != "" && fields.has_key (schema.checksum_algorithm_field)) {
-                algorithm = fields[schema.checksum_algorithm_field];
-            }
-            if (algorithm == "" && schema.checksum_algorithm != "") {
-                algorithm = schema.checksum_algorithm;
-            }
-
-            var sort_key = schema.sort_field != "" && fields.has_key (schema.sort_field)
-                ? fields[schema.sort_field] : "";
-
-            var file = new RemoteManifestFile ();
-            file.filename = filename;
-            file.download_url = download_url;
-            file.checksum = checksum;
-            file.checksum_algorithm = algorithm;
-            file.sort_key = sort_key;
-            file.item_fields = fields;
-            files.add (file);
-        }
-
-        if (schema.sort_field != "") {
-            files.sort ((a, b) => strcmp (a.sort_key, b.sort_key));
-        }
-
-        return files;
-    }
-
-    private Gee.HashMap<string, string> manifest_item_to_string_map (Json.Object item) {
-        var fields = new Gee.HashMap<string, string> ();
-        item.foreach_member ((_, name, node) => {
-            if (node.get_node_type () != Json.NodeType.VALUE) return;
-            var vtype = node.get_value_type ();
-            if (vtype == typeof (string)) {
-                fields[name] = node.get_string ();
-            } else if (vtype == typeof (int64)) {
-                fields[name] = node.get_int ().to_string ();
-            } else if (vtype == typeof (bool)) {
-                fields[name] = node.get_boolean () ? "true" : "false";
-            } else if (vtype == typeof (double)) {
-                fields[name] = node.get_double ().to_string ();
-            }
-        });
-        return fields;
-    }
-
-    public Gee.ArrayList<RemoteManifestFile> fetch_remote_manifest_sync (
-        string url,
-        Models.RemoteManifestSchema schema,
-        string cache_path,
-        Gee.HashMap<string, string> vars
-    ) throws Error {
-        var fresh = try_load_manifest_envelope (cache_path, schema.cache_ttl);
-        if (fresh != null) {
-            return parse_manifest_payload (fresh, schema, vars);
-        }
-
-        string payload;
-        try {
-            var session = get_api_session ();
-            var msg = new Soup.Message ("GET", url);
-            var input = session.send (msg, null);
-            if (msg.status_code != 200) {
-                throw new IOError.FAILED ("Remote manifest returned %u for %s", msg.status_code, url);
-            }
-            ssize_t data_len;
-            payload = read_response_payload (input, out data_len);
-            write_manifest_envelope (cache_path, payload);
-        } catch (Error e) {
-            var stale = try_load_manifest_envelope (cache_path, -1);
-            if (stale != null) {
-                warning ("Remote manifest fetch failed for %s: %s — using stale cache", url, e.message);
-                return parse_manifest_payload (stale, schema, vars);
-            }
-            throw e;
-        }
-
-        return parse_manifest_payload (payload, schema, vars);
-    }
-
 }

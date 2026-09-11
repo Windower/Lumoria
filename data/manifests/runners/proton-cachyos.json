@@ -1,0 +1,138 @@
+{
+  "$schema": "https://manifests.lumoria.dev/1/schemas/runner.json",
+  "id": "proton-cachyos",
+  "name": "Proton-CachyOS",
+  "wine_arch": "win64",
+  "links": {
+    "website": "https://github.com/CachyOS/proton-cachyos",
+    "license": "https://github.com/CachyOS/proton-cachyos/blob/cachyos_main/LICENSE"
+  },
+  "messages": {
+    "description": "Fork of Proton with additional components and patches. Maintained by the CachyOS team."
+  },
+  "features": [
+    "wayland-primary-monitor"
+  ],
+  "github_repo": "CachyOS/proton-cachyos",
+  "version_dir": "cachyos-(.+)",
+  "asset_regex": "proton-cachyos-.*-x86_64\\.tar\\.xz$",
+  "checksum_regex": "proton-cachyos-.*-x86_64\\.sha512sum$",
+  "support_files": [
+    {
+      "id": "icu-win32",
+      "mode": "symlink",
+      "files": [
+        "icudt68.dll",
+        "icuin68.dll",
+        "icuuc68.dll"
+      ],
+      "src_dirs": [
+        "files/lib/wine/icu/i386-windows"
+      ],
+      "dst_dir": "drive_c/windows/system32",
+      "when": {
+        "var": {
+          "ARCH": "win32"
+        }
+      }
+    },
+    {
+      "id": "icu-win64-x86",
+      "mode": "symlink",
+      "files": [
+        "icudt68.dll",
+        "icuin68.dll",
+        "icuuc68.dll"
+      ],
+      "src_dirs": [
+        "files/lib/wine/icu/i386-windows"
+      ],
+      "dst_dir": "drive_c/windows/syswow64",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    },
+    {
+      "id": "icu-win64-x64",
+      "mode": "symlink",
+      "files": [
+        "icudt68.dll",
+        "icuin68.dll",
+        "icuuc68.dll"
+      ],
+      "src_dirs": [
+        "files/lib/wine/icu/x86_64-windows"
+      ],
+      "dst_dir": "drive_c/windows/system32",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    }
+  ],
+  "paths": {
+    "lib": [
+      "files/lib"
+    ],
+    "lib_32": [
+      "files/lib/i386-linux-gnu"
+    ],
+    "lib_64": [
+      "files/lib/x86_64-linux-gnu"
+    ],
+    "wine_dll": [
+      "files/lib/wine",
+      "files/lib/wine/i386-windows",
+      "files/lib/wine/x86_64-windows",
+      "files/lib/wine/icu/i386-windows",
+      "files/lib/wine/icu/x86_64-windows",
+      "files/lib/vkd3d",
+      "files/lib/wine/vkd3d-proton",
+      "files/lib/wine/dxvk",
+      "files/lib/wine/nvapi"
+    ],
+    "wine_unix": [
+      "files/lib/wine/x86_64-unix",
+      "files/lib/wine/i386-unix"
+    ]
+  },
+  "variants": [
+    {
+      "id": "wow64",
+      "label": "WoW64",
+      "default": true,
+      "wine_bin": "files/bin-wow64/wine",
+      "wineserver": "files/bin-wow64/wineserver",
+      "wine_bins": [
+        "files/bin-wow64/wine",
+        "files/bin/wine"
+      ],
+      "wineservers": [
+        "files/bin-wow64/wineserver",
+        "files/bin/wineserver"
+      ],
+      "binary_kind": "wow64",
+      "paths": {
+        "bin": "files/bin-wow64",
+        "bin_paths": [
+          "files/bin-wow64",
+          "files/bin"
+        ]
+      }
+    },
+    {
+      "id": "32bit",
+      "label": "32-bit (legacy)",
+      "wine_bin": "files/bin/wine",
+      "wineserver": "files/bin/wineserver",
+      "binary_kind": "legacy32",
+      "wine_arch": "win32",
+      "paths": {
+        "bin": "files/bin"
+      }
+    }
+  ]
+}

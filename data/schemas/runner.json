@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://manifests.lumoria.dev/1/schemas/runner.json",
+  "title": "Lumoria runner manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "wine_arch"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "id": { "$ref": "defs.json#/$defs/nonempty_string" },
+    "name": { "type": "string" },
+    "label": { "type": "string" },
+    "skip_versions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "features": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "host_arches": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "github_repo": { "type": "string" },
+    "asset_regex": { "type": "string" },
+    "checksum_regex": { "type": "string" },
+    "wine_bin": { "type": "string" },
+    "wineserver": { "type": "string" },
+    "wine_bins": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "wineservers": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "wine_arch": { "enum": ["win64", "win32"] },
+    "version_dir": { "type": "string" },
+    "default": { "type": "boolean" },
+    "recommended": { "type": "boolean" },
+    "support": { "$ref": "defs.json#/$defs/support" },
+    "messages": { "$ref": "defs.json#/$defs/messages" },
+    "links": { "$ref": "defs.json#/$defs/links" },
+    "sandbox_supported": { "type": "boolean" },
+    "paths": { "$ref": "#/$defs/runner_paths" },
+    "support_files": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/support_file" }
+    },
+    "variants": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/variant" }
+    },
+    "metadata": { "$ref": "defs.json#/$defs/metadata" }
+  },
+  "$defs": {
+    "runner_paths": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "bin": { "type": "string" },
+        "bin_paths": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "lib": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "lib_32": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "lib_64": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "wine_dll": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "wine_dll_32": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "wine_dll_64": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "wine_unix": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "support_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "src": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "src_dirs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "files": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "mode": { "type": "string" },
+        "dst": { "type": "string" },
+        "dst_dir": { "type": "string" },
+        "when": { "$ref": "defs.json#/$defs/when" }
+      }
+    },
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "$ref": "defs.json#/$defs/nonempty_string" },
+        "name": { "type": "string" },
+        "label": { "type": "string" },
+        "default": { "type": "boolean" },
+        "support": { "$ref": "defs.json#/$defs/support" },
+        "messages": { "$ref": "defs.json#/$defs/messages" },
+        "asset_regex": { "type": "string" },
+        "checksum_regex": { "type": "string" },
+        "wine_bin": { "type": "string" },
+        "wineserver": { "type": "string" },
+        "wine_bins": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "wineservers": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "wine_arch": { "enum": ["win64", "win32", ""] },
+        "binary_kind": { "type": "string" },
+        "sandbox_supported": { "type": "boolean" },
+        "features": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "paths": { "$ref": "#/$defs/runner_paths" }
+      }
+    }
+  }
+}

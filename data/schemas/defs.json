@@ -1,0 +1,834 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://manifests.lumoria.dev/1/schemas/defs.json",
+  "$defs": {
+    "nonempty_string": {
+      "type": "string",
+      "minLength": 1
+    },
+    "icon_key": {
+      "type": "string",
+      "pattern": "^(lumoria|windower(-app)?|ffxi:(item|status|app)-[A-Za-z0-9-]+)$"
+    },
+    "manifest_relative_path": {
+      "type": "string",
+      "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\\.json$"
+    },
+    "string_map": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "string_or_array": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      ]
+    },
+    "portal_path": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "document_id": { "type": "string" },
+        "document_path": { "type": "string" },
+        "uri": { "type": "string" }
+      }
+    },
+    "runtime_component_override": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "version": { "type": "string" },
+        "system_env": { "$ref": "#/$defs/string_map" }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "support": {
+      "type": "string",
+      "enum": ["supported", "experimental", "unsupported"]
+    },
+    "message_link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "url"],
+      "properties": {
+        "label": { "$ref": "#/$defs/nonempty_string" },
+        "url": { "$ref": "#/$defs/nonempty_string" }
+      }
+    },
+    "message_colors": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "background": { "type": "string" },
+        "text": { "type": "string" }
+      }
+    },
+    "links": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "website": { "type": "string" },
+        "docs": { "type": "string" },
+        "help": { "type": "string" },
+        "source": { "type": "string" },
+        "license": { "type": "string" }
+      }
+    },
+    "message_alert": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["body"],
+      "properties": {
+        "body": { "type": "string" },
+        "style": { "enum": ["info", "warning", "danger", "success"] },
+        "icon": { "type": "string" },
+        "title": { "type": "string" },
+        "colors": { "$ref": "#/$defs/message_colors" },
+        "links": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/message_link" }
+        }
+      }
+    },
+    "message_value": {
+      "oneOf": [
+        { "type": "string" },
+        { "$ref": "#/$defs/message_alert" },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/message_alert" }
+        }
+      ]
+    },
+    "messages": {
+      "type": "object",
+      "properties": {
+        "about": {
+          "description": "Copy for a dedicated About view of the tool.",
+          "$ref": "#/$defs/message_value"
+        },
+        "new-prefix": {
+          "description": "Shown when creating a prefix.",
+          "$ref": "#/$defs/message_value"
+        },
+        "manage": {
+          "description": "Shown on prefix overview after install.",
+          "$ref": "#/$defs/message_value"
+        },
+        "instructions": {
+          "description": "Shown with post-install scripts.",
+          "$ref": "#/$defs/message_value"
+        },
+        "description": {
+          "description": "Markdown under the name on intros. Not a card.",
+          "$ref": "#/$defs/message_value"
+        }
+      },
+      "additionalProperties": { "$ref": "#/$defs/message_value" }
+    },
+    "confirm": {
+      "oneOf": [
+        { "type": "boolean" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "title": { "type": "string" },
+            "body": { "type": "string" },
+            "confirm": { "type": "string" },
+            "cancel": { "type": "string" },
+            "destructive": { "type": "boolean" }
+          }
+        }
+      ]
+    },
+    "when_match_value": {
+      "oneOf": [
+        {
+          "type": ["string", "number", "boolean"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "maxProperties": 1,
+          "properties": {
+            "eq": { "type": ["string", "number", "boolean"] },
+            "neq": { "type": ["string", "number", "boolean"] },
+            "contains": { "type": "string" },
+            "startswith": { "type": "string" },
+            "endswith": { "type": "string" },
+            "gt": { "type": ["string", "number"] },
+            "gte": { "type": ["string", "number"] },
+            "lt": { "type": ["string", "number"] },
+            "lte": { "type": ["string", "number"] }
+          }
+        }
+      ]
+    },
+    "when_match_map": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/when_match_value"
+      }
+    },
+    "when": {
+      "type": "object",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "required": ["all"],
+          "properties": {
+            "all": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/when" }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["any"],
+          "properties": {
+            "any": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/when" }
+            }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["not"],
+          "properties": {
+            "not": { "$ref": "#/$defs/when" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["file_exists"],
+          "properties": {
+            "file_exists": { "$ref": "#/$defs/nonempty_string" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["var"],
+          "properties": {
+            "var": { "$ref": "#/$defs/when_match_map" }
+          }
+        },
+        {
+          "additionalProperties": false,
+          "required": ["manifestField"],
+          "properties": {
+            "manifestField": { "$ref": "#/$defs/when_match_map" }
+          }
+        }
+      ]
+    },
+    "download": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "url", "dest"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonempty_string" },
+        "url": { "$ref": "#/$defs/nonempty_string" },
+        "dest": { "$ref": "#/$defs/nonempty_string" },
+        "sha256": { "type": "string" },
+        "checksum_algorithm": { "type": "string" },
+        "when": { "$ref": "#/$defs/when" },
+        "for_each": { "$ref": "#/$defs/string_or_array" }
+      }
+    },
+    "env_rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vars"],
+      "properties": {
+        "vars": { "$ref": "#/$defs/string_map" },
+        "when": { "$ref": "#/$defs/when" }
+      }
+    },
+    "variable_rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {
+        "value": { "type": "string" },
+        "when": { "$ref": "#/$defs/when" }
+      }
+    },
+    "variable": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "default": { "type": "string" },
+            "value": { "type": "string" },
+            "when": { "$ref": "#/$defs/when" },
+            "rules": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/variable_rule" }
+            }
+          }
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/variable_rule" }
+        }
+      ]
+    },
+    "entrypoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "anyOf": [
+        { "required": ["exe"] },
+        { "required": ["exe_portal"] }
+      ],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonempty_string" },
+        "name": { "type": "string" },
+        "label": { "type": "string" },
+        "icon": { "type": "string" },
+        "exe": { "$ref": "#/$defs/nonempty_string" },
+        "exe_portal": { "$ref": "#/$defs/portal_path" },
+        "args": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "default": { "type": "boolean" },
+        "prelaunch_script": { "type": "string" },
+        "prelaunch_script_portal": { "$ref": "#/$defs/portal_path" },
+        "when": { "$ref": "#/$defs/when" },
+        "env": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/env_rule" }
+        },
+        "component_overrides": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/runtime_component_override" }
+        },
+        "runtime_dll_overrides": { "$ref": "#/$defs/string_map" },
+        "runtime_env_overrides": { "$ref": "#/$defs/string_map" }
+      }
+    },
+    "remote_manifest_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url_template"],
+      "properties": {
+        "url_template": { "$ref": "#/$defs/nonempty_string" },
+        "files_path": { "type": "string" },
+        "checksum_field": { "type": "string" },
+        "checksum_algorithm": { "type": "string" },
+        "checksum_algorithm_field": { "type": "string" },
+        "filename_field": { "type": "string" },
+        "filter": { "$ref": "#/$defs/when" },
+        "sort_field": { "type": "string" },
+        "available_field": { "type": "string" },
+        "cache_ttl": { "type": "integer" }
+      }
+    },
+    "action_button": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": { "type": "string" },
+        "icon": { "type": "string" },
+        "style": {
+          "type": "string",
+          "enum": ["suggested", "destructive", "flat"]
+        }
+      }
+    },
+    "remote_manifest_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifest_url"],
+      "properties": {
+        "id_template": { "type": "string" },
+        "name_template": { "type": "string" },
+        "description": { "type": "string" },
+        "icon": { "type": "string" },
+        "button": { "$ref": "#/$defs/action_button" },
+        "manifest_url": { "$ref": "#/$defs/nonempty_string" },
+        "manifest_schema": { "$ref": "#/$defs/remote_manifest_schema" },
+        "dst": { "type": "string" },
+        "confirm": { "$ref": "#/$defs/confirm" }
+      }
+    },
+    "step_common": {
+      "type": "object",
+      "properties": {
+        "description": { "type": "string" },
+        "when": { "$ref": "#/$defs/when" },
+        "for_each": { "$ref": "#/$defs/string_or_array" },
+        "verify_paths": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "env": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/env_rule" }
+        },
+        "idempotent": { "type": "boolean" }
+      }
+    },
+    "step": {
+      "oneOf": [
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "command"],
+              "properties": {
+                "type": { "const": "task" },
+                "command": { "const": "create_prefix" }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "command"],
+              "if": { "properties": { "allow_nonzero_exit": { "const": true } }, "required": ["allow_nonzero_exit"] },
+              "then": { "required": ["verify_paths"], "properties": { "verify_paths": { "minItems": 1 } } },
+              "properties": {
+                "type": { "const": "wineexec" },
+                "command": { "$ref": "#/$defs/nonempty_string" },
+                "args": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "working_dir": { "type": "string" },
+                "allow_nonzero_exit": { "type": "boolean" }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "src", "dst"],
+              "properties": {
+                "type": { "const": "copy" },
+                "src": { "$ref": "#/$defs/nonempty_string" },
+                "dst": { "$ref": "#/$defs/nonempty_string" },
+                "allow_external_src": { "type": "boolean" }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "src", "dst"],
+              "properties": {
+                "type": { "const": "rename" },
+                "src": { "$ref": "#/$defs/nonempty_string" },
+                "dst": { "$ref": "#/$defs/nonempty_string" },
+                "overwrite_existing": { "type": "boolean" }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type"],
+              "anyOf": [
+                { "required": ["dst"] },
+                { "required": ["args"] }
+              ],
+              "properties": {
+                "type": { "const": "delete" },
+                "dst": { "type": "string" },
+                "args": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "dst", "content"],
+              "properties": {
+                "type": { "const": "write" },
+                "dst": { "$ref": "#/$defs/nonempty_string" },
+                "content": { "$ref": "#/$defs/string_or_array" }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "dst", "root", "element"],
+              "properties": {
+                "type": { "const": "xml_upsert" },
+                "dst": { "$ref": "#/$defs/nonempty_string" },
+                "root": { "$ref": "#/$defs/nonempty_string" },
+                "element": { "$ref": "#/$defs/nonempty_string" },
+                "match": { "$ref": "#/$defs/string_map" },
+                "children": { "$ref": "#/$defs/string_map" },
+                "create_if_missing": { "type": "boolean" },
+                "overwrite_existing": { "type": "boolean" },
+                "content": { "$ref": "#/$defs/string_or_array" }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "dst"],
+              "properties": {
+                "type": { "const": "text_upsert" },
+                "dst": { "$ref": "#/$defs/nonempty_string" },
+                "mode": { "type": "string" },
+                "args": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "content": { "$ref": "#/$defs/string_or_array" },
+                "create_if_missing": { "type": "boolean" }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "dst"],
+              "properties": {
+                "type": { "const": "link" },
+                "src": { "type": "string" },
+                "dst": { "$ref": "#/$defs/nonempty_string" },
+                "mode": { "type": "string" },
+                "args": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "command"],
+              "properties": {
+                "type": { "const": "redist" },
+                "command": { "$ref": "#/$defs/nonempty_string" }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "src", "dst"],
+              "properties": {
+                "type": { "const": "extract" },
+                "src": { "$ref": "#/$defs/nonempty_string" },
+                "dst": { "$ref": "#/$defs/nonempty_string" },
+                "args": {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/nonempty_string" }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "src", "dst"],
+              "properties": {
+                "type": { "const": "extract_multi" },
+                "src": { "$ref": "#/$defs/nonempty_string" },
+                "dst": { "$ref": "#/$defs/nonempty_string" },
+                "args": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "src"],
+              "properties": {
+                "type": { "const": "msi_install" },
+                "src": { "$ref": "#/$defs/nonempty_string" }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "dst", "args"],
+              "properties": {
+                "type": { "const": "fonts" },
+                "dst": { "$ref": "#/$defs/nonempty_string" },
+                "args": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": { "type": "string" }
+                },
+                "font_registrations": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "font_registrations"],
+              "properties": {
+                "type": { "const": "font_replacement" },
+                "font_registrations": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "src", "dst"],
+              "properties": {
+                "type": { "const": "cabextract" },
+                "src": { "$ref": "#/$defs/nonempty_string" },
+                "dst": { "$ref": "#/$defs/nonempty_string" },
+                "args": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "command", "mode"],
+              "properties": {
+                "type": { "const": "dll_override" },
+                "command": { "$ref": "#/$defs/nonempty_string" },
+                "mode": { "$ref": "#/$defs/nonempty_string" }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "command", "dst"],
+              "if": { "properties": { "command": { "const": "clone" } } },
+              "then": { "required": ["src"], "properties": { "src": { "$ref": "#/$defs/nonempty_string" } } },
+              "properties": {
+                "type": { "const": "git" },
+                "command": { "enum": ["clone", "pull"] },
+                "src": { "type": "string" },
+                "dst": { "$ref": "#/$defs/nonempty_string" },
+                "branch": { "type": "string" },
+                "tag": { "type": "string" },
+                "commit": { "type": "string" }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "command"],
+              "properties": {
+                "type": { "const": "set_component_override" },
+                "command": { "$ref": "#/$defs/nonempty_string" },
+                "mode": { "type": "string" }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "manifest_url", "manifest_schema"],
+              "properties": {
+                "type": { "const": "manifest_extract" },
+                "manifest_url": { "$ref": "#/$defs/nonempty_string" },
+                "manifest_schema": { "$ref": "#/$defs/remote_manifest_schema" },
+                "dst": { "type": "string" }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "manifest_url"],
+              "properties": {
+                "type": { "const": "manifest_cache_clear" },
+                "manifest_url": { "$ref": "#/$defs/nonempty_string" }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "manifest_url"],
+              "properties": {
+                "type": { "const": "manifest_downloads_clear" },
+                "manifest_url": { "$ref": "#/$defs/nonempty_string" }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            { "$ref": "#/$defs/step_common" },
+            {
+              "type": "object",
+              "required": ["type", "src"],
+              "properties": {
+                "type": { "const": "open" },
+                "src": { "$ref": "#/$defs/nonempty_string" }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonempty_string" },
+        "name": { "type": "string" },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "icon": { "type": "string" },
+        "button": { "$ref": "#/$defs/action_button" },
+        "variables": { "$ref": "#/$defs/string_map" },
+        "redists": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "downloads": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/download" }
+        },
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/step" }
+        },
+        "env": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/env_rule" }
+        },
+        "confirm": { "$ref": "#/$defs/confirm" }
+      }
+    }
+  }
+}

@@ -6,32 +6,70 @@ namespace Lumoria.Utils {
         string asset_name,
         string cache_root,
         string context
-    ) {
+    ) throws Error {
         var pattern = checksum_regex.strip ();
         if (pattern == "") return "";
 
+        GitHubAsset? checksum_asset;
         try {
-            var checksum_asset = find_github_asset_by_regex (release, pattern);
-            if (checksum_asset == null) {
-                warning ("No checksum asset found for %s release %s; continuing with size validation", context, release.tag_name);
-                return "";
-            }
-
-            var checksum_path = Path.build_filename (cache_root, checksum_asset.name);
-            if (!FileUtils.test (checksum_path, FileTest.EXISTS)) {
-                try {
-                    download_file_sync (checksum_asset.browser_download_url, checksum_path, null);
-                } catch (Error e) {
-                    warning ("Failed checksum download for %s: %s", context, e.message);
-                    return "";
-                }
-            }
-
-            return parse_checksum_for_asset (checksum_path, asset_name, context);
+            checksum_asset = find_github_asset_by_regex (release, pattern);
         } catch (RegexError e) {
-            warning ("Invalid checksum regex for %s: %s", context, e.message);
+            throw new IOError.FAILED ("Invalid checksum regex for %s: %s", context, e.message);
+        }
+        if (checksum_asset == null) {
             return "";
         }
+
+        var tag = release.tag_name.replace ("/", "-");
+        if (tag == "") tag = "unknown";
+        var checksum_dir = Path.build_filename (cache_root, tag);
+        ensure_dir (checksum_dir);
+        var checksum_path = Path.build_filename (checksum_dir, checksum_asset.name);
+        ensure_downloaded_file (checksum_asset.browser_download_url, checksum_path, checksum_asset.size, "", context);
+
+        var hex = parse_checksum_for_asset (checksum_path, asset_name, context);
+        if (hex == "") {
+            throw new IOError.FAILED ("Checksum entry not found for asset %s in %s (%s)", asset_name, checksum_path, context);
+        }
+        return hex;
+    }
+
+    public string? downloaded_file_problem (
+        string path,
+        int64 expected_size,
+        string expected_checksum,
+        string context,
+        string? algorithm = null,
+        bool checksum_required = false
+    ) {
+        if (!FileUtils.test (path, FileTest.IS_REGULAR)) {
+            return _("Download of %s did not produce a file").printf (context);
+        }
+
+        int64 actual_size = file_size_or_zero (path);
+        if (actual_size <= 0) {
+            return _("Download of %s was empty").printf (context);
+        }
+        if (expected_size > 0 && actual_size != expected_size) {
+            return _("Size mismatch for %s (%s / %s)").printf (
+                context,
+                GLib.format_size ((uint64) actual_size),
+                GLib.format_size ((uint64) expected_size)
+            );
+        }
+
+        if (expected_checksum == "") {
+            if (checksum_required) {
+                return _("Download of %s has no checksum").printf (context);
+            }
+        } else {
+            var actual = compute_checksum_for_expected (path, expected_checksum, algorithm);
+            if (actual == "" || actual.down () != expected_checksum.down ()) {
+                warning ("Checksum mismatch for %s (%s)", context, path);
+                return _("Checksum mismatch for %s").printf (context);
+            }
+        }
+        return null;
     }
 
     public bool validate_downloaded_file (
@@ -39,22 +77,10 @@ namespace Lumoria.Utils {
         int64 expected_size,
         string expected_checksum,
         string context,
-        string? algorithm = null
+        string? algorithm = null,
+        bool checksum_required = false
     ) {
-        if (!FileUtils.test (path, FileTest.EXISTS)) return false;
-
-        int64 actual_size = file_size_or_zero (path);
-        if (actual_size <= 0) return false;
-        if (expected_size > 0 && actual_size != expected_size) return false;
-
-        if (expected_checksum != "") {
-            var actual = compute_checksum_for_expected (path, expected_checksum, algorithm);
-            if (actual == "" || actual.down () != expected_checksum.down ()) {
-                warning ("Checksum mismatch for %s (%s)", context, path);
-                return false;
-            }
-        }
-        return true;
+        return downloaded_file_problem (path, expected_size, expected_checksum, context, algorithm, checksum_required) == null;
     }
 
     public void ensure_downloaded_file (
@@ -64,29 +90,48 @@ namespace Lumoria.Utils {
         string expected_checksum,
         string context,
         ProgressCallback? progress = null,
-        string? algorithm = null
+        string? algorithm = null,
+        Cancellable? cancellable = null,
+        bool checksum_required = false
+    ) throws Error {
+        if (validate_downloaded_file (dest, expected_size, expected_checksum, context, algorithm, checksum_required)) return;
+        download_file_verified (
+            url, dest, expected_size, expected_checksum, context, progress, algorithm, cancellable, checksum_required
+        );
+    }
+
+    /* Downloads to dest.part, verifies it once, then renames over dest. */
+    public void download_file_verified (
+        string url,
+        string dest,
+        int64 expected_size,
+        string expected_checksum,
+        string context,
+        ProgressCallback? progress = null,
+        string? algorithm = null,
+        Cancellable? cancellable = null,
+        bool checksum_required = false
     ) throws Error {
         ensure_dir (Path.get_dirname (dest));
-        if (!validate_downloaded_file (dest, expected_size, expected_checksum, context, algorithm)) {
-            if (FileUtils.test (dest, FileTest.EXISTS)) {
-                FileUtils.remove (dest);
+        if (FileUtils.test (dest, FileTest.EXISTS)) FileUtils.remove (dest);
+        var partial = dest + ".part";
+        try {
+            download_file_sync (url, partial, progress, cancellable);
+            check_cancelled (cancellable);
+            var problem = downloaded_file_problem (partial, expected_size, expected_checksum, context, algorithm, checksum_required);
+            if (problem != null) {
+                FileUtils.remove (partial);
+                throw new IOError.FAILED ("%s", problem);
             }
-            var partial = dest + ".part";
-            if (FileUtils.test (partial, FileTest.EXISTS)) FileUtils.remove (partial);
-            try {
-                download_file_sync (url, partial, progress);
-                if (!validate_downloaded_file (partial, expected_size, expected_checksum, context, algorithm)) {
-                    throw new IOError.FAILED ("Downloaded file is invalid for %s: %s", context, dest);
-                }
-                if (FileUtils.rename (partial, dest) != 0) {
-                    throw new IOError.FAILED ("Failed to commit downloaded file for %s", context);
-                }
-            } finally {
-                if (FileUtils.test (partial, FileTest.EXISTS)) FileUtils.remove (partial);
+            if (FileUtils.rename (partial, dest) != 0) {
+                throw new IOError.FAILED ("Failed to commit downloaded file for %s", context);
             }
-        }
-        if (!validate_downloaded_file (dest, expected_size, expected_checksum, context, algorithm)) {
-            throw new IOError.FAILED ("Downloaded file is invalid for %s: %s", context, dest);
+        } catch (Error e) {
+            if (!(e is IOError.CANCELLED) && FileUtils.test (partial, FileTest.EXISTS)
+                && file_size_or_zero (partial) <= 0) {
+                FileUtils.remove (partial);
+            }
+            throw e;
         }
     }
 
@@ -139,7 +184,6 @@ namespace Lumoria.Utils {
                 if (hex != null) return hex;
             }
         }
-        warning ("Checksum entry not found for asset %s in %s (%s); continuing with size validation", asset_name, checksum_path, context);
         return "";
     }
 

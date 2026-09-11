@@ -1,0 +1,46 @@
+{
+  "$schema": "https://manifests.lumoria.dev/1/schemas/component.json",
+  "id": "d7vk",
+  "name": "D7VK",
+  "recommended": true,
+  "features": [
+    "dxvk_config"
+  ],
+  "links": {
+    "website": "https://github.com/WinterSnowfall/d7vk",
+    "license": "https://spdx.org/licenses/Zlib.html"
+  },
+  "messages": {
+    "description": "Vulkan-based implementation of D3D7, 6, 5 and 3 for Linux / Wine, spun off from DXVK. Requires a **Vulkan 1.3** or newer GPU."
+  },
+  "github_repo": "WinterSnowfall/d7vk",
+  "asset_regex": "d7vk-.*\\.zip$",
+  "checksum_regex": "",
+  "default_version": "latest",
+  "skip_versions": [
+    "v1.12"
+  ],
+  "system_env_defaults": {},
+  "overrides": {
+    "ddraw": "n,b"
+  },
+  "steps": [
+    {
+      "type": "rename",
+      "description": "Rename the Wine builtin ddraw.dll to ddraw_.dll",
+      "src": "${var.SYS32}/ddraw.dll",
+      "dst": "${var.SYS32}/ddraw_.dll",
+      "overwrite_existing": false,
+      "idempotent": true
+    },
+    {
+      "type": "copy",
+      "description": "Install the d7vk ddraw.dll",
+      "src": "${var.COMPONENT}/x32/ddraw.dll",
+      "dst": "${var.SYS32}",
+      "when": {
+        "file_exists": "${var.SYS32}/ddraw_.dll"
+      }
+    }
+  ]
+}

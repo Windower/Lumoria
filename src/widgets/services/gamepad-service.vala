@@ -46,7 +46,7 @@ namespace Lumoria.Widgets.Services {
                 else disconnect_manette ();
             });
 
-            if (navigation_enabled ()) connect_manette ();
+            if (Utils.Preferences.instance ().gamepad_navigation) connect_manette ();
         }
 
         private void connect_manette () {
@@ -185,16 +185,12 @@ namespace Lumoria.Widgets.Services {
         }
 
         private void dispatch (GamepadAction action) {
-            if (!navigation_enabled ()) {
+            if (!Utils.Preferences.instance ().gamepad_navigation) {
                 reset_input_state ();
                 return;
             }
             if (should_coalesce_navigation_action (action)) return;
             action_pressed (action);
-        }
-
-        private bool navigation_enabled () {
-            return Utils.Preferences.instance ().gamepad_navigation;
         }
 
         private bool should_coalesce_navigation_action (GamepadAction action) {

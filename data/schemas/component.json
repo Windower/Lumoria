@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://manifests.lumoria.dev/1/schemas/component.json",
+  "title": "Lumoria component manifest",
+  "unevaluatedProperties": false,
+  "allOf": [
+    { "$ref": "installable.json" },
+    {
+      "type": "object",
+      "properties": {
+        "github_repo": { "type": "string" },
+        "asset_regex": { "type": "string" },
+        "checksum_regex": { "type": "string" },
+        "default_version": { "type": "string" },
+        "source_archive": { "type": "string" },
+        "installers": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "system_env_defaults": { "$ref": "defs.json#/$defs/string_map" },
+        "overrides": { "$ref": "defs.json#/$defs/string_map" }
+      }
+    }
+  ]
+}

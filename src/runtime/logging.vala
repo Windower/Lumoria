@@ -5,7 +5,6 @@ namespace Lumoria.Runtime {
     public enum LogType {
         WARN,
         ERROR,
-        WINE,
         CACHED,
         DONE,
         SKIP,
@@ -19,10 +18,10 @@ namespace Lumoria.Runtime {
         DLL_OVERRIDE,
         FONTS,
         MSPACK,
+        MSI,
         ENV,
         CMD,
         CWD,
-        STDERR,
         EXIT,
         PATCH,
         COMPONENT,
@@ -32,29 +31,27 @@ namespace Lumoria.Runtime {
 
     public class RuntimeLog : Object {
         public string log_path { get; private set; default = ""; }
-        private LogFunc? sink;
         private FileOutputStream? stream;
         private bool stream_failed = false;
-        private Mutex mutex;
+        private Mutex mutex = Mutex ();
 
-        public RuntimeLog (string log_path = "", owned LogFunc? sink = null) {
+        public RuntimeLog (string log_path = "") {
             this.log_path = log_path;
-            this.sink = (owned) sink;
         }
 
-        public static RuntimeLog for_install (string prefix_path, owned LogFunc? sink = null) {
+        public static RuntimeLog for_install (string prefix_path) {
             return new RuntimeLog (resolve_log_path (
                 prefix_path,
-                "install-%s.log".printf (new DateTime.now_local ().format ("%Y%m%d-%H%M%S")),
+                "install-%s.log".printf (Utils.log_stamp ()),
                 true
-            ), (owned) sink);
+            ));
         }
 
-        public static RuntimeLog for_run (string prefix_path, string session_id, owned LogFunc? sink = null) {
+        public static RuntimeLog for_run (string prefix_path, string session_id) {
             return new RuntimeLog (resolve_log_path (
                 prefix_path,
-                "run-%s-%s.log".printf (new DateTime.now_local ().format ("%Y%m%d-%H%M%S"), session_id)
-            ), (owned) sink);
+                "run-%s-%s.log".printf (Utils.log_stamp (), session_id)
+            ));
         }
 
         public bool is_disk_enabled () {
@@ -70,18 +67,14 @@ namespace Lumoria.Runtime {
         }
 
         public void emit_line (string message) {
+            if (log_path == "") return;
             mutex.lock ();
-            if (sink != null) {
-                sink (message);
-            }
-            if (log_path != "") {
-                ensure_stream ();
-                if (stream != null) {
-                    try {
-                        stream.write (message.data);
-                    } catch (Error e) {
-                        warning ("Failed to write to log stream: %s", e.message);
-                    }
+            ensure_stream ();
+            if (stream != null) {
+                try {
+                    stream.write (message.data);
+                } catch (Error e) {
+                    warning ("Failed to write to log stream: %s", e.message);
                 }
             }
             mutex.unlock ();
@@ -149,7 +142,6 @@ namespace Lumoria.Runtime {
             switch (tag) {
                 case LogType.WARN: return "warn";
                 case LogType.ERROR: return "error";
-                case LogType.WINE: return "wine";
                 case LogType.CACHED: return "cached";
                 case LogType.DONE: return "done";
                 case LogType.SKIP: return "skip";
@@ -163,10 +155,10 @@ namespace Lumoria.Runtime {
                 case LogType.DLL_OVERRIDE: return "dll_override";
                 case LogType.FONTS: return "fonts";
                 case LogType.MSPACK: return "mspack";
+                case LogType.MSI: return "msi";
                 case LogType.ENV: return "env";
                 case LogType.CMD: return "cmd";
                 case LogType.CWD: return "cwd";
-                case LogType.STDERR: return "stderr";
                 case LogType.EXIT: return "exit";
                 case LogType.PATCH: return "patch";
                 case LogType.COMPONENT: return "component";

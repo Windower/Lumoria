@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://manifests.lumoria.dev/1/schemas/installer.json",
+  "title": "Lumoria installer manifest",
+  "unevaluatedProperties": false,
+  "allOf": [
+    { "$ref": "installable.json" },
+    {
+      "type": "object",
+      "properties": {
+        "version": { "type": "string" },
+        "regions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id"],
+            "properties": {
+              "id": { "$ref": "defs.json#/$defs/nonempty_string" },
+              "name": { "type": "string" }
+            }
+          }
+        },
+        "default_region": { "type": "string" },
+        "launchers": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "default_launcher": { "type": "string" },
+        "patches": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "type", "target", "setting", "flag"],
+            "properties": {
+              "id": { "$ref": "defs.json#/$defs/nonempty_string" },
+              "name": { "type": "string" },
+              "type": { "const": "pe_characteristic" },
+              "target": { "$ref": "defs.json#/$defs/nonempty_string" },
+              "setting": { "const": "large_address_aware" },
+              "flag": { "const": "IMAGE_FILE_LARGE_ADDRESS_AWARE" }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

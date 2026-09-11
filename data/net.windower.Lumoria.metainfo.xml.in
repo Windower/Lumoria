@@ -39,55 +39,74 @@
 
   <requires>
       <display_length compare="ge">600</display_length>
+  </requires>
+
+  <recommends>
       <control>pointing</control>
       <control>keyboard</control>
-  </requires>
-  
+  </recommends>
+
   <supports>
-    <control>gamepad</control>
+      <control>gamepad</control>
   </supports>
 
   <categories>
     <category>Game</category>
-    <category>PackageManager</category>
   </categories>
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/Windower/Lumoria/refs/heads/main/assets/screenshots/4-prefix-setup.png</image>
+      <image>https://raw.githubusercontent.com/Windower/Lumoria/refs/heads/main/assets/screenshots/v0.2/prefix-overview/Prefix-Overview-a.png</image>
       <caption>The main interface of Lumoria</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/Windower/Lumoria/refs/heads/main/assets/screenshots/3-installation.png</image>
+      <image>https://raw.githubusercontent.com/Windower/Lumoria/refs/heads/main/assets/screenshots/v0.2/Home.png</image>
+      <caption>Quick Launch and Favorites</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/Windower/Lumoria/refs/heads/main/assets/screenshots/v0.2/create-prefix/Installer.png</image>
       <caption>Game Installation</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/Windower/Lumoria/refs/heads/main/assets/screenshots/5-manage-prefix.png</image>
+      <image>https://raw.githubusercontent.com/Windower/Lumoria/refs/heads/main/assets/screenshots/v0.2/prefix-overview/Prefix-Overview-Runtime-Runner.png</image>
       <caption>Prefix Management</caption>
     </screenshot>
   </screenshots>
 
   <releases>
-  <release version="0.1.26" date="2026-09-01">
-  <description>
-    <ul>
-      <li>Fix bad download links.</li>
-      <li>Fix expansion of DXVK-Sarek 1.13+ zip files.</li>
-    </ul>
-  </description>
-  </release>
-  <release version="0.1.25" date="2026-08-26">
-    <description>
-      <ul>
-        <li>Major installer and launcher overhaul. Empty prefixes can now be created.</li>
-        <li>CAB files now extract correctly on Arch.</li>
-        <li>Feral GameMode support.</li>
-        <li>Installer log is less spammy and no longer lags the UI.</li>
-        <li>DXVK-Sarek updates.</li>
-        <li>Preference to close Lumoria after launching.</li>
-      </ul>
-    </description>
-  </release>
+    <release version="0.2.0" date="2026-09-10">
+      <description>
+        <ul>
+          <li>Completely overhauled the user interface!</li>
+          <li>Home page with Quick Launch and favorite tiles, including drag-and-drop reorder.</li>
+          <li>Edit launch display: nickname, custom-entry name, and icon picker with a built-in FFXI icon pack.</li>
+          <li>Pull updates to installer manifests without needing to update Lumoria itself.</li>
+          <li>Add post install scripts to existing prefixes.</li>
+          <li>Installing should be much faster now on all hardware.</li>
+          <li>... and more!</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.26" date="2026-09-01">
+      <description>
+        <ul>
+          <li>Fix bad download links.</li>
+          <li>Fix expansion of DXVK-Sarek 1.13+ zip files.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.25" date="2026-08-26">
+      <description>
+        <ul>
+          <li>Major installer and launcher overhaul. Empty prefixes can now be created.</li>
+          <li>CAB files now extract correctly on Arch.</li>
+          <li>Feral GameMode support.</li>
+          <li>Installer log is less spammy and no longer lags the UI.</li>
+          <li>DXVK-Sarek updates.</li>
+          <li>Preference to close Lumoria after launching.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.23" date="2026-07-08">
       <description>
         <ul>
@@ -138,7 +157,7 @@
     </release>  
     <release version="0.1.17" date="2026-05-27">
       <description>
-        <ul>.
+        <ul>
           <li>SteamOS Desktop Mode input less terrible. Gaming mode still has issues.</li>
           <li>SteamOS: Fix wine falling back to D3D on occasion while in gaming mode.</li>
           <li>Flatpak: Enabled Windower addons and plugins disabling when installed outside of sandboxed directory after successive restarts.</li>

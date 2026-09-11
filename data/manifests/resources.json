@@ -1,0 +1,13 @@
+{
+  "$schema": "https://manifests.lumoria.dev/1/schemas/resources.json",
+  "resources": [
+    {
+      "id": "ffxi-icons",
+      "kind": "archive",
+      "url": "https://components.lumoria.dev/icons/ffxi-icons/ffxi-icons-0.2-128x128.tar.xz",
+      "sha256": "9f1292e4f4874889b065941878f0df1af242cd6cd16c31f79ecc2eeda5ccd534",
+      "size": 39771756,
+      "required": true
+    }
+  ]
+}

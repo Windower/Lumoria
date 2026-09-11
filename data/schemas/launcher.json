@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://manifests.lumoria.dev/1/schemas/launcher.json",
+  "title": "Lumoria launcher manifest",
+  "unevaluatedProperties": false,
+  "allOf": [
+    { "$ref": "installable.json" },
+    {
+      "type": "object",
+      "properties": {
+        "prefix": { "type": "string", "deprecated": true },
+        "default": { "type": "boolean" },
+        "icon": { "type": "string" }
+      }
+    }
+  ]
+}

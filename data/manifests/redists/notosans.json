@@ -1,0 +1,33 @@
+{
+  "$schema": "https://manifests.lumoria.dev/1/schemas/redist.json",
+  "id": "notosans",
+  "name": "Noto Sans",
+  "downloads": [
+    {
+      "id": "notosans_archive",
+      "url": "https://github.com/notofonts/latin-greek-cyrillic/releases/download/NotoSans-v2.015/NotoSans-v2.015.zip",
+      "dest": "${var.CACHE_REDIST}/notosans/NotoSans-v2.015.zip",
+      "sha256": "0c34df072a3fa7efbb7cbf34950e1f971a4447cffe365d3a359e2d4089b958f5"
+    }
+  ],
+  "steps": [
+    {
+      "type": "fonts",
+      "description": "Install Noto Sans",
+      "dst": "${var.FONTS}",
+      "args": [
+        "${var.CACHE_REDIST}/notosans/NotoSans-v2.015.zip"
+      ],
+      "font_registrations": [
+        "notosans-regular.ttf|Noto Sans",
+        "notosans-light.ttf|Noto Sans Light",
+        "notosans-bold.ttf|Noto Sans Bold"
+      ],
+      "when": {
+        "not": {
+          "file_exists": "${var.FONTS}/notosans-regular.ttf"
+        }
+      }
+    }
+  ]
+}

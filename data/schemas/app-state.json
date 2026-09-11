@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://manifests.lumoria.dev/1/schemas/app-state.json",
+  "title": "Lumoria app state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format_version"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format_version": { "type": "integer", "minimum": 1 },
+    "selected_prefix_id": { "type": "string" },
+    "page": {
+      "enum": ["empty", "create", "prefix", "home", "components", "runners", "storage", "preferences"]
+    },
+    "quick_launch": { "$ref": "#/$defs/quick_launch_target" },
+    "favorites": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/quick_launch_target" }
+    },
+    "quick_launch_desktop_id": { "type": "string" },
+    "quick_launch_steam_app_id": { "type": "string" },
+    "recent_icons": {
+      "type": "array",
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": { "$ref": "defs.json#/$defs/icon_key" }
+    }
+  },
+  "$defs": {
+    "quick_launch_target": {
+      "type": "object",
+      "description": "Favorites store prefix_id and action_id. The Quick Launch slot uses prefix_id only; action_id on that slot is ignored.",
+      "properties": {
+        "prefix_id": { "type": "string" },
+        "action_id": {
+          "type": "string",
+          "description": "Favorite entrypoint. Unused on the Quick Launch slot."
+        }
+      }
+    }
+  }
+}

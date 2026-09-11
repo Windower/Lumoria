@@ -21,8 +21,10 @@ namespace Lumoria.Runtime {
         content.add (DXVK_CONFIG_MARKER + " Changes may be overwritten.");
         content.add_all (lines);
         try {
-            Utils.ensure_dir (Path.get_dirname (config_path));
-            FileUtils.set_contents (config_path, string.joinv ("\n", Utils.arraylist_to_strv (content)) + "\n");
+            Utils.write_text_atomic (
+                config_path,
+                string.joinv ("\n", Utils.strv (content)) + "\n"
+            );
             env.set_var ("DXVK_CONFIG_FILE", config_path);
             logger.typed (LogType.DEBUG, "wrote DXVK config: %s".printf (config_path));
         } catch (Error e) {

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://manifests.lumoria.dev/1/schemas/redist.json",
+  "id": "consolas",
+  "name": "Consolas",
+  "downloads": [
+    {
+      "id": "pptviewer",
+      "url": "https://share.lumoria.dev/redists/pptfonts/PowerPointViewer.exe",
+      "dest": "${var.CACHE_REDIST}/pptfonts/PowerPointViewer.exe",
+      "sha256": "249473568eba7a1e4f95498acba594e0f42e6581add4dead70c1dfb908a09423"
+    }
+  ],
+  "steps": [
+    {
+      "type": "cabextract",
+      "description": "Extract ppviewer.cab",
+      "src": "${var.CACHE_REDIST}/pptfonts/PowerPointViewer.exe",
+      "args": [
+        "ppviewer.cab"
+      ],
+      "dst": "${var.CACHE_REDIST}/pptfonts/ppviewer.cab"
+    },
+    {
+      "type": "fonts",
+      "description": "Install Consolas",
+      "dst": "${var.FONTS}",
+      "args": [
+        "${var.CACHE_REDIST}/pptfonts/ppviewer.cab"
+      ],
+      "font_registrations": [
+        "consola.ttf|Consolas",
+        "consolab.ttf|Consolas Bold",
+        "consolai.ttf|Consolas Italic",
+        "consolaz.ttf|Consolas Bold Italic"
+      ],
+      "when": {
+        "not": {
+          "file_exists": "${var.FONTS}/consola.ttf"
+        }
+      }
+    }
+  ]
+}

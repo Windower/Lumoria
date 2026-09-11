@@ -1,8 +1,7 @@
 namespace Lumoria.Widgets.Preferences {
 
     public class StoragePage : Gtk.Box {
-        public signal void toast_message (string message);
-
+        private Lumoria.Application.Context ctx;
         private Models.PrefixRegistry registry;
         private Cancellable? cancellable;
 
@@ -11,24 +10,29 @@ namespace Lumoria.Widgets.Preferences {
         private SizeRow app_data_row;
         private SizeRow prefixes_row;
         private SizeRow total_row;
+        private PageSection prefix_group;
 
         private Gee.HashMap<Utils.StorageCategory, CacheClearRow> cache_rows;
         private Gee.HashMap<string, SizeRow> prefix_rows;
 
-        public StoragePage (Models.PrefixRegistry registry) {
+        public StoragePage (Lumoria.Application.Context ctx) {
             Object (orientation: Gtk.Orientation.VERTICAL, spacing: 0);
-            this.registry = registry;
+            this.ctx = ctx;
+            this.registry = ctx.registry;
             cache_rows = new Gee.HashMap<Utils.StorageCategory, CacheClearRow> ();
             prefix_rows = new Gee.HashMap<string, SizeRow> ();
             build_ui ();
+            ctx.prefixes.list_changed.connect (rebuild_prefix_rows);
 
             map.connect (on_mapped);
             unmap.connect (on_unmapped);
         }
 
         private void build_ui () {
-            var summary_group = SettingsShared.build_group (_("Storage Summary"));
-            summary_group.description = _("Total storage used by Lumoria data and caches.");
+            var summary_group = new PageSection (
+                _("Storage Summary"),
+                _("Total storage used by Lumoria data and caches.")
+            );
 
             total_row = new SizeRow (_("Total Storage"));
             total_row.add_css_class ("property");
@@ -36,8 +40,10 @@ namespace Lumoria.Widgets.Preferences {
 
             append (summary_group);
 
-            var usage_group = SettingsShared.build_group (_("Installed Data"), 24, 12, 12);
-            usage_group.description = _("Storage used by installed runners, components, and Lumoria data.");
+            var usage_group = new PageSection (
+                _("Installed Data"),
+                _("Storage used by installed runners, components, and Lumoria data.")
+            );
 
             runners_row = new SizeRow (_("Installed Runners"));
             usage_group.add (runners_row);
@@ -51,23 +57,22 @@ namespace Lumoria.Widgets.Preferences {
 
             append (usage_group);
 
-            var prefix_group = SettingsShared.build_group (_("Wine Prefixes"), 24, 12, 12);
-            prefix_group.description = _("Storage used by each registered Wine prefix.");
+            prefix_group = new PageSection (
+                _("Wine Prefixes"),
+                _("Storage used by each registered Wine prefix.")
+            );
 
             prefixes_row = new SizeRow (_("Total Prefix Storage"));
+            prefixes_row.reserve_action ();
             prefix_group.add (prefixes_row);
-
-            foreach (var entry in registry.prefixes) {
-                var row = new SizeRow (entry.display_name ());
-                row.subtitle = entry.resolved_path ();
-                prefix_rows[entry.id] = row;
-                prefix_group.add (row);
-            }
+            rebuild_prefix_rows ();
 
             append (prefix_group);
 
-            var cache_group = SettingsShared.build_group (_("Cache"), 24, 12, 12);
-            cache_group.description = _("Clear cached metadata and downloaded archives.");
+            var cache_group = new PageSection (
+                _("Cache"),
+                _("Clear cached metadata and downloaded archives.")
+            );
 
             add_cache_row (cache_group, _("Runner Cache"), "runners",
                 Utils.StorageCategory.CACHE_RUNNERS, _("Runner cache cleared."));
@@ -81,47 +86,49 @@ namespace Lumoria.Widgets.Preferences {
                 Utils.StorageCategory.CACHE_REDIST, _("Redistributable cache cleared."));
             add_cache_row (cache_group, _("Remote Manifest Cache"), "remote-manifests",
                 Utils.StorageCategory.CACHE_REMOTE_MANIFESTS, _("Remote manifest cache cleared."));
+            add_cache_row (cache_group, _("Manifest Cache"), "manifests",
+                Utils.StorageCategory.CACHE_MANIFESTS, _("Manifest cache cleared."));
 
             var clear_all = new Adw.ActionRow ();
             clear_all.title = _("Clear All Cache");
             clear_all.activatable = true;
             clear_all.add_css_class ("error");
-            clear_all.activated.connect (() => {
-                if (Utils.remove_recursive (Utils.cache_dir ())) {
-                    var cache = Utils.StorageCache.instance ();
-                    cache.invalidate_all_cache ();
-                    cache.invalidate (Utils.StorageCategory.APP_DATA);
-                    refresh ();
-                    toast_message (_("All cache cleared."));
-                } else {
-                    toast_message (_("Failed to clear some cache files."));
-                }
-            });
+            clear_all.activated.connect (clear_all_cache);
             cache_group.add (clear_all);
 
             append (cache_group);
         }
 
+        private void clear_all_cache () {
+            Utils.StorageCache.instance ().clear_all_cache_async ((error) => {
+                ctx.reload_manifests ();
+                finish_clear (error, _("All cache cleared."));
+            });
+        }
+
+        private void finish_clear (Error? error, string success_toast) {
+            refresh ();
+            ctx.show_toast (error != null ? user_error (error) : success_toast);
+        }
+
         private void add_cache_row (
-            Adw.PreferencesGroup group,
+            PageSection group,
             string title,
             string cache_subdir,
             Utils.StorageCategory category,
             string success_toast
         ) {
-            var row = new CacheClearRow (title);
-            row.cleared.connect (() => {
-                if (Utils.remove_recursive (Path.build_filename (Utils.cache_dir (), cache_subdir))) {
-                    Utils.StorageCache.instance ().invalidate (category);
-                    refresh ();
-                    toast_message (success_toast);
-                } else {
-                    toast_message (_("Failed to clear cache."));
-                }
-            });
-
+            var row = new CacheClearRow (title, cache_subdir, category, success_toast);
+            row.cleared.connect (on_cache_cleared);
             cache_rows[category] = row;
             group.add (row);
+        }
+
+        private void on_cache_cleared (CacheClearRow row) {
+            Utils.StorageCache.instance ().clear_cache_async (row.category, row.cache_subdir, (error) => {
+                if (row.category == Utils.StorageCategory.CACHE_MANIFESTS) ctx.reload_manifests ();
+                finish_clear (error, row.success_toast);
+            });
         }
 
         private void on_mapped () {
@@ -208,8 +215,32 @@ namespace Lumoria.Widgets.Preferences {
         }
 
         private void set_app_data_size (int64 bytes) {
-            app_data_row.visible = bytes > 0;
+            app_data_row.visible = bytes != 0;
             app_data_row.set_size (bytes);
+        }
+
+        private void rebuild_prefix_rows () {
+            foreach (var row in prefix_rows.values) {
+                prefix_group.remove_row (row);
+            }
+            prefix_rows.clear ();
+
+            var cache = Utils.StorageCache.instance ();
+            foreach (var entry in ctx.registry.prefixes) {
+                var row = new SizeRow (entry.display_name ());
+                row.subtitle = entry.needs_grant ()
+                    ? _("Permission required to access this prefix")
+                    : entry.resolved_path ();
+                if (cache.is_prefix_valid (entry.id)) {
+                    row.set_size (cache.get_prefix_size (entry.id));
+                }
+
+                row.add_action (new RemovePrefixButton (ctx, entry));
+
+                prefix_rows[entry.id] = row;
+                prefix_group.add (row);
+            }
+            sync_prefix_rows ();
         }
 
         private void sync_prefix_rows () {
@@ -241,42 +272,104 @@ namespace Lumoria.Widgets.Preferences {
     }
 
     private class SizeRow : Adw.ActionRow {
-        private Gtk.Widget? suffix_widget;
+        private Gtk.Box trail;
+        private Gtk.Stack meter;
+        private Gtk.Label size_label;
+        private Gtk.Spinner spinner;
+        private Gtk.Widget? action;
 
         public SizeRow (string row_title) {
             title = row_title;
+
+            size_label = new Gtk.Label ("");
+            size_label.xalign = 1f;
+            size_label.width_chars = 8;
+            size_label.max_width_chars = 8;
+            size_label.ellipsize = Pango.EllipsizeMode.NONE;
+
+            spinner = new Gtk.Spinner ();
+            spinner.spinning = true;
+            spinner.halign = Gtk.Align.END;
+
+            meter = new Gtk.Stack ();
+            meter.hhomogeneous = true;
+            meter.add_child (size_label);
+            meter.add_child (spinner);
+
+            trail = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 8);
+            trail.valign = Gtk.Align.CENTER;
+            trail.append (meter);
+            add_suffix (trail);
             set_loading ();
         }
 
+        public void add_action (Gtk.Widget widget) {
+            if (action != null) trail.remove (action);
+            action = widget;
+            action.valign = Gtk.Align.CENTER;
+            trail.append (action);
+        }
+
+        public void reserve_action () {
+            var spacer = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 0);
+            spacer.width_request = 34;
+            add_action (spacer);
+        }
+
         public void set_size (int64 bytes) {
-            replace_suffix (new Gtk.Label (format_bytes (bytes)));
+            size_label.label = format_bytes (bytes);
+            meter.visible_child = size_label;
         }
 
         public void set_loading () {
-            var spinner = new Gtk.Spinner ();
             spinner.spinning = true;
-            replace_suffix (spinner);
-        }
-
-        private void replace_suffix (Gtk.Widget widget) {
-            if (suffix_widget != null) {
-                remove (suffix_widget);
-            }
-            suffix_widget = widget;
-            suffix_widget.valign = Gtk.Align.CENTER;
-            add_suffix (suffix_widget);
+            meter.visible_child = spinner;
         }
 
         private static string format_bytes (int64 bytes) {
-            return GLib.format_size ((uint64) (bytes > 0 ? bytes : 0));
+            if (bytes < 0) return _("Unknown");
+            return GLib.format_size ((uint64) bytes);
+        }
+    }
+
+    private class RemovePrefixButton : Gtk.Button {
+        private Lumoria.Application.Context ctx;
+        private Models.PrefixEntry entry;
+
+        public RemovePrefixButton (Lumoria.Application.Context ctx, Models.PrefixEntry entry) {
+            Object (icon_name: IconRegistry.DELETE, valign: Gtk.Align.CENTER);
+            this.ctx = ctx;
+            this.entry = entry;
+            PageChrome.set_icon_label (this, _("Remove Prefix"));
+            PageChrome.style_icon_button (this);
+            add_css_class ("destructive-action");
+            clicked.connect (confirm);
+        }
+
+        private void confirm () {
+            Dialogs.PrefixDialogs.present_remove_prefix_dialog (this, entry, (deleted_files) => {
+                ctx.remove_prefix (entry, deleted_files);
+            });
         }
     }
 
     private class CacheClearRow : Adw.ActionRow {
         public signal void cleared ();
 
-        public CacheClearRow (string row_title) {
+        public string cache_subdir;
+        public Utils.StorageCategory category;
+        public string success_toast;
+
+        public CacheClearRow (
+            string row_title,
+            string cache_subdir,
+            Utils.StorageCategory category,
+            string success_toast
+        ) {
             title = row_title;
+            this.cache_subdir = cache_subdir;
+            this.category = category;
+            this.success_toast = success_toast;
 
             var btn = new Gtk.Button.with_label (_("Clear"));
             btn.valign = Gtk.Align.CENTER;
@@ -285,11 +378,11 @@ namespace Lumoria.Widgets.Preferences {
         }
 
         public void set_size (int64 bytes) {
-            subtitle = GLib.format_size ((uint64) (bytes > 0 ? bytes : 0));
+            subtitle = bytes < 0 ? _("Unknown") : GLib.format_size ((uint64) bytes);
         }
 
         public void set_loading () {
-            subtitle = _("Calculating\u2026");
+            subtitle = _("Calculating...");
         }
     }
 }

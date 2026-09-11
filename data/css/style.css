@@ -1,5 +1,256 @@
-.prefix-detail-grid label.dim-label {
-    font-weight: 600;
+toast-overlay,
+overlay-split-view,
+overlay-split-view > widget,
+.content,
+headerbar,
+windowtitle,
+scrolledwindow,
+.page-switcher-scroll,
+.page-switcher-scroll *,
+.prefix-banner,
+.prefix-banner-header,
+.prefix-banner-name-wrap,
+.prefix-banner-name,
+.prefix-banner-meta,
+.navigation-sidebar,
+.navigation-sidebar row {
+    min-width: 0;
+}
+
+image.windower-mandie {
+    -gtk-icon-style: symbolic;
+    color: @accent_color;
+}
+
+.manifest-link-tray {
+    background-color: alpha(@theme_fg_color, 0.08);
+    border-radius: 999px;
+    padding: 2px 4px;
+}
+
+.manifest-link-tray button {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 0;
+    border-radius: 999px;
+}
+
+.manifest-link-tray button:hover {
+    background-color: alpha(@accent_bg_color, 0.18);
+}
+
+.manifest-link-tray button image {
+    -gtk-icon-style: symbolic;
+    color: inherit;
+}
+
+button.flat.destructive-action,
+button.flat.destructive-action image {
+    color: @destructive_color;
+}
+
+.page-switcher-scroll {
+    background-color: mix(@window_bg_color, @theme_fg_color, 0.1);
+    border-top: 1px solid @borders;
+    border-bottom: 1px solid @borders;
+    padding: 0;
+}
+
+toolbarview > .top-bar > .page-switcher-scroll {
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+.page-switcher-scroll > scrollbar,
+.page-switcher-scroll > scrollbar.horizontal,
+.page-switcher-scroll > scrollbar > range > trough {
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+}
+
+.page-switcher-scroll viewswitcher,
+.page-switcher-scroll viewswitcher.narrow {
+    background-color: transparent;
+    min-height: 0;
+    margin: 0;
+    padding: 4px 6px;
+}
+
+.page-switcher-scroll viewswitcher button.toggle {
+    min-width: 64px;
+    min-height: 0;
+    padding: 0;
+}
+
+.page-switcher-scroll viewswitcher button.toggle > stack > box.narrow {
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+
+.page-switcher-scroll viewswitcher button.toggle > stack > box.narrow > label {
+    min-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+.page-switcher-scroll button,
+.page-switcher-scroll button label,
+.page-switcher-scroll button image {
+    color: mix(@window_fg_color, @window_bg_color, 0.28);
+}
+
+.page-switcher-scroll button:checked,
+.page-switcher-scroll button:checked label,
+.page-switcher-scroll button:checked image {
+    color: @accent_color;
+}
+
+.compact-toolbar .page-switcher-scroll label {
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    margin: 0;
+    font-size: 0;
+    opacity: 0;
+}
+
+.compact-toolbar .page-switcher-scroll viewswitcher,
+.compact-toolbar .page-switcher-scroll viewswitcher.narrow {
+    min-height: 0;
+    padding: 4px 6px;
+}
+
+.compact-toolbar .page-switcher-scroll viewswitcher button.toggle {
+    min-width: 48px;
+    min-height: 0;
+}
+
+.manage-footer {
+    padding: 2px 4px 4px;
+}
+
+.manage-sidebar row {
+    min-height: 0;
+    border-radius: 6px;
+}
+
+.manage-sidebar row > box.header {
+    min-height: 28px;
+    padding-top: 2px;
+    padding-bottom: 2px;
+}
+
+.manage-sidebar row .title {
+    font-size: 0.9em;
+}
+
+row.launch-display-row .launch-display-text,
+row.launch-display-row .launch-display-markup,
+row.launch-display-row .launch-display-markup label {
+    min-width: 0;
+}
+
+row.prefix-dragging {
+    opacity: 0.4;
+}
+
+row.drop-above {
+    box-shadow: inset 0 2px 0 @accent_color;
+}
+
+row.drop-below {
+    box-shadow: inset 0 -2px 0 @accent_color;
+}
+
+.prefix-banner {
+    padding: 16px 24px 8px;
+}
+
+.prefix-banner-header,
+.prefix-banner-name {
+    min-width: 0;
+}
+
+.prefix-banner-header {
+    margin-left: -20px;
+}
+
+.prefix-banner-edit-hint {
+    opacity: 0;
+    color: mix(@window_fg_color, @window_bg_color, 0.32);
+    transition: opacity 150ms ease-out;
+}
+
+.prefix-banner-name-wrap:hover:not(.editing) .prefix-banner-edit-hint {
+    opacity: 1;
+}
+
+.prefix-banner-muted {
+    color: mix(@window_fg_color, @window_bg_color, 0.32);
+    opacity: 1;
+}
+
+.prefix-banner-meta {
+    margin-top: 8px;
+}
+
+searchbar,
+searchentry {
+    min-width: 0;
+}
+
+.play-btn {
+    min-width: 44px;
+    min-height: 44px;
+}
+
+.play-btn:not(.circular) {
+    padding-left: 16px;
+    padding-right: 16px;
+    border-radius: 999px;
+}
+
+.prefix-banner-play-cluster button.circular:not(.play-btn) {
+    min-width: 32px;
+    min-height: 32px;
+    padding: 0;
+}
+
+button.launch-entry-play-btn {
+    min-width: 32px;
+    min-height: 32px;
+    padding: 0;
+}
+
+button.prefix-banner-quick-launch,
+button.prefix-banner-quick-launch:hover,
+button.prefix-banner-quick-launch:active,
+button.prefix-banner-quick-launch:checked {
+    padding: 0;
+    min-width: 0;
+    min-height: 0;
+    background: none;
+    box-shadow: none;
+    border: none;
+    outline: none;
+    color: mix(@window_fg_color, @window_bg_color, 0.28);
+}
+
+button.prefix-banner-quick-launch label,
+button.prefix-banner-quick-launch image {
+    color: inherit;
+}
+
+button.prefix-banner-quick-launch.shortcut-active,
+button.circular.shortcut-active {
+    color: @accent_color;
+}
+
+button.prefix-banner-quick-launch.shortcut-active image,
+button.circular.shortcut-active image {
+    -gtk-icon-style: symbolic;
+    color: @accent_color;
 }
 
 .install-log textview {
@@ -36,6 +287,7 @@ button.flat.gamepad-focus {
     border-radius: 9999px;
 }
 
+button.play-btn.gamepad-focus,
 button.launch-entry-play-btn.gamepad-focus {
     box-shadow: 0 0 0 2px alpha(@accent_color, 1.0);
     background-color: alpha(@accent_bg_color, 0.48);
@@ -43,6 +295,7 @@ button.launch-entry-play-btn.gamepad-focus {
     padding: 4px;
 }
 
+button.play-btn.gamepad-focus image,
 button.launch-entry-play-btn.gamepad-focus image {
     color: @accent_fg_color;
 }
@@ -76,4 +329,212 @@ button.shortcut-toggle.shortcut-active {
 button.shortcut-toggle.shortcut-active image {
     -gtk-icon-style: symbolic;
     color: @accent_fg_color;
+}
+
+.launch-tile {
+    min-height: 80px;
+    padding: 10px 12px;
+    border-radius: 12px;
+}
+
+button.create-prefix-tile {
+    padding: 10px 12px;
+}
+
+button.create-prefix-tile:hover,
+button.create-prefix-tile:active,
+button.create-prefix-tile:checked {
+    background: none;
+    box-shadow: none;
+}
+
+.launch-tile label.title-3 {
+    font-weight: 700;
+}
+
+button.launch-prefix,
+button.launch-prefix:hover,
+button.launch-prefix:active,
+button.launch-prefix:focus,
+button.launch-prefix:focus-visible,
+button.launch-prefix.gamepad-focus {
+    padding: 0;
+    min-width: 0;
+    min-height: 0;
+    background: none;
+    box-shadow: none;
+    border: none;
+    outline: none;
+    outline-offset: 0;
+}
+
+button.launch-prefix label {
+    text-decoration: underline;
+    min-width: 0;
+}
+
+.icon-pick-sidebar {
+    min-width: 168px;
+    background-color: mix(@window_bg_color, @theme_fg_color, 0.04);
+}
+
+.icon-pick-icons {
+    min-width: 0;
+    padding: 8px;
+}
+
+.icon-pick-groups {
+    background: none;
+    padding: 6px 0;
+}
+
+.icon-pick-groups row {
+    min-height: 28px;
+    margin: 1px 6px;
+    padding: 5px 10px;
+    border-radius: 8px;
+}
+
+.icon-pick-groups row:hover {
+    background-color: alpha(@theme_fg_color, 0.06);
+}
+
+.icon-pick-groups row:selected {
+    background-color: alpha(@accent_bg_color, 0.2);
+    color: @accent_color;
+}
+
+.icon-pick-groups row label {
+    font-size: 0.9em;
+}
+
+.icon-pick-groups row.icon-pick-split {
+    margin-top: 8px;
+}
+
+.icon-pick-groups row.icon-pick-subgroup label {
+    padding-left: 12px;
+    opacity: 0.8;
+}
+
+gridview.icon-pick-grid {
+    background: none;
+    padding: 4px 0;
+}
+
+gridview.icon-pick-grid > child {
+    padding: 2px;
+    background: none;
+    box-shadow: none;
+    outline: none;
+}
+
+gridview.icon-pick-grid > child:selected,
+gridview.icon-pick-grid > child:selected:focus,
+gridview.icon-pick-grid > child:focus {
+    background: none;
+    box-shadow: none;
+    outline: none;
+}
+
+button.icon-pick-cell {
+    min-width: 48px;
+    min-height: 48px;
+    padding: 0;
+    border-radius: 10px;
+    transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+
+button.icon-pick-cell.selected {
+    background-color: alpha(@accent_bg_color, 0.22);
+    box-shadow: inset 0 0 0 2px @accent_color;
+}
+
+.launch-tiles-flow {
+    min-width: 0;
+}
+
+.launch-tiles-flow > flowboxchild {
+    padding: 0;
+}
+
+.launch-tiles-flow flowboxchild.prefix-dragging {
+    opacity: 0.4;
+}
+
+.launch-tiles-flow flowboxchild.drop-before {
+    box-shadow: inset 2px 0 0 @accent_color;
+}
+
+.launch-tiles-flow flowboxchild.drop-after {
+    box-shadow: inset -2px 0 0 @accent_color;
+}
+
+.home-open-to {
+    min-height: 0;
+    padding: 0;
+    font-size: smaller;
+}
+
+.home-open-to > button {
+    min-height: 0;
+    padding: 4px 10px;
+}
+
+.home-open-to > box,
+.home-open-to > box > label,
+.home-open-to > box > image {
+    min-height: 0;
+}
+
+.status-pill {
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-weight: 600;
+    min-width: 0;
+}
+
+.status-pill-accent {
+    background-color: alpha(@accent_bg_color, 0.18);
+    color: @accent_color;
+}
+
+.status-pill-warning {
+    background-color: alpha(@warning_bg_color, 0.22);
+    color: @warning_color;
+}
+
+.status-pill-danger {
+    background-color: alpha(@error_bg_color, 0.2);
+    color: @error_color;
+}
+
+.status-pill-success {
+    background-color: alpha(@success_bg_color, 0.22);
+    color: @success_color;
+}
+
+.card.message-card.info {
+    background-color: mix(@card_bg_color, @accent_bg_color, 0.18);
+}
+
+.card.message-card.warning {
+    background-color: mix(@card_bg_color, @warning_bg_color, 0.2);
+}
+
+.card.message-card.danger {
+    background-color: mix(@card_bg_color, @error_bg_color, 0.18);
+}
+
+.card.message-card.success {
+    background-color: mix(@card_bg_color, @success_bg_color, 0.2);
+}
+
+.message-card-links {
+    margin-top: 2px;
+}
+
+row.error label,
+row.error .subtitle {
+    color: @error_color;
 }

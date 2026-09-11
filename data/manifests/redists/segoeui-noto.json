@@ -1,0 +1,19 @@
+{
+  "$schema": "https://manifests.lumoria.dev/1/schemas/redist.json",
+  "id": "segoeui-noto",
+  "name": "Segoe UI Noto Sans Aliases",
+  "redists": [
+    "notosans"
+  ],
+  "steps": [
+    {
+      "type": "font_replacement",
+      "description": "Register Segoe UI font replacements",
+      "font_registrations": [
+        "Segoe UI|Noto Sans",
+        "Segoe UI Light|Noto Sans Light",
+        "Segoe UI Semibold|Noto Sans Bold"
+      ]
+    }
+  ]
+}

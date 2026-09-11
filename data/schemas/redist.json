@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://manifests.lumoria.dev/1/schemas/redist.json",
+  "title": "Lumoria redistributable manifest",
+  "unevaluatedProperties": false,
+  "allOf": [
+    { "$ref": "installable.json" },
+    {
+      "type": "object",
+      "properties": {
+        "defer": { "type": "boolean" },
+        "category": { "type": "string" }
+      }
+    }
+  ]
+}

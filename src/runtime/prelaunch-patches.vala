@@ -17,26 +17,24 @@ namespace Lumoria.Runtime {
         string launched_host_exe,
         RuntimeLog logger
     ) throws Error {
-        var installer = Models.SpecRepository.shared ().require_installer (
+        var installer = Models.ManifestRepository.shared ().require_installer (
             entry.installer_id
         );
         foreach (var patch in installer.patches) {
             if (patch.patch_type == "pe_characteristic"
-                && patch.setting == "large_address_aware"
+                && patch.setting == Models.InstallerPatch.SETTING_LARGE_ADDRESS_AWARE
                 && patch.flag == "IMAGE_FILE_LARGE_ADDRESS_AWARE") {
                 apply_large_address_aware_patch (
                     entry,
                     installer,
                     patch,
                     launched_host_exe,
-                    Utils.Preferences.resolve_large_address_aware (
-                        entry.large_address_aware
-                    ),
+                    entry.large_address_aware == true,
                     logger
                 );
                 continue;
             }
-            throw new IOError.FAILED (
+            throw new LumoriaError.INVALID_MANIFEST (
                 "Unsupported installer patch operation: %s", patch.id
             );
         }
@@ -44,7 +42,7 @@ namespace Lumoria.Runtime {
 
     private void apply_large_address_aware_patch (
         Models.PrefixEntry entry,
-        Models.InstallerSpec installer,
+        Models.InstallerManifest installer,
         Models.InstallerPatch patch,
         string launched_host_exe,
         bool desired_enabled,
@@ -88,40 +86,28 @@ namespace Lumoria.Runtime {
 
     private string resolve_patch_target (
         Models.PrefixEntry entry,
-        Models.InstallerSpec installer,
+        Models.InstallerManifest installer,
         Models.InstallerPatch patch,
         bool require_existing
     ) throws Error {
-        var pfx_path = install_prefix_path (entry.resolved_path ());
+        var pfx_path = PrefixPaths.from_entry (entry).wine_prefix;
         if (patch.target == "") {
-            throw new IOError.FAILED (
+            throw new LumoriaError.INVALID_MANIFEST (
                 "Installer patch '%s' has no target", patch.id
             );
         }
 
-        var vars = new Gee.HashMap<string, string> ();
-        vars["PREFIX"] = pfx_path;
-        vars["ARCH"] = resolve_effective_wine_arch (entry);
-        foreach (var value in installer.variables.entries) vars[value.key] = value.value;
-        resolve_prefix_vars (vars, entry);
-        foreach (var rule in installer.variable_rules) {
-            if (rule.when != null && !rule.when.evaluate (vars)) continue;
-            foreach (var value in rule.vars.entries) {
-                vars[value.key] = Utils.expand_vars (value.value, vars);
-            }
-        }
-        Utils.resolve_var_references (vars);
-
+        var arch = effective_wine_arch (entry);
+        var vars = build_launch_vars (pfx_path, entry, installer, arch);
         var target = Utils.expand_vars (patch.target, vars);
         var host_exe = resolve_host_path (target, pfx_path).replace ("\\", "/");
-        var arch = resolve_effective_wine_arch (entry);
         if (arch == "win32") {
             host_exe = host_exe.replace ("/drive_c/Program Files (x86)/", "/drive_c/Program Files/");
         }
 
         if (!FileUtils.test (host_exe, FileTest.EXISTS)) {
             if (!require_existing) return "";
-            throw new IOError.FAILED (
+            throw new LumoriaError.NOT_FOUND (
                 "Installer patch target executable not found: %s", host_exe
             );
         }
@@ -137,23 +123,23 @@ namespace Lumoria.Runtime {
         FileUtils.get_data (exe_path, out data);
 
         if (data.length < DOS_E_LFANEW_OFFSET + 4) {
-            throw new IOError.FAILED ("Invalid PE file (too small): %s", exe_path);
+            throw new LumoriaError.FAILED ("Invalid PE file (too small): %s", exe_path);
         }
         if (data[0] != 'M' || data[1] != 'Z') {
-            throw new IOError.FAILED ("Invalid PE file (missing MZ header): %s", exe_path);
+            throw new LumoriaError.FAILED ("Invalid PE file (missing MZ header): %s", exe_path);
         }
 
         var pe_offset = (int) read_le32 (data, DOS_E_LFANEW_OFFSET);
         var min_size = pe_offset + 4 + COFF_CHARACTERISTICS_OFFSET + 2;
         if (pe_offset < 0 || min_size > data.length) {
-            throw new IOError.FAILED ("Invalid PE file (bad PE header offset): %s", exe_path);
+            throw new LumoriaError.FAILED ("Invalid PE file (bad PE header offset): %s", exe_path);
         }
 
         if (data[pe_offset] != 'P'
             || data[pe_offset + 1] != 'E'
             || data[pe_offset + 2] != 0
             || data[pe_offset + 3] != 0) {
-            throw new IOError.FAILED ("Invalid PE file (missing PE signature): %s", exe_path);
+            throw new LumoriaError.FAILED ("Invalid PE file (missing PE signature): %s", exe_path);
         }
 
         var characteristics_offset = pe_offset + 4 + COFF_CHARACTERISTICS_OFFSET;
@@ -173,7 +159,9 @@ namespace Lumoria.Runtime {
         }
 
         write_le16 (data, characteristics_offset, characteristics);
-        FileUtils.set_data (exe_path, data);
+        Posix.Stat st;
+        var mode = Posix.stat (exe_path, out st) == 0 ? (int) (st.st_mode & 0777) : -1;
+        Utils.write_bytes_atomic (exe_path, data, mode);
 
         return enabled
             ? LargeAddressAwarePatchResult.PATCHED_ENABLED

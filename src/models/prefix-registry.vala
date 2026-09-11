@@ -3,6 +3,7 @@ namespace Lumoria.Models {
     public class PrefixRegistry : Object {
         public Gee.ArrayList<PrefixEntry> prefixes { get; owned set; default = new Gee.ArrayList<PrefixEntry> (); }
         public string default_prefix_id { get; set; default = ""; }
+        public string load_error { get; private set; default = ""; }
 
         public PrefixEntry? default_prefix () {
             if (default_prefix_id != "") {
@@ -13,22 +14,8 @@ namespace Lumoria.Models {
             return null;
         }
 
-        public int default_prefix_index () {
-            if (default_prefix_id != "") {
-                for (int i = 0; i < prefixes.size; i++) {
-                    if (prefixes[i].id == default_prefix_id) return i;
-                }
-            }
-            return prefixes.size > 0 ? 0 : -1;
-        }
-
-        public bool is_default (PrefixEntry entry) {
-            if (default_prefix_id != "") return entry.id == default_prefix_id;
-            return prefixes.size > 0 && prefixes[0] == entry;
-        }
-
         public void add_prefix (PrefixEntry entry) {
-            if (entry.runner_version == "") entry.runner_version = "default";
+            if (entry.runner_version == "") entry.runner_version = ToolVersionRef.WIRE_INHERIT;
             prefixes.add (entry);
         }
 
@@ -36,6 +23,16 @@ namespace Lumoria.Models {
             foreach (var p in prefixes) {
                 if (p.id == id) return p;
             }
+            return null;
+        }
+
+        public PrefixEntry? find (PrefixEntry hint) {
+            if (hint.id != "") {
+                var found = by_id (hint.id);
+                if (found != null) return found;
+            }
+            var resolved = hint.resolved_path ();
+            if (resolved != "") return by_path (resolved);
             return null;
         }
 
@@ -48,26 +45,6 @@ namespace Lumoria.Models {
             return null;
         }
 
-        public void update_entry (PrefixEntry updated) {
-            for (int i = 0; i < prefixes.size; i++) {
-                if (prefixes[i].id == updated.id) {
-                    prefixes[i] = updated;
-                    return;
-                }
-            }
-        }
-
-        public void update_runner (int index, string runner_id, string runner_version) {
-            if (index < 0 || index >= prefixes.size) return;
-            prefixes[index].runner_id = runner_id;
-            prefixes[index].runner_version = runner_version != "" ? runner_version : "default";
-        }
-
-        public void update_launcher (int index, string launcher_id) {
-            if (index < 0 || index >= prefixes.size) return;
-            prefixes[index].launcher_id = launcher_id;
-        }
-
         public void remove_at (int index) {
             if (index < 0 || index >= prefixes.size) return;
             if (prefixes[index].id == default_prefix_id) {
@@ -76,168 +53,68 @@ namespace Lumoria.Models {
             prefixes.remove_at (index);
         }
 
-        public static PrefixRegistry load (string path) {
+        /* dirty is set when unreadable entries were dropped and the pruned registry should be re-saved. */
+        public static PrefixRegistry load (string path, out bool dirty) {
             var reg = new PrefixRegistry ();
-            if (!FileUtils.test (path, FileTest.EXISTS)) return reg;
+            dirty = false;
+            string json;
+            Json.Object root;
             try {
-                var parser = new Json.Parser ();
-                parser.load_from_file (path);
-                var root = parser.get_root ().get_object ();
-                var changed = needs_installer_migration (root);
-                reg.prefixes = parse_json_array<PrefixEntry> (root, "prefixes", (o) => PrefixEntry.from_json (o));
-                reg.default_prefix_id = json_string (root, "default_prefix_id");
-                changed = reg.backfill_runner_state () || changed;
-                changed = reg.migrate_duplicate_custom_entry_ids () || changed;
-                changed = reg.backfill_portal_path_refs () || changed;
-                if (changed) {
-                    reg.save (path);
-                }
+                if (!Utils.read_user_text (path, out json)) return reg;
+                root = parse_data_object (json);
             } catch (Error e) {
-                warning ("Failed to load prefix registry: %s", e.message);
+                warning ("Failed to load prefixes: %s", e.message);
+                Utils.quarantine_broken_file (path);
+                reg.load_error = _("Could not load prefixes; starting with none.");
+                return reg;
             }
+
+            reg.default_prefix_id = json_string (root, "default_prefix_id");
+            try {
+                ManifestSchema.validate_json ("prefix-registry", json);
+                reg.prefixes = parse_json_array<PrefixEntry> (root, "prefixes", (o) => PrefixEntry.from_json (o));
+                return reg;
+            } catch (Error e) {
+                warning ("Prefix registry failed as a whole, salvaging entries: %s", e.message);
+            }
+
+            var dropped = 0;
+            if (root.has_member ("prefixes") && root.get_member ("prefixes").get_node_type () == Json.NodeType.ARRAY) {
+                var arr = root.get_array_member ("prefixes");
+                for (uint i = 0; i < arr.get_length (); i++) {
+                    var entry = salvage_entry (arr.get_element (i));
+                    if (entry != null) reg.prefixes.add (entry); else dropped++;
+                }
+            }
+            Utils.preserve_broken_copy (path);
+            dirty = true;
+            reg.load_error = ngettext (
+                "Skipped %d unreadable prefix entry; a copy of the old registry was kept.",
+                "Skipped %d unreadable prefix entries; a copy of the old registry was kept.",
+                dropped
+            ).printf (dropped);
             return reg;
         }
 
-        private static bool needs_installer_migration (Json.Object root) {
-            if (!root.has_member ("prefixes")) return false;
-            var prefixes = root.get_array_member ("prefixes");
-            for (uint i = 0; i < prefixes.get_length (); i++) {
-                var prefix = prefixes.get_object_element (i);
-                if (!prefix.has_member ("installer_id")) return true;
-                if (json_string (prefix, "installer_id").strip () == "") return true;
-            }
-            return false;
-        }
-
-        private bool backfill_runner_state () {
-            var changed = false;
-            foreach (var prefix in prefixes) {
-                if (prefix.runner_state != null) continue;
-
-                var state = new PrefixRunnerState ();
-                state.runner_id = prefix.runner_id;
-                state.variant_id = prefix.variant_id;
-                if (!is_deferred_runner_version (prefix.runner_version)) {
-                    state.resolved_version = prefix.runner_version;
-                }
-                prefix.runner_state = state;
-                changed = true;
-            }
-            return changed;
-        }
-
-        private bool migrate_duplicate_custom_entry_ids () {
-            var changed = false;
-            foreach (var prefix in prefixes) {
-                if (migrate_duplicate_custom_entry_ids_for_prefix (prefix)) changed = true;
-            }
-            return changed;
-        }
-
-        private bool backfill_portal_path_refs () {
-            var changed = false;
-            foreach (var prefix in prefixes) {
-                if (prefix.path_portal == null) {
-                    var portal = Utils.portal_path_ref_from_path_uri (prefix.path, prefix.uri);
-                    if (portal != null) {
-                        prefix.path_portal = portal;
-                        changed = true;
-                    }
-                }
-
-                if (prefix.prelaunch_script_portal == null) {
-                    var portal = Utils.portal_path_ref_from_path_uri (prefix.prelaunch_script);
-                    if (portal != null) {
-                        prefix.prelaunch_script_portal = portal;
-                        changed = true;
-                    }
-                }
-
-                foreach (var ep in prefix.custom_entrypoints) {
-                    if (ep.exe_portal == null) {
-                        var portal = Utils.portal_path_ref_from_path_uri (ep.exe);
-                        if (portal != null) {
-                            ep.exe_portal = portal;
-                            changed = true;
-                        }
-                    }
-                    if (ep.prelaunch_script_portal == null) {
-                        var portal = Utils.portal_path_ref_from_path_uri (ep.prelaunch_script);
-                        if (portal != null) {
-                            ep.prelaunch_script_portal = portal;
-                            changed = true;
-                        }
-                    }
-                }
-            }
-            return changed;
-        }
-
-        private bool migrate_duplicate_custom_entry_ids_for_prefix (PrefixEntry prefix) {
-            if (prefix.custom_entrypoints.size < 2) return false;
-
-            var changed = false;
-            var seen_ids = new Gee.HashSet<string> ();
-            var used_ids = new Gee.HashSet<string> ();
-            foreach (var ep in prefix.custom_entrypoints) {
-                if (ep.id != "") used_ids.add (ep.id);
-            }
-
-            foreach (var ep in prefix.custom_entrypoints) {
-                if (!PrefixEntry.is_legacy_custom_entry_id (ep.id)) continue;
-
-                var old_id = ep.id;
-                if (!seen_ids.contains (old_id)) {
-                    seen_ids.add (old_id);
-                    continue;
-                }
-
-                var new_id = generate_unique_custom_entry_id (used_ids);
-                ep.id = new_id;
-                used_ids.add (new_id);
-
-                if (!custom_entry_id_exists (prefix, old_id)) {
-                    remap_entrypoint_id (prefix, old_id, new_id);
-                }
-                changed = true;
-            }
-
-            return changed;
-        }
-
-        private static string generate_unique_custom_entry_id (Gee.HashSet<string> used_ids) {
-            while (true) {
-                var id = PrefixEntry.generate_custom_entry_id ();
-                if (!used_ids.contains (id)) return id;
+        private static PrefixEntry? salvage_entry (Json.Node node) {
+            if (node.get_node_type () != Json.NodeType.OBJECT) return null;
+            var wrapper = new Json.Object ();
+            wrapper.set_int_member ("format_version", Config.CONFIG_FORMAT_VERSION);
+            var arr = new Json.Array ();
+            arr.add_element (node.copy ());
+            wrapper.set_array_member ("prefixes", arr);
+            try {
+                ManifestSchema.validate_json ("prefix-registry", json_object_to_string (wrapper, false));
+                return PrefixEntry.from_json (node.get_object ());
+            } catch (Error e) {
+                warning ("Dropping prefix entry %s: %s", json_string (node.get_object (), "id", "?"), e.message);
+                return null;
             }
         }
 
-        private static bool custom_entry_id_exists (PrefixEntry prefix, string id) {
-            if (id == "") return false;
-            foreach (var ep in prefix.custom_entrypoints) {
-                if (ep.id == id) return true;
-            }
-            return false;
-        }
-
-        private static void remap_entrypoint_id (PrefixEntry prefix, string old_id, string new_id) {
-            if (prefix.launch_entrypoint_id == old_id) {
-                prefix.launch_entrypoint_id = new_id;
-            }
-            if (prefix.dynamic_launcher_desktop_ids.has_key (old_id)) {
-                var desktop_id = prefix.dynamic_launcher_desktop_ids[old_id];
-                prefix.dynamic_launcher_desktop_ids.unset (old_id);
-                prefix.dynamic_launcher_desktop_ids[new_id] = desktop_id;
-            }
-        }
-
-        private static bool is_deferred_runner_version (string version) {
-            var v = version.strip ().down ();
-            return v == "" || v == "latest" || v == "default";
-        }
-
-        public bool save (string path) {
+        public Json.Object to_json () {
             var root = new Json.Object ();
+            root.set_int_member ("format_version", Config.CONFIG_FORMAT_VERSION);
             var arr = new Json.Array ();
             foreach (var p in prefixes) {
                 arr.add_object_element (p.to_json ());
@@ -246,23 +123,11 @@ namespace Lumoria.Models {
             if (default_prefix_id != "") {
                 root.set_string_member ("default_prefix_id", default_prefix_id);
             }
+            return root;
+        }
 
-            var node = new Json.Node (Json.NodeType.OBJECT);
-            node.set_object (root);
-            var gen = new Json.Generator ();
-            gen.set_root (node);
-            gen.pretty = true;
-            gen.indent = 2;
-
-            try {
-                var dir = Path.get_dirname (path);
-                DirUtils.create_with_parents (dir, 0755);
-                gen.to_file (path);
-                return true;
-            } catch (Error e) {
-                warning ("Failed to save prefix registry: %s", e.message);
-                return false;
-            }
+        public void save (string path) throws Error {
+            Utils.write_validated_json (path, "prefix-registry", to_json ());
         }
     }
 }

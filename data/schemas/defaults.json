@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://manifests.lumoria.dev/1/schemas/defaults.json",
+  "title": "Lumoria defaults",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["default"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "startup_view": { "type": "string", "enum": ["home", "last-prefix"] },
+    "default": { "$ref": "#/$defs/runtime" },
+    "environments": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sandbox": { "$ref": "#/$defs/runtime" }
+      }
+    }
+  },
+  "$defs": {
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "$ref": "defs.json#/$defs/nonempty_string" },
+        "version": { "type": "string" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runner": { "$ref": "#/$defs/runner" },
+        "wine": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "wayland": { "type": "boolean" },
+            "sync_mode": { "type": "string" },
+            "debug": { "type": "string" }
+          }
+        },
+        "logging": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "keep_files": { "type": "boolean" },
+            "mode": { "type": "string" }
+          }
+        },
+        "patches": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "large_address_aware": { "type": "boolean" }
+          }
+        },
+        "components": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "enabled": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

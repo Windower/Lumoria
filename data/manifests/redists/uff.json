@@ -1,0 +1,43 @@
+{
+  "$schema": "https://manifests.lumoria.dev/1/schemas/redist.json",
+  "id": "uff",
+  "name": "Ubuntu Font Family",
+  "downloads": [
+    {
+      "id": "uff_archive",
+      "url": "https://redists.lumoria.dev/fonts/ubuntu-font-family.tar.xz",
+      "dest": "${var.CACHE_REDIST}/uff/ubuntu-font-family.tar.xz",
+      "sha256": "1fc0c29b2b9576e06770e213b8d2a2022ad0843cb26aadb3e34088b9d3cf379d"
+    }
+  ],
+  "steps": [
+    {
+      "type": "fonts",
+      "description": "Install Ubuntu Font Family",
+      "dst": "${var.FONTS}",
+      "args": [
+        "${var.CACHE_REDIST}/uff/ubuntu-font-family.tar.xz"
+      ],
+      "font_registrations": [
+        "ubuntu-regular.ttf|Ubuntu",
+        "ubuntu-italic.ttf|Ubuntu Italic",
+        "ubuntu-bold.ttf|Ubuntu Bold",
+        "ubuntu-bolditalic.ttf|Ubuntu Bold Italic",
+        "ubuntu-light.ttf|Ubuntu Light",
+        "ubuntu-lightitalic.ttf|Ubuntu Light Italic",
+        "ubuntu-medium.ttf|Ubuntu Medium",
+        "ubuntu-mediumitalic.ttf|Ubuntu Medium Italic",
+        "ubuntucondensed-regular.ttf|Ubuntu Condensed",
+        "ubuntumono-regular.ttf|Ubuntu Mono",
+        "ubuntumono-italic.ttf|Ubuntu Mono Italic",
+        "ubuntumono-bold.ttf|Ubuntu Mono Bold",
+        "ubuntumono-bolditalic.ttf|Ubuntu Mono Bold Italic"
+      ],
+      "when": {
+        "not": {
+          "file_exists": "${var.FONTS}/ubuntu-regular.ttf"
+        }
+      }
+    }
+  ]
+}

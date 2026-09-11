@@ -10,155 +10,87 @@ namespace Lumoria.Utils {
             owned SizeReadyCallback callback
         ) {
             var p = path;
-            new Thread<bool> ("disk-usage", () => {
-                int64 total = calculate_sync (p, cancellable);
-                if (cancellable != null && cancellable.is_cancelled ()) return true;
-                var cb = (owned) callback;
-                var pp = p;
-                Idle.add (() => {
-                    cb (pp, total);
-                    return false;
-                });
-                return true;
-            });
-        }
-
-        public static void calculate_paths_async (
-            Gee.ArrayList<string> paths,
-            Cancellable? cancellable,
-            owned SizeReadyCallback callback
-        ) {
-            var owned_paths = paths;
-            new Thread<bool> ("disk-usage-multi", () => {
-                int64 total = 0;
-                foreach (var p in owned_paths) {
-                    if (cancellable != null && cancellable.is_cancelled ()) return true;
-                    total += calculate_sync (p, cancellable);
+            int64 total = 0;
+            Utils.run_background ("disk-usage", () => {
+                total = calculate_sync (p, cancellable);
+            }, (error) => {
+                if (cancellable != null && cancellable.is_cancelled ()) return;
+                if (error != null) {
+                    warning ("Disk usage failed for %s: %s", p, error.message);
+                    callback (p, -1);
+                    return;
                 }
-                if (cancellable != null && cancellable.is_cancelled ()) return true;
-                var cb = (owned) callback;
-                Idle.add (() => {
-                    cb ("", total);
-                    return false;
-                });
-                return true;
+                callback (p, total);
             });
         }
 
-        public static void calculate_excluding_async (
-            string path,
-            Gee.ArrayList<string> excluded_paths,
-            Cancellable? cancellable,
-            owned SizeReadyCallback callback
-        ) {
-            var p = path;
-            var excludes = normalized_paths (excluded_paths);
-            new Thread<bool> ("disk-usage-excluding", () => {
-                int64 total = calculate_excluding_sync (p, excludes, cancellable);
-                if (cancellable != null && cancellable.is_cancelled ()) return true;
-                var cb = (owned) callback;
-                var pp = p;
-                Idle.add (() => {
-                    cb (pp, total);
-                    return false;
-                });
-                return true;
-            });
-        }
-
-        public static int64 calculate_sync (string path, Cancellable? cancellable) {
-            try {
-                var file = File.new_for_path (path);
-                if (!file.query_exists ()) return 0;
-
-                var info = file.query_info (
-                    FileAttribute.STANDARD_TYPE + "," + FileAttribute.STANDARD_SIZE,
-                    FileQueryInfoFlags.NOFOLLOW_SYMLINKS
-                );
-
-                if (info.get_file_type () != FileType.DIRECTORY) {
-                    return info.get_size ();
-                }
-
-                return walk_dir (file, cancellable);
-            } catch (Error e) {
-                return 0;
-            }
+        public static int64 calculate_sync (string path, Cancellable? cancellable) throws Error {
+            return measure (path, null, cancellable);
         }
 
         public static int64 calculate_excluding_sync (
             string path,
             Gee.ArrayList<string> excluded_paths,
             Cancellable? cancellable
-        ) {
+        ) throws Error {
+            return measure (path, normalized_paths (excluded_paths), cancellable);
+        }
+
+        private static int64 measure (
+            string path,
+            Gee.ArrayList<string>? excluded_paths,
+            Cancellable? cancellable
+        ) throws Error {
+            check_cancelled (cancellable);
+            if (excluded_paths != null && is_excluded_path (path, excluded_paths)) return 0;
+
+            var file = File.new_for_path (path);
+            FileInfo info;
             try {
-                if (is_excluded_path (path, excluded_paths)) return 0;
-
-                var file = File.new_for_path (path);
-                if (!file.query_exists ()) return 0;
-
-                var info = file.query_info (
+                info = file.query_info (
                     FileAttribute.STANDARD_TYPE + "," + FileAttribute.STANDARD_SIZE,
-                    FileQueryInfoFlags.NOFOLLOW_SYMLINKS
+                    FileQueryInfoFlags.NOFOLLOW_SYMLINKS,
+                    cancellable
                 );
-
-                if (info.get_file_type () != FileType.DIRECTORY) {
-                    return info.get_size ();
-                }
-
-                return walk_dir_excluding (file, excluded_paths, cancellable);
-            } catch (Error e) {
+            } catch (IOError.NOT_FOUND e) {
                 return 0;
             }
-        }
 
-        private static int64 walk_dir (File dir, Cancellable? cancellable) throws Error {
-            int64 total = 0;
-            var enumerator = dir.enumerate_children (
-                FileAttribute.STANDARD_NAME + "," + FileAttribute.STANDARD_TYPE + "," + FileAttribute.STANDARD_SIZE,
-                FileQueryInfoFlags.NOFOLLOW_SYMLINKS
-            );
-
-            FileInfo? child_info;
-            while ((child_info = enumerator.next_file ()) != null) {
-                if (cancellable != null && cancellable.is_cancelled ()) break;
-
-                if (child_info.get_file_type () == FileType.DIRECTORY) {
-                    total += walk_dir (enumerator.get_child (child_info), cancellable);
-                } else {
-                    total += child_info.get_size ();
-                }
+            if (info.get_file_type () != FileType.DIRECTORY) {
+                return info.get_size ();
             }
-            enumerator.close ();
-            return total;
+            return walk_dir (file, excluded_paths, cancellable);
         }
 
-        private static int64 walk_dir_excluding (
+        private static int64 walk_dir (
             File dir,
-            Gee.ArrayList<string> excluded_paths,
+            Gee.ArrayList<string>? excluded_paths,
             Cancellable? cancellable
         ) throws Error {
             int64 total = 0;
             var enumerator = dir.enumerate_children (
                 FileAttribute.STANDARD_NAME + "," + FileAttribute.STANDARD_TYPE + "," + FileAttribute.STANDARD_SIZE,
-                FileQueryInfoFlags.NOFOLLOW_SYMLINKS
+                FileQueryInfoFlags.NOFOLLOW_SYMLINKS,
+                cancellable
             );
 
             FileInfo? child_info;
-            while ((child_info = enumerator.next_file ()) != null) {
-                if (cancellable != null && cancellable.is_cancelled ()) break;
+            while ((child_info = enumerator.next_file (cancellable)) != null) {
+                check_cancelled (cancellable);
 
                 var child = enumerator.get_child (child_info);
                 var child_path = child.get_path ();
-                if (child_path != null && is_excluded_path (child_path, excluded_paths)) continue;
+                if (child_path != null && excluded_paths != null && is_excluded_path (child_path, excluded_paths)) {
+                    continue;
+                }
 
                 if (child_info.get_file_type () == FileType.DIRECTORY) {
-                    total += walk_dir_excluding (child, excluded_paths, cancellable);
+                    total += walk_dir (child, excluded_paths, cancellable);
                 } else {
                     total += child_info.get_size ();
                 }
             }
-            enumerator.close ();
+            enumerator.close (cancellable);
             return total;
         }
 
@@ -174,7 +106,7 @@ namespace Lumoria.Utils {
         private static bool is_excluded_path (string path, Gee.ArrayList<string> excluded_paths) {
             var p = Utils.normalize_dir_path (path);
             foreach (var excluded in excluded_paths) {
-                if (p == excluded || p.has_prefix (excluded + "/")) return true;
+                if (Utils.path_within (p, excluded)) return true;
             }
             return false;
         }

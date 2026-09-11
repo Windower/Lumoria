@@ -1,13 +1,13 @@
+// Credit to Lutris for the original implementation in Python: https://github.com/lutris/lutris/
 namespace Lumoria.Utils.SteamConfig {
 
-    public errordomain Error {
+    public errordomain ConfigError {
         INVALID_CONFIG
     }
 
     public class UserConfig : Object {
         public string steam_dir { get; set; default = ""; }
         public string userdata_dir { get; set; default = ""; }
-        public string user_id32 { get; set; default = ""; }
         public string config_dir { get; set; default = ""; }
         public string shortcuts_vdf_path { get; set; default = ""; }
         public string account_name { get; set; default = ""; }
@@ -44,25 +44,25 @@ namespace Lumoria.Utils.SteamConfig {
             while (index < tokens.length) {
                 var token = tokens[index++];
                 if (token == "}") {
-                    if (!expect_close) throw new Error.INVALID_CONFIG ("Unexpected closing brace in Steam config");
+                    if (!expect_close) throw new ConfigError.INVALID_CONFIG ("Unexpected closing brace in Steam config");
                     return;
                 }
-                if (token == "{") throw new Error.INVALID_CONFIG ("Unexpected opening brace in Steam config");
+                if (token == "{") throw new ConfigError.INVALID_CONFIG ("Unexpected opening brace in Steam config");
 
-                if (index >= tokens.length) throw new Error.INVALID_CONFIG ("Missing value for Steam config key '%s'".printf (token));
+                if (index >= tokens.length) throw new ConfigError.INVALID_CONFIG ("Missing value for Steam config key '%s'".printf (token));
                 var next = tokens[index++];
                 var child = new TextNode ();
                 if (next == "{") {
                     parse_into (child, true);
                 } else if (next == "}") {
-                    throw new Error.INVALID_CONFIG ("Missing value for Steam config key '%s'".printf (token));
+                    throw new ConfigError.INVALID_CONFIG ("Missing value for Steam config key '%s'".printf (token));
                 } else {
                     child.value = next;
                 }
                 parent.children[token.down ()] = child;
             }
 
-            if (expect_close) throw new Error.INVALID_CONFIG ("Unterminated Steam config object");
+            if (expect_close) throw new ConfigError.INVALID_CONFIG ("Unterminated Steam config object");
         }
 
         private static string[] tokenize (string data) throws Error {
@@ -96,11 +96,7 @@ namespace Lumoria.Utils.SteamConfig {
                 }
                 tokens.add (builder.str);
             }
-            var result = new string[tokens.size];
-            for (int i = 0; i < tokens.size; i++) {
-                result[i] = tokens[i];
-            }
-            return result;
+            return strv (tokens);
         }
     }
 
@@ -156,7 +152,6 @@ namespace Lumoria.Utils.SteamConfig {
         var config = new UserConfig ();
         config.steam_dir = steam_dir;
         config.userdata_dir = userdata_dir;
-        config.user_id32 = selected_id;
         config.config_dir = config_dir;
         config.shortcuts_vdf_path = Path.build_filename (config_dir, "shortcuts.vdf");
         if (active != null && selected_id == steamid64_to_steamid32 (active.steamid64)) {
@@ -167,7 +162,7 @@ namespace Lumoria.Utils.SteamConfig {
     }
 
     public static UserConfig? resolve_from_selected_folder (string selected_path) {
-        var normalized = normalize_dir_path (selected_path);
+        var normalized = Utils.normalize_dir_path (selected_path);
         if (Path.get_basename (normalized) == "userdata") {
             return resolve_from_userdata_dir (normalized);
         }
@@ -184,7 +179,6 @@ namespace Lumoria.Utils.SteamConfig {
                 var config = new UserConfig ();
                 config.steam_dir = Path.get_dirname (Path.get_dirname (user_dir));
                 config.userdata_dir = Path.get_dirname (user_dir);
-                config.user_id32 = user_id;
                 config.config_dir = normalized;
                 config.shortcuts_vdf_path = Path.build_filename (normalized, "shortcuts.vdf");
                 return config;
@@ -203,7 +197,6 @@ namespace Lumoria.Utils.SteamConfig {
         var config = new UserConfig ();
         config.steam_dir = Path.get_dirname (userdata_dir);
         config.userdata_dir = userdata_dir;
-        config.user_id32 = user_ids[0];
         config.config_dir = config_dir;
         config.shortcuts_vdf_path = Path.build_filename (config_dir, "shortcuts.vdf");
         return config;
@@ -286,11 +279,4 @@ namespace Lumoria.Utils.SteamConfig {
         return true;
     }
 
-    private static string normalize_dir_path (string path) {
-        var normalized = path.strip ();
-        while (normalized.length > 1 && normalized.has_suffix ("/")) {
-            normalized = normalized.substring (0, normalized.length - 1);
-        }
-        return normalized;
-    }
 }

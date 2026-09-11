@@ -1,0 +1,36 @@
+{
+  "$schema": "https://manifests.lumoria.dev/1/schemas/defaults.json",
+  "startup_view": "last-prefix",
+  "default": {
+    "runner": {
+      "id": "ge-proton",
+      "version": "latest"
+    },
+    "wine": {
+      "sync_mode": "ntsync",
+      "debug": ""
+    },
+    "logging": {
+      "keep_files": false
+    },
+    "patches": {
+      "large_address_aware": false
+    },
+    "components": {
+      "dxvk": {
+        "enabled": true
+      },
+      "d7vk": {
+        "enabled": true
+      }
+    }
+  },
+  "environments": {
+    "sandbox": {
+      "runner": {
+        "id": "ge-proton",
+        "version": "latest"
+      }
+    }
+  }
+}

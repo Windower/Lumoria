@@ -4,24 +4,30 @@ namespace Lumoria.Utils {
         private Xdp.Portal? portal = null;
         private int handle = -1;
 
+        /* Blocks on a private main context so it is safe from worker threads and the wrap process alike. */
         public bool start (string reason, int timeout_ms, out string error) {
             error = "";
+            var context = new MainContext ();
+            context.push_thread_default ();
             try {
                 portal = new Xdp.Portal.initable_new ();
             } catch (Error e) {
+                context.pop_thread_default ();
                 portal = null;
                 error = e.message;
                 return false;
             }
 
-            var loop = new MainLoop ();
+            var loop = new MainLoop (context);
             string local_error = "";
             bool timed_out = false;
-            uint timeout_id = Timeout.add (timeout_ms, () => {
+            var timeout = new TimeoutSource (timeout_ms);
+            timeout.set_callback (() => {
                 timed_out = true;
                 loop.quit ();
                 return Source.REMOVE;
             });
+            timeout.attach (context);
 
             portal.session_inhibit.begin (
                 null,
@@ -38,7 +44,8 @@ namespace Lumoria.Utils {
                 });
 
             loop.run ();
-            if (!timed_out) Source.remove (timeout_id);
+            timeout.destroy ();
+            context.pop_thread_default ();
             error = timed_out ? "timed out" : local_error;
             return handle >= 0;
         }

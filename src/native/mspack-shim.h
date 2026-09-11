@@ -14,6 +14,8 @@ int lum_cab_last_error (struct mscab_decompressor *d);
 
 struct mscabd_file * lum_cab_get_files (struct mscabd_cabinet *cab);
 struct mscabd_cabinet * lum_cab_get_next (struct mscabd_cabinet *cab);
+int lum_cab_get_folder_count (struct mscabd_cabinet *cab);
+int lum_cab_get_folder_index (struct mscabd_cabinet *cab, struct mscabd_file *file);
 
 const char * lum_cabf_get_filename (struct mscabd_file *f);
 unsigned int lum_cabf_get_length (struct mscabd_file *f);

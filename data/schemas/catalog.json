@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://manifests.lumoria.dev/1/schemas/catalog.json",
+  "title": "Lumoria catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["default_installer"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "default_installer": { "$ref": "defs.json#/$defs/nonempty_string" },
+    "runners": {
+      "type": "array",
+      "items": { "$ref": "defs.json#/$defs/nonempty_string" }
+    },
+    "components": {
+      "type": "array",
+      "items": { "$ref": "defs.json#/$defs/nonempty_string" }
+    },
+    "redists": {
+      "type": "array",
+      "items": { "$ref": "defs.json#/$defs/nonempty_string" }
+    },
+    "metadata": { "$ref": "defs.json#/$defs/metadata" }
+  }
+}

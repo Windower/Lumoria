@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://manifests.lumoria.dev/1/schemas/prefix-registry.json",
+  "title": "Lumoria prefix registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format_version", "prefixes"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format_version": { "type": "integer", "minimum": 1 },
+    "default_prefix_id": { "type": "string" },
+    "prefixes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/prefix_entry" }
+    }
+  },
+  "$defs": {
+    "prefix_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path"],
+      "properties": {
+        "id": { "$ref": "defs.json#/$defs/nonempty_string" },
+        "name": { "type": "string" },
+        "path": { "type": "string" },
+        "uri": { "type": "string" },
+        "path_portal": { "$ref": "defs.json#/$defs/portal_path" },
+        "installer_id": { "type": "string" },
+        "runner_id": { "type": "string" },
+        "runner_version": { "type": "string" },
+        "launcher_id": { "type": "string" },
+        "launch_entrypoint_id": { "type": "string" },
+        "variant_id": { "type": "string" },
+        "wine_arch": { "type": "string" },
+        "wine_debug": { "type": "string" },
+        "wine_wayland": { "type": "boolean" },
+        "wayland_primary_monitor": { "type": "string" },
+        "large_address_aware": { "type": "boolean" },
+        "sync_mode": { "type": "string" },
+        "region": { "type": "string" },
+        "prelaunch_script": { "type": "string" },
+        "prelaunch_script_portal": { "$ref": "defs.json#/$defs/portal_path" },
+        "advanced_dxvk": { "type": "boolean" },
+        "dxvk_show_fps": { "type": "boolean" },
+        "dxvk_hide_integrated_graphics": { "type": "boolean" },
+        "dxvk_sampler_anisotropy": { "type": "string" },
+        "dxvk_max_frame_rate": { "type": "string" },
+        "dxvk_sync_interval": { "type": "string" },
+        "dxvk_config_custom": {
+          "oneOf": [
+            { "type": "string" },
+            {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          ]
+        },
+        "custom_entrypoints": {
+          "type": "array",
+          "items": { "$ref": "defs.json#/$defs/entrypoint" }
+        },
+        "launch_display": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/launch_display" }
+        },
+        "runtime_env_vars": { "$ref": "defs.json#/$defs/string_map" },
+        "runtime_dll_overrides": { "$ref": "defs.json#/$defs/string_map" },
+        "dynamic_launcher_desktop_ids": { "$ref": "defs.json#/$defs/string_map" },
+        "steam_shortcut_app_ids": { "$ref": "defs.json#/$defs/string_map" },
+        "runtime_component_overrides": {
+          "type": "object",
+          "additionalProperties": { "$ref": "defs.json#/$defs/runtime_component_override" }
+        },
+        "installed_redists": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "applied_components": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/applied_component" }
+        },
+        "runner_support_files": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "runner_state": { "$ref": "#/$defs/runner_state" },
+        "post_install_manifests": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/post_install_manifest" }
+        }
+      }
+    },
+    "launch_display": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "icon": {
+          "oneOf": [
+            { "type": "string", "const": "" },
+            { "$ref": "defs.json#/$defs/icon_key" }
+          ]
+        },
+        "nickname": { "type": "string" },
+        "shortcut_icon": {
+          "oneOf": [
+            { "type": "string", "const": "" },
+            { "type": "string", "const": "lumoria" }
+          ]
+        }
+      }
+    },
+    "applied_component": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "version": { "type": "string" },
+        "installed_files": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "runner_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runner_id": { "type": "string" },
+        "variant_id": { "type": "string" },
+        "resolved_version": { "type": "string" }
+      }
+    },
+    "post_install_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "original_path": { "type": "string" },
+        "original_uri": { "type": "string" },
+        "manifest_id": { "type": "string" },
+        "name": { "type": "string" },
+        "last_run_status": { "type": "string" },
+        "last_run_at": { "type": "string" }
+      }
+    }
+  }
+}

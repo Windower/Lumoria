@@ -1,0 +1,32 @@
+{
+  "$schema": "https://manifests.lumoria.dev/1/schemas/redist.json",
+  "id": "allfonts",
+  "name": "All Fonts",
+  "redists": [
+    "corefonts",
+    "andale",
+    "baekmuk",
+    "tahoma",
+    "eufonts",
+    "lucida",
+    "calibri",
+    "cambria",
+    "candara",
+    "consolas",
+    "constantia",
+    "corbel",
+    "meiryo",
+    "liberation",
+    "notosans",
+    "sourcehansans",
+    "vlgothic",
+    "wenquanyi",
+    "wenquanyizenhei",
+    "takao",
+    "ipamona",
+    "uff",
+    "droid",
+    "unifont",
+    "opensymbol"
+  ]
+}

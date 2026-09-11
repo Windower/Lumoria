@@ -1,0 +1,14 @@
+{
+  "$schema": "https://manifests.lumoria.dev/1/schemas/redist.json",
+  "id": "pptfonts",
+  "name": "All PowerPoint Viewer Fonts",
+  "redists": [
+    "calibri",
+    "cambria",
+    "candara",
+    "consolas",
+    "constantia",
+    "corbel",
+    "meiryo"
+  ]
+}

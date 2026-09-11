@@ -1,9 +1,13 @@
 # Build directories
 builddir/
 builddir-flatpak/
-build-host/
-build-flatpak/
 build/
+build-*/
+dist/
+
+# Build artifacts that must not be tracked
+data/gschemas.compiled
+data/net.windower.Lumoria.gresource
 
 # Flatpak builder
 .flatpak-builder/
@@ -12,11 +16,17 @@ build/
 subprojects/
 *.wrap
 
+# Generated translation template
+po/*.pot
+
 # C build artifacts
 *.o
 *.so
 *.a
 *.la
+
+# Rust / Cargo
+rust/native/target/
 
 # Editor / IDE
 .vscode/
@@ -39,6 +49,8 @@ Thumbs.db
 *.secret
 .env
 .env.*
+!.env.example
+.cache/
 
 # GPG export files
 secring.*

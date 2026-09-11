@@ -23,8 +23,8 @@ namespace Lumoria.Cli {
         private Utils.FeralGameModePortal? feral_game_mode = null;
         private Gee.HashSet<int> feral_game_mode_seen_pids = new Gee.HashSet<int> ();
 
-        public void start () {
-            if (!Utils.Preferences.saved_feral_game_mode ()) return;
+        public void start (Utils.Preferences.PowerSnapshot power) {
+            if (!power.feral_game_mode) return;
 
             var candidate = new Utils.FeralGameModePortal ();
             string error;
@@ -88,7 +88,7 @@ namespace Lumoria.Cli {
         }
 
         if (cmd_start < 0 || cmd_start >= args.length) {
-            stderr.printf ("Usage: lumoria wrap --log <path> [--env-fd <fd>] [--cwd <path>] -- <command...>\n");
+            stderr.printf ("%s\n", _("Usage: lumoria wrap --log <path> [--env-fd <fd>] [--cwd <path>] -- <command...>"));
             return 1;
         }
 
@@ -118,14 +118,16 @@ namespace Lumoria.Cli {
                 Environment.set_variable ("PWD", child_pwd, true);
             }
             Posix.execvp (cmd[0], cmd);
-            stdout.printf ("[lumoria-internal] exec failed: %s\n", Posix.strerror (Posix.errno));
+            var failure = "[lumoria-internal] exec failed: %s\n".printf (Posix.strerror (Posix.errno));
+            Posix.write (Posix.STDOUT_FILENO, failure, failure.length);
             Posix._exit (127);
         }
 
         if (env_fd >= 0) Posix.close (env_fd);
 
+        var power = Utils.Preferences.PowerSnapshot.load ();
         var inhibitor = new Utils.ScreenInhibitor ();
-        if (Utils.Preferences.saved_screen_inhibitor ()) {
+        if (power.screen_inhibitor) {
             string inhibit_error;
             if (inhibitor.start ("Running a Windows application", WRAP_INHIBIT_RESOLVE_WAIT_MS, out inhibit_error)) {
                 wrap_log ("screensaver inhibit active");
@@ -135,7 +137,7 @@ namespace Lumoria.Cli {
         }
 
         var process_integrations = new WrapProcessIntegrations ();
-        process_integrations.start ();
+        process_integrations.start (power);
 
         var poll_ms = wrap_poll_interval_ms ();
         int initial_signal = 0;
@@ -172,7 +174,7 @@ namespace Lumoria.Cli {
         var flags = log_path != ""
             ? Posix.O_WRONLY | Posix.O_CREAT | Posix.O_APPEND
             : Posix.O_WRONLY;
-        var log_fd = Posix.open (target_path, flags, 0644);
+        var log_fd = Posix.open (target_path, flags | Posix.O_CLOEXEC, 0644);
         if (log_fd < 0) {
             if (log_path != "") {
                 stderr.printf ("warn: could not open log %s, inheriting caller fds\n", log_path);
@@ -199,6 +201,7 @@ namespace Lumoria.Cli {
         }
 
         var relay_read = pipe_fds[0];
+        Posix.fcntl (relay_read, Posix.F_SETFD, Posix.FD_CLOEXEC);
         log_relay_done = false;
         log_relay_thread = new Thread<void> ("log-relay", () => {
             relay_pipe_to_fd (relay_read, log_fd);
@@ -269,9 +272,9 @@ namespace Lumoria.Cli {
 
         try {
             process_integrations.poll ();
-            if (!has_monitored_descendants ()) {
+            if (!Utils.ProcessTree.has_monitored_descendants ((int) Posix.getpid ())) {
                 wrap_log ("waiting for monitored process to start");
-                while (!has_monitored_descendants ()) {
+                while (!Utils.ProcessTree.has_monitored_descendants ((int) Posix.getpid ())) {
                     process_integrations.poll ();
                     reap_children_nonblocking (
                         child_pid, ref initial_code, ref initial_signal, ref initial_reaped, out no_more_children
@@ -282,7 +285,7 @@ namespace Lumoria.Cli {
                 }
             }
 
-            while (has_monitored_descendants ()) {
+            while (Utils.ProcessTree.has_monitored_descendants ((int) Posix.getpid ())) {
                 process_integrations.poll ();
                 reap_children_nonblocking (
                     child_pid, ref initial_code, ref initial_signal, ref initial_reaped, out no_more_children
@@ -342,25 +345,14 @@ namespace Lumoria.Cli {
         }
     }
 
-    private bool has_monitored_descendants () {
-        return Utils.ProcessTree.has_monitored_descendants ((int) Posix.getpid ());
-    }
-
     private void signal_monitored_descendants (int signum) {
         Utils.ProcessTree.signal_monitored_descendants ((int) Posix.getpid (), signum);
     }
 
     private void cleanup_remaining_descendants () {
-        signal_monitored_descendants (Posix.Signal.TERM);
-        if (Utils.ProcessTree.wait_for_monitored_descendants ((int) Posix.getpid (), WRAP_CLEANUP_TERM_WAIT_MS)) {
-            drain_remaining_children ();
-            return;
-        }
-
-        for (var i = 0; i < 3; i++) {
-            signal_monitored_descendants (Posix.Signal.KILL);
-        }
-        Utils.ProcessTree.wait_for_monitored_descendants ((int) Posix.getpid (), WRAP_CLEANUP_KILL_WAIT_MS);
+        Utils.ProcessTree.terminate_descendants (
+            (int) Posix.getpid (), WRAP_CLEANUP_TERM_WAIT_MS, WRAP_CLEANUP_KILL_WAIT_MS, 3
+        );
         drain_remaining_children ();
     }
 

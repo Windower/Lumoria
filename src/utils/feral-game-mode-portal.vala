@@ -57,6 +57,26 @@ namespace Lumoria.Utils {
             }
         }
 
+        public static bool probe (int timeout_ms, out string error) {
+            error = "";
+            var portal = new FeralGameModePortal ();
+            portal.requester_pid = (int) Posix.getpid ();
+            try {
+                portal.connection = Bus.get_sync (BusType.SESSION);
+                var result = portal.call_by_pidfd (
+                    "QueryStatusByPIDFd",
+                    portal.requester_pid,
+                    timeout_ms
+                );
+                if (result >= 0) return true;
+                error = "Feral GameMode is unavailable";
+                return false;
+            } catch (Error e) {
+                error = e.message;
+                return false;
+            }
+        }
+
         public bool stop (int timeout_ms, out string error) {
             error = "";
             if (connection == null || !anchor_registered) return false;
@@ -76,26 +96,6 @@ namespace Lumoria.Utils {
                 return true;
             } catch (Error e) {
                 anchor_registered = false;
-                error = e.message;
-                return false;
-            }
-        }
-
-        public static bool probe (int timeout_ms, out string error) {
-            error = "";
-            var portal = new FeralGameModePortal ();
-            portal.requester_pid = (int) Posix.getpid ();
-            try {
-                portal.connection = Bus.get_sync (BusType.SESSION);
-                var result = portal.call_by_pidfd (
-                    "QueryStatusByPIDFd",
-                    portal.requester_pid,
-                    timeout_ms
-                );
-                if (result >= 0) return true;
-                error = "Feral GameMode is unavailable";
-                return false;
-            } catch (Error e) {
                 error = e.message;
                 return false;
             }

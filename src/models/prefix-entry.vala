@@ -1,127 +1,49 @@
 namespace Lumoria.Models {
 
-    public class RuntimeComponentOverride : Object {
-        public const string KEY_ENABLED = "enabled";
+    public enum PrefixVarField {
+        ID,
+        NAME,
+        PATH,
+        URI,
+        RUNNER_ID,
+        RUNNER_VERSION,
+        LAUNCHER_ID,
+        VARIANT_ID,
+        WINE_ARCH,
+        WINE_DEBUG,
+        SYNC_MODE,
+        REGION,
+        INSTALLER_ID;
 
-        public bool? enabled = null;
-        public string version { get; set; default = ""; }
-        public Gee.HashMap<string, string> system_env { get; owned set; default = new Gee.HashMap<string, string> (); }
-
-        public Json.Object to_json () {
-            var obj = new Json.Object ();
-            if (enabled != null) obj.set_boolean_member (KEY_ENABLED, (bool) enabled);
-            if (version != "") obj.set_string_member ("version", version);
-            if (system_env.size > 0) {
-                var env_obj = new Json.Object ();
-                foreach (var entry in system_env.entries) {
-                    env_obj.set_string_member (entry.key, entry.value);
-                }
-                obj.set_object_member ("system_env", env_obj);
+        public static bool parse (string field, out PrefixVarField result) {
+            switch (field.strip ()) {
+                case "id":             result = ID; return true;
+                case "name":           result = NAME; return true;
+                case "path":           result = PATH; return true;
+                case "uri":            result = URI; return true;
+                case "runner_id":      result = RUNNER_ID; return true;
+                case "runner_version": result = RUNNER_VERSION; return true;
+                case "launcher_id":    result = LAUNCHER_ID; return true;
+                case "variant_id":     result = VARIANT_ID; return true;
+                case "wine_arch":      result = WINE_ARCH; return true;
+                case "wine_debug":     result = WINE_DEBUG; return true;
+                case "sync_mode":      result = SYNC_MODE; return true;
+                case "region":         result = REGION; return true;
+                case "installer_id":   result = INSTALLER_ID; return true;
+                default:
+                    result = ID;
+                    return false;
             }
-            return obj;
-        }
-
-        public static RuntimeComponentOverride from_json (Json.Object obj) {
-            var o = new RuntimeComponentOverride ();
-            o.enabled = json_bool_nullable (obj, KEY_ENABLED);
-            o.version = json_string (obj, "version");
-            o.system_env = json_string_map (obj, "system_env");
-            return o;
         }
     }
 
-    public class AppliedComponentRecord : Object {
-        public string version { get; set; default = ""; }
-        public Gee.ArrayList<string> installed_files {
-            get; owned set; default = new Gee.ArrayList<string> ();
-        }
-
-        public Json.Object to_json () {
-            var obj = new Json.Object ();
-            obj.set_string_member ("version", version);
-            var arr = new Json.Array ();
-            foreach (var p in installed_files) arr.add_string_element (p);
-            obj.set_array_member ("installed_files", arr);
-            return obj;
-        }
-
-        public static AppliedComponentRecord from_json (Json.Object obj) {
-            var r = new AppliedComponentRecord ();
-            r.version = json_string (obj, "version");
-            r.installed_files = json_string_array (obj, "installed_files");
-            return r;
-        }
-    }
-
-    public class PrefixRunnerState : Object {
-        public string runner_id { get; set; default = ""; }
-        public string variant_id { get; set; default = ""; }
-        public string resolved_version { get; set; default = ""; }
-
-        public bool matches (string runner_id, string variant_id, string resolved_version) {
-            return this.runner_id == runner_id
-                && this.variant_id == variant_id
-                && this.resolved_version == resolved_version;
-        }
-
-        public Json.Object to_json () {
-            var obj = new Json.Object ();
-            if (runner_id != "") obj.set_string_member ("runner_id", runner_id);
-            if (variant_id != "") obj.set_string_member ("variant_id", variant_id);
-            if (resolved_version != "") obj.set_string_member ("resolved_version", resolved_version);
-            return obj;
-        }
-
-        public static PrefixRunnerState from_json (Json.Object obj) {
-            var s = new PrefixRunnerState ();
-            s.runner_id = json_string (obj, "runner_id");
-            s.variant_id = json_string (obj, "variant_id");
-            s.resolved_version = json_string (obj, "resolved_version");
-            return s;
-        }
-    }
-
-    public class PrefixPostInstallSpec : Object {
-        public string original_path { get; set; default = ""; }
-        public string original_uri { get; set; default = ""; }
-        public string backup_path { get; set; default = ""; }
-        public string spec_id { get; set; default = ""; }
-        public string name { get; set; default = ""; }
-        public string last_run_status { get; set; default = ""; }
-        public string last_run_at { get; set; default = ""; }
-
-        public Json.Object to_json () {
-            var obj = new Json.Object ();
-            if (original_path != "") obj.set_string_member ("original_path", original_path);
-            if (original_uri != "") obj.set_string_member ("original_uri", original_uri);
-            if (backup_path != "") obj.set_string_member ("backup_path", backup_path);
-            if (spec_id != "") obj.set_string_member ("spec_id", spec_id);
-            if (name != "") obj.set_string_member ("name", name);
-            if (last_run_status != "") obj.set_string_member ("last_run_status", last_run_status);
-            if (last_run_at != "") obj.set_string_member ("last_run_at", last_run_at);
-            return obj;
-        }
-
-        public static PrefixPostInstallSpec from_json (Json.Object obj) {
-            var s = new PrefixPostInstallSpec ();
-            s.original_path = json_string (obj, "original_path");
-            s.original_uri = json_string (obj, "original_uri");
-            s.backup_path = json_string (obj, "backup_path");
-            s.spec_id = json_string (obj, "spec_id");
-            s.name = json_string (obj, "name");
-            s.last_run_status = json_string (obj, "last_run_status");
-            s.last_run_at = json_string (obj, "last_run_at");
-            return s;
-        }
-    }
-
-    public class PrefixEntry : BaseSpec {
+    public class PrefixEntry : IdentifiedRecord {
         public string path { get; set; default = ""; }
         public string uri { get; set; default = ""; }
         public PortalPathRef? path_portal { get; set; default = null; }
-        public string installer_id { get; set; default = "ffxi"; }
+        public string installer_id { get; set; default = ""; }
         public string runner_id { get; set; default = ""; }
-        public string runner_version { get; set; default = "latest"; }
+        public string runner_version { get; set; default = ToolVersionRef.WIRE_INHERIT; }
         public string launcher_id { get; set; default = ""; }
         public string launch_entrypoint_id { get; set; default = ""; }
         public string variant_id { get; set; default = ""; }
@@ -143,6 +65,9 @@ namespace Lumoria.Models {
         public string dxvk_config_custom { get; set; default = ""; }
         public Gee.ArrayList<Entrypoint> custom_entrypoints {
             get; owned set; default = new Gee.ArrayList<Entrypoint> ();
+        }
+        public Gee.HashMap<string, LaunchDisplay> launch_display {
+            get; owned set; default = new Gee.HashMap<string, LaunchDisplay> ();
         }
         public Gee.HashMap<string, string> runtime_env_vars {
             get; owned set; default = new Gee.HashMap<string, string> ();
@@ -169,24 +94,153 @@ namespace Lumoria.Models {
             get; owned set; default = new Gee.ArrayList<string> ();
         }
         public PrefixRunnerState? runner_state { get; set; default = null; }
-        public PrefixPostInstallSpec? post_install_spec { get; set; default = null; }
+        public Gee.ArrayList<PrefixPostInstallManifest> post_install_manifests {
+            get; owned set; default = new Gee.ArrayList<PrefixPostInstallManifest> ();
+        }
+
+        public PrefixPostInstallManifest? find_post_install_metadata (string instance_id) {
+            foreach (var spec in post_install_manifests) {
+                if (spec.id == instance_id) return spec;
+            }
+            return null;
+        }
+
+        public bool has_post_install_manifest_id (string manifest_id) {
+            if (manifest_id == "") return false;
+            foreach (var spec in post_install_manifests) {
+                if (spec.manifest_id == manifest_id) return true;
+            }
+            return false;
+        }
+
+        public string var_field (PrefixVarField field) {
+            switch (field) {
+                case ID:             return id;
+                case NAME:           return name;
+                case PATH:           return resolved_path ();
+                case URI:            return uri;
+                case RUNNER_ID:      return Utils.Preferences.effective_runner_id (runner_id);
+                case RUNNER_VERSION: return runner_version;
+                case LAUNCHER_ID:    return launcher_id;
+                case VARIANT_ID:     return variant_id;
+                case WINE_ARCH:      return wine_arch;
+                case WINE_DEBUG:     return wine_debug;
+                case SYNC_MODE:      return sync_mode;
+                case REGION:         return region;
+                case INSTALLER_ID:   return installer_id;
+            }
+            return "";
+        }
 
         public string resolved_path () {
-            if (FileUtils.test (path, FileTest.EXISTS)) return path;
-            if (uri != "") {
-                try {
-                    var u = Uri.parse (uri, UriFlags.NONE);
-                    if (u.get_scheme () == "file") {
-                        var p = u.get_path ();
-                        if (p != null && p != "" && FileUtils.test (p, FileTest.EXISTS)) return p;
-                    }
-                } catch (UriError e) {
-                    warning ("Failed to parse URI for prefix path: %s", e.message);
-                }
+            return Utils.resolve_user_path (path, path_portal, uri);
+        }
+
+        public bool needs_grant () {
+            return !FileUtils.test (resolved_path (), FileTest.IS_DIR);
+        }
+
+        public bool has_menu_shortcut (string entrypoint_id) {
+            return dynamic_launcher_desktop_ids.has_key (entrypoint_id);
+        }
+
+        public bool has_steam_shortcut (string entrypoint_id) {
+            return steam_shortcut_app_ids.has_key (entrypoint_id);
+        }
+
+        public RuntimeComponentOverride ensure_component_override (string component_id) {
+            if (runtime_component_overrides.has_key (component_id)) {
+                return runtime_component_overrides[component_id];
             }
-            var portal_path = Utils.resolve_portal_path (path_portal);
-            if (portal_path != "") return portal_path;
-            return path;
+            var ov = new RuntimeComponentOverride ();
+            runtime_component_overrides[component_id] = ov;
+            return ov;
+        }
+
+        public void apply_component_enabled (string component_id, bool? enabled) {
+            if (enabled == null) {
+                if (!runtime_component_overrides.has_key (component_id)) return;
+                runtime_component_overrides[component_id].enabled = null;
+                prune_component_override (component_id);
+                return;
+            }
+            ensure_component_override (component_id).enabled = enabled;
+        }
+
+        public void apply_component_version (string component_id, string version) {
+            if (ToolVersionRef.is_inherit (version)) {
+                if (!runtime_component_overrides.has_key (component_id)) return;
+                runtime_component_overrides[component_id].version = "";
+                prune_component_override (component_id);
+                return;
+            }
+            ensure_component_override (component_id).version = version.strip ();
+        }
+
+        private void prune_component_override (string component_id) {
+            if (!runtime_component_overrides.has_key (component_id)) return;
+            if (runtime_component_overrides[component_id].is_empty ()) {
+                runtime_component_overrides.unset (component_id);
+            }
+        }
+
+        public string display_icon (string action_id, string fallback = "") {
+            var meta = display_for (action_id);
+            if (meta != null && meta.icon != "") {
+                var key = FfxiIconCatalog.sanitize_slot_key (meta.icon);
+                if (key != "") return key;
+            }
+            return FfxiIconCatalog.sanitize_slot_key (fallback);
+        }
+
+        public string display_nickname (string action_id) {
+            if (is_custom_entry_id (action_id)) return "";
+            var meta = display_for (action_id);
+            return meta != null ? Utils.sanitize_user_text (meta.nickname) : "";
+        }
+
+        public bool uses_launch_icon_for_shortcut (string action_id) {
+            var meta = display_for (action_id);
+            return meta == null || meta.shortcut_icon != IconSlots.LUMORIA;
+        }
+
+        public string shortcut_icon_preference (string action_id) {
+            var meta = display_for (action_id);
+            return meta != null ? meta.shortcut_icon : "";
+        }
+
+        public void apply_launch_display (
+            string action_id,
+            string icon,
+            string nickname,
+            string shortcut_icon = ""
+        ) {
+            if (action_id == "") return;
+            var meta = display_for (action_id) ?? new LaunchDisplay ();
+            meta.icon = FfxiIconCatalog.sanitize_slot_key (icon);
+            meta.nickname = is_custom_entry_id (action_id) ? "" : Utils.sanitize_user_text (nickname);
+            meta.shortcut_icon = FfxiIconCatalog.sanitize_shortcut_icon (shortcut_icon);
+            if (meta.is_empty ()) {
+                launch_display.unset (action_id);
+                return;
+            }
+            launch_display[action_id] = meta;
+        }
+
+        private LaunchDisplay? display_for (string action_id) {
+            return launch_display.get (action_id);
+        }
+
+        public void set_runner_identity (string runner_id, string variant_id) {
+            if (this.runner_id == runner_id && this.variant_id == variant_id) return;
+            this.runner_id = runner_id;
+            this.variant_id = variant_id;
+            if (runner_state == null) return;
+            if (runner_state.runner_id == runner_id
+                && (runner_state.variant_id == variant_id || runner_state.variant_id == "")) {
+                return;
+            }
+            runner_state = null;
         }
 
         public string display_name () {
@@ -195,42 +249,36 @@ namespace Lumoria.Models {
             return Path.get_basename (p != "" ? p : path);
         }
 
-        public string runner_summary (Gee.ArrayList<RunnerSpec> runner_specs) {
-            if (runner_id == "") return "No runner configured";
-            var found = RunnerSpec.find_by_id (runner_specs, runner_id);
-            string runner_label = found != null ? found.display_label () : runner_id;
-            var vl = variant_label (runner_specs);
-            if (vl != "" && vl != "default") return runner_label + " / " + vl;
-            return runner_label;
+        public Entrypoint? custom_entrypoint (string id) {
+            if (id == "") return null;
+            foreach (var ep in custom_entrypoints) {
+                if (ep.id == id) return ep;
+            }
+            return null;
         }
 
-        public string variant_label (Gee.ArrayList<RunnerSpec> runner_specs) {
-            if (variant_id == "" || runner_id == "") return "default";
-            var spec = RunnerSpec.find_by_id (runner_specs, runner_id);
-            if (spec != null) {
-                foreach (var v in spec.variants) {
-                    if (v.id == variant_id) return v.display_label ();
-                }
+        public string unique_custom_entry_id () {
+            var id = generate_custom_entry_id ();
+            while (custom_entrypoint (id) != null) {
+                id = generate_custom_entry_id ();
             }
-            return variant_id;
+            return id;
         }
+
+        private const string CUSTOM_ENTRY_ID_KIND = "custom";
+        private const string CUSTOM_ENTRY_ID_PREFIX = CUSTOM_ENTRY_ID_KIND + "-";
 
         public static string generate_custom_entry_id () {
-            var part3 = ((uint16) GLib.Random.next_int () & 0x0fff) | 0x4000;
-            var part4 = ((uint16) GLib.Random.next_int () & 0x3fff) | 0x8000;
-            return "custom-%08x-%04x-%04x-%04x-%04x%08x".printf (
-                (uint32) GLib.Random.next_int (),
-                (uint16) GLib.Random.next_int (),
-                part3,
-                part4,
-                (uint16) GLib.Random.next_int (),
-                (uint32) GLib.Random.next_int ()
-            );
+            return Utils.random_id (CUSTOM_ENTRY_ID_KIND);
+        }
+
+        public static bool is_custom_entry_id (string id) {
+            return id.has_prefix (CUSTOM_ENTRY_ID_PREFIX);
         }
 
         public static bool is_legacy_custom_entry_id (string id) {
-            if (!id.has_prefix ("custom-") || id.length != 39) return false;
-            for (int i = 7; i < id.length; i++) {
+            if (!id.has_prefix (CUSTOM_ENTRY_ID_PREFIX) || id.length != 39) return false;
+            for (int i = CUSTOM_ENTRY_ID_PREFIX.length; i < id.length; i++) {
                 var c = id[i];
                 if (!((c >= '0' && c <= '9') ||
                       (c >= 'a' && c <= 'f') ||
@@ -244,7 +292,7 @@ namespace Lumoria.Models {
         public Json.Object to_json () {
             var obj = new Json.Object ();
             obj.set_string_member ("id", id);
-            obj.set_string_member ("name", name);
+            obj.set_string_member ("name", Utils.sanitize_user_text (name));
             obj.set_string_member ("path", path);
             if (uri != "") obj.set_string_member ("uri", uri);
             if (path_portal != null && !path_portal.is_empty ()) {
@@ -260,7 +308,7 @@ namespace Lumoria.Models {
             if (wine_debug != "") obj.set_string_member ("wine_debug", wine_debug);
             if (wine_wayland != null) obj.set_boolean_member ("wine_wayland", (bool) wine_wayland);
             if (wayland_primary_monitor != "") obj.set_string_member ("wayland_primary_monitor", wayland_primary_monitor);
-            if (large_address_aware != null) obj.set_boolean_member ("large_address_aware", (bool) large_address_aware);
+            if (large_address_aware != null) obj.set_boolean_member (InstallerPatch.SETTING_LARGE_ADDRESS_AWARE, (bool) large_address_aware);
             if (sync_mode != "") obj.set_string_member ("sync_mode", sync_mode);
             if (region != "" && region != "us") obj.set_string_member ("region", region);
             if (prelaunch_script != "") obj.set_string_member ("prelaunch_script", prelaunch_script);
@@ -277,76 +325,35 @@ namespace Lumoria.Models {
             if (custom_entrypoints.size > 0) {
                 var ep_arr = new Json.Array ();
                 foreach (var ep in custom_entrypoints) {
-                    var ep_obj = new Json.Object ();
-                    ep_obj.set_string_member ("id", ep.id);
-                    ep_obj.set_string_member ("name", ep.name);
-                    ep_obj.set_string_member ("exe", ep.exe);
-                    if (ep.exe_portal != null && !ep.exe_portal.is_empty ()) {
-                        ep_obj.set_object_member ("exe_portal", ep.exe_portal.to_json ());
-                    }
-                    if (ep.args.size > 0) {
-                        var args_arr = new Json.Array ();
-                        foreach (var arg in ep.args) args_arr.add_string_element (arg);
-                        ep_obj.set_array_member ("args", args_arr);
-                    }
-                    if (ep.prelaunch_script != "") {
-                        ep_obj.set_string_member ("prelaunch_script", ep.prelaunch_script);
-                    }
-                    if (ep.prelaunch_script_portal != null && !ep.prelaunch_script_portal.is_empty ()) {
-                        ep_obj.set_object_member ("prelaunch_script_portal", ep.prelaunch_script_portal.to_json ());
-                    }
-                    if (ep.component_overrides.size > 0) {
-                        var ov_obj = new Json.Object ();
-                        foreach (var ov in ep.component_overrides.entries) {
-                            ov_obj.set_object_member (ov.key, ov.value.to_json ());
-                        }
-                        ep_obj.set_object_member ("component_overrides", ov_obj);
-                    }
-                    if (ep.runtime_dll_overrides.size > 0) {
-                        var dll_obj = new Json.Object ();
-                        foreach (var dll in ep.runtime_dll_overrides.entries) {
-                            dll_obj.set_string_member (dll.key, dll.value);
-                        }
-                        ep_obj.set_object_member ("runtime_dll_overrides", dll_obj);
-                    }
-                    if (ep.runtime_env_overrides.size > 0) {
-                        var env_obj = new Json.Object ();
-                        foreach (var env in ep.runtime_env_overrides.entries) {
-                            env_obj.set_string_member (env.key, env.value);
-                        }
-                        ep_obj.set_object_member ("runtime_env_overrides", env_obj);
-                    }
-                    ep_arr.add_object_element (ep_obj);
+                    ep_arr.add_object_element (ep.to_json ());
                 }
                 obj.set_array_member ("custom_entrypoints", ep_arr);
             }
-            if (runtime_env_vars.size > 0) {
-                var env_obj = new Json.Object ();
-                foreach (var entry in runtime_env_vars.entries) {
-                    env_obj.set_string_member (entry.key, entry.value);
+            if (launch_display.size > 0) {
+                var display = new Json.Object ();
+                foreach (var item in launch_display.entries) {
+                    if (item.value.is_empty ()) continue;
+                    display.set_object_member (item.key, item.value.to_json ());
                 }
-                obj.set_object_member ("runtime_env_vars", env_obj);
+                if (display.get_size () > 0) obj.set_object_member ("launch_display", display);
+            }
+            if (runtime_env_vars.size > 0) {
+                obj.set_object_member ("runtime_env_vars", json_string_map_object (runtime_env_vars));
             }
             if (runtime_dll_overrides.size > 0) {
-                var dll_obj = new Json.Object ();
-                foreach (var dll in runtime_dll_overrides.entries) {
-                    dll_obj.set_string_member (dll.key, dll.value);
-                }
-                obj.set_object_member ("runtime_dll_overrides", dll_obj);
+                obj.set_object_member ("runtime_dll_overrides", json_string_map_object (runtime_dll_overrides));
             }
             if (dynamic_launcher_desktop_ids.size > 0) {
-                var shortcuts_obj = new Json.Object ();
-                foreach (var entry in dynamic_launcher_desktop_ids.entries) {
-                    shortcuts_obj.set_string_member (entry.key, entry.value);
-                }
-                obj.set_object_member ("dynamic_launcher_desktop_ids", shortcuts_obj);
+                obj.set_object_member (
+                    "dynamic_launcher_desktop_ids",
+                    json_string_map_object (dynamic_launcher_desktop_ids)
+                );
             }
             if (steam_shortcut_app_ids.size > 0) {
-                var shortcuts_obj = new Json.Object ();
-                foreach (var entry in steam_shortcut_app_ids.entries) {
-                    shortcuts_obj.set_string_member (entry.key, entry.value);
-                }
-                obj.set_object_member ("steam_shortcut_app_ids", shortcuts_obj);
+                obj.set_object_member (
+                    "steam_shortcut_app_ids",
+                    json_string_map_object (steam_shortcut_app_ids)
+                );
             }
 
             if (runtime_component_overrides.size > 0) {
@@ -357,9 +364,7 @@ namespace Lumoria.Models {
                 obj.set_object_member ("runtime_component_overrides", overrides);
             }
             if (installed_redists.size > 0) {
-                var arr = new Json.Array ();
-                foreach (var rid in installed_redists) arr.add_string_element (rid);
-                obj.set_array_member ("installed_redists", arr);
+                obj.set_array_member ("installed_redists", json_string_list_array (installed_redists));
             }
             if (applied_components.size > 0) {
                 var ac = new Json.Object ();
@@ -369,31 +374,162 @@ namespace Lumoria.Models {
                 obj.set_object_member ("applied_components", ac);
             }
             if (runner_support_files.size > 0) {
-                var arr = new Json.Array ();
-                foreach (var path in runner_support_files) arr.add_string_element (path);
-                obj.set_array_member ("runner_support_files", arr);
+                obj.set_array_member ("runner_support_files", json_string_list_array (runner_support_files));
             }
             if (runner_state != null) {
                 obj.set_object_member ("runner_state", runner_state.to_json ());
             }
-            if (post_install_spec != null) {
-                obj.set_object_member ("post_install_spec", post_install_spec.to_json ());
+            if (post_install_manifests.size > 0) {
+                var arr = new Json.Array ();
+                foreach (var spec in post_install_manifests) {
+                    arr.add_object_element (spec.to_json ());
+                }
+                obj.set_array_member ("post_install_manifests", arr);
             }
             return obj;
         }
 
+        public PrefixEntry snapshot () {
+            var e = new PrefixEntry ();
+            e.id = id;
+            e.name = name;
+            e.path = path;
+            e.uri = uri;
+            e.path_portal = clone_portal (path_portal);
+            e.installer_id = installer_id;
+            e.runner_id = runner_id;
+            e.runner_version = runner_version;
+            e.launcher_id = launcher_id;
+            e.launch_entrypoint_id = launch_entrypoint_id;
+            e.variant_id = variant_id;
+            e.wine_arch = wine_arch;
+            e.wine_debug = wine_debug;
+            e.wine_wayland = wine_wayland;
+            e.wayland_primary_monitor = wayland_primary_monitor;
+            e.large_address_aware = large_address_aware;
+            e.sync_mode = sync_mode;
+            e.region = region;
+            e.prelaunch_script = prelaunch_script;
+            e.prelaunch_script_portal = clone_portal (prelaunch_script_portal);
+            e.advanced_dxvk = advanced_dxvk;
+            e.dxvk_show_fps = dxvk_show_fps;
+            e.dxvk_hide_integrated_graphics = dxvk_hide_integrated_graphics;
+            e.dxvk_sampler_anisotropy = dxvk_sampler_anisotropy;
+            e.dxvk_max_frame_rate = dxvk_max_frame_rate;
+            e.dxvk_sync_interval = dxvk_sync_interval;
+            e.dxvk_config_custom = dxvk_config_custom;
+            e.custom_entrypoints = clone_entrypoints (custom_entrypoints);
+            e.launch_display = clone_launch_display (launch_display);
+            e.runtime_env_vars = copy_string_map (runtime_env_vars);
+            e.runtime_dll_overrides = copy_string_map (runtime_dll_overrides);
+            e.runtime_component_overrides = clone_component_overrides (runtime_component_overrides);
+            e.dynamic_launcher_desktop_ids = copy_string_map (dynamic_launcher_desktop_ids);
+            e.steam_shortcut_app_ids = copy_string_map (steam_shortcut_app_ids);
+            e.installed_redists = copy_string_list (installed_redists);
+            e.applied_components = clone_applied_components (applied_components);
+            e.runner_support_files = copy_string_list (runner_support_files);
+            e.runner_state = clone_runner_state (runner_state);
+            e.post_install_manifests = clone_post_installs (post_install_manifests);
+            return e;
+        }
+
+        public void apply_runtime_state (PrefixEntry source) {
+            if (source == this) return;
+            runner_version = source.runner_version;
+            installed_redists = copy_string_list (source.installed_redists);
+            applied_components = clone_applied_components (source.applied_components);
+            runtime_env_vars = copy_string_map (source.runtime_env_vars);
+            runtime_dll_overrides = copy_string_map (source.runtime_dll_overrides);
+            runtime_component_overrides = clone_component_overrides (source.runtime_component_overrides);
+            merge_post_install_runtime_state (source.post_install_manifests);
+            runner_state = clone_runner_state (source.runner_state);
+            runner_support_files = copy_string_list (source.runner_support_files);
+        }
+
+        private void merge_post_install_runtime_state (Gee.ArrayList<PrefixPostInstallManifest> source) {
+            foreach (var src in source) {
+                if (src.id == "") continue;
+                var live = find_post_install_metadata (src.id);
+                if (live == null) continue;
+                live.last_run_status = src.last_run_status;
+                live.last_run_at = src.last_run_at;
+                if (src.name != "") live.name = src.name;
+                if (src.manifest_id != "") live.manifest_id = src.manifest_id;
+            }
+        }
+
+        private static PortalPathRef? clone_portal (PortalPathRef? src) {
+            if (src == null || src.is_empty ()) return null;
+            return src.copy ();
+        }
+
+        private static Gee.HashMap<string, string> copy_string_map (Gee.Map<string, string> src) {
+            var copy = new Gee.HashMap<string, string> ();
+            copy.set_all (src);
+            return copy;
+        }
+
+        private static Gee.ArrayList<string> copy_string_list (Gee.Collection<string> src) {
+            var copy = new Gee.ArrayList<string> ();
+            copy.add_all (src);
+            return copy;
+        }
+
+        private static Gee.HashMap<string, LaunchDisplay> clone_launch_display (
+            Gee.Map<string, LaunchDisplay> src
+        ) {
+            var copy = new Gee.HashMap<string, LaunchDisplay> ();
+            foreach (var item in src.entries) {
+                copy[item.key] = item.value.copy ();
+            }
+            return copy;
+        }
+
+        private static Gee.ArrayList<Entrypoint> clone_entrypoints (Gee.ArrayList<Entrypoint> src) {
+            var copy = new Gee.ArrayList<Entrypoint> ();
+            foreach (var ep in src) copy.add (ep.copy ());
+            return copy;
+        }
+
+        private static Gee.HashMap<string, RuntimeComponentOverride> clone_component_overrides (
+            Gee.Map<string, RuntimeComponentOverride> src
+        ) {
+            var copy = new Gee.HashMap<string, RuntimeComponentOverride> ();
+            foreach (var entry in src.entries) copy[entry.key] = entry.value.copy ();
+            return copy;
+        }
+
+        private static Gee.HashMap<string, AppliedComponentRecord> clone_applied_components (
+            Gee.Map<string, AppliedComponentRecord> src
+        ) {
+            var copy = new Gee.HashMap<string, AppliedComponentRecord> ();
+            foreach (var entry in src.entries) copy[entry.key] = entry.value.copy ();
+            return copy;
+        }
+
+        private static PrefixRunnerState? clone_runner_state (PrefixRunnerState? src) {
+            return src != null ? src.copy () : null;
+        }
+
+        private static Gee.ArrayList<PrefixPostInstallManifest> clone_post_installs (
+            Gee.ArrayList<PrefixPostInstallManifest> src
+        ) {
+            var copy = new Gee.ArrayList<PrefixPostInstallManifest> ();
+            foreach (var spec in src) copy.add (spec.copy ());
+            return copy;
+        }
+
         public static PrefixEntry from_json (Json.Object obj) throws Error {
             var e = new PrefixEntry ();
-            e.parse_base (obj);
+            e.parse_identity (obj);
+            e.name = Utils.sanitize_user_text (e.name);
             e.path = json_string (obj, "path");
             e.uri = json_string (obj, "uri");
-            if (obj.has_member ("path_portal")) {
-                e.path_portal = PortalPathRef.from_json (obj.get_object_member ("path_portal"));
-            }
-            e.installer_id = json_string (obj, "installer_id", "ffxi").strip ();
-            if (e.installer_id == "") e.installer_id = "empty-wine-prefix";
+            e.path_portal = json_parse_member<PortalPathRef> (obj, "path_portal", PortalPathRef.from_json);
+            e.installer_id = json_string (obj, "installer_id").strip ();
+            if (e.installer_id == "") e.installer_id = ManifestRepository.shared ().default_installer_id ();
             e.runner_id = json_string (obj, "runner_id");
-            e.runner_version = json_string (obj, "runner_version", "latest");
+            e.runner_version = json_string (obj, "runner_version", ToolVersionRef.WIRE_INHERIT);
             e.launcher_id = json_string (obj, "launcher_id");
             e.launch_entrypoint_id = json_string (obj, "launch_entrypoint_id");
             e.variant_id = json_string (obj, "variant_id");
@@ -401,26 +537,24 @@ namespace Lumoria.Models {
             e.wine_debug = json_string (obj, "wine_debug");
             e.wine_wayland = json_bool_nullable (obj, "wine_wayland");
             e.wayland_primary_monitor = json_string (obj, "wayland_primary_monitor");
-            e.large_address_aware = json_bool_nullable (obj, "large_address_aware");
+            e.large_address_aware = json_bool_nullable (obj, InstallerPatch.SETTING_LARGE_ADDRESS_AWARE);
             e.sync_mode = json_string (obj, "sync_mode");
             e.region = json_string (obj, "region", "us");
             e.prelaunch_script = json_string (obj, "prelaunch_script");
-            if (obj.has_member ("prelaunch_script_portal")) {
-                e.prelaunch_script_portal = PortalPathRef.from_json (obj.get_object_member ("prelaunch_script_portal"));
-            }
+            e.prelaunch_script_portal = json_parse_member<PortalPathRef> (
+                obj, "prelaunch_script_portal", PortalPathRef.from_json
+            );
             e.advanced_dxvk = json_bool (obj, "advanced_dxvk");
             e.dxvk_show_fps = json_bool (obj, "dxvk_show_fps");
             e.dxvk_hide_integrated_graphics = json_bool (obj, "dxvk_hide_integrated_graphics");
             e.dxvk_sampler_anisotropy = json_string (obj, "dxvk_sampler_anisotropy");
             e.dxvk_max_frame_rate = json_string (obj, "dxvk_max_frame_rate");
             e.dxvk_sync_interval = json_string (obj, "dxvk_sync_interval");
-            e.dxvk_config_custom = json_string_or_lines (obj, "dxvk_config_custom");
+            e.dxvk_config_custom = json_string_or_array (obj, "dxvk_config_custom");
 
-            if (obj.has_member ("custom_entrypoints")) {
-                var ep_arr = obj.get_array_member ("custom_entrypoints");
-                for (uint i = 0; i < ep_arr.get_length (); i++) {
-                    e.custom_entrypoints.add (Entrypoint.from_json (ep_arr.get_object_element (i)));
-                }
+            e.custom_entrypoints = parse_json_array<Entrypoint> (obj, "custom_entrypoints", (o) => Entrypoint.from_json (o));
+            foreach (var display in json_object_map<LaunchDisplay> (obj, "launch_display", (o) => LaunchDisplay.from_json (o)).entries) {
+                if (!display.value.is_empty ()) e.launch_display[display.key] = display.value;
             }
 
             e.runtime_env_vars = json_string_map (obj, "runtime_env_vars");
@@ -429,29 +563,18 @@ namespace Lumoria.Models {
             e.steam_shortcut_app_ids = json_string_map (obj, "steam_shortcut_app_ids");
             e.installed_redists = json_string_array (obj, "installed_redists");
 
-            if (obj.has_member ("runtime_component_overrides")) {
-                var overrides = obj.get_object_member ("runtime_component_overrides");
-                overrides.foreach_member ((_, key, node) => {
-                    e.runtime_component_overrides[key] = RuntimeComponentOverride.from_json (node.get_object ());
-                });
-            }
-            if (obj.has_member ("post_install_spec")) {
-                e.post_install_spec = PrefixPostInstallSpec.from_json (obj.get_object_member ("post_install_spec"));
-            }
-            if (obj.has_member ("applied_components")) {
-                var ac = obj.get_object_member ("applied_components");
-                ac.foreach_member ((_, key, node) => {
-                    e.applied_components[key] = AppliedComponentRecord.from_json (node.get_object ());
-                });
-            }
+            e.runtime_component_overrides = json_component_override_map (obj, "runtime_component_overrides");
+            e.post_install_manifests = parse_json_array<PrefixPostInstallManifest> (
+                obj, "post_install_manifests", (o) => PrefixPostInstallManifest.from_json (o)
+            );
+            e.applied_components = json_object_map<AppliedComponentRecord> (
+                obj, "applied_components", (o) => AppliedComponentRecord.from_json (o)
+            );
             e.runner_support_files = json_string_array (obj, "runner_support_files");
-            if (obj.has_member ("runner_state")) {
-                e.runner_state = PrefixRunnerState.from_json (obj.get_object_member ("runner_state"));
-            }
-            if (e.installer_id == "empty-wine-prefix") {
+            e.runner_state = json_parse_member<PrefixRunnerState> (obj, "runner_state", PrefixRunnerState.from_json);
+            if (e.installer_id == InstallerManifest.EMPTY_ID) {
                 e.region = "";
                 e.launcher_id = "";
-                e.large_address_aware = null;
             }
             return e;
         }

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://manifests.lumoria.dev/1/schemas/launcher.json",
+  "id": "ashita-v4-beta",
+  "name": "Ashita v4 Beta",
+  "default": false,
+  "support": "unsupported",
+  "links": {
+    "docs": "https://docs.ashitaxi.com/",
+    "source": "https://github.com/AshitaXI/Ashita-v4beta"
+  },
+  "messages": {
+    "new-prefix": [
+      {
+        "style": "danger",
+        "body": "**Ashita does not officially support Linux.**\n\nThat being said, they do have a very helpful community on their Discord server in the #linux channel. Please be respectful and follow their communities guidelines when asking for help.\n\nLumoria is primarily designed for Windower and while Ashita can be used with it, neither communities can guarantee support for it. If there are any issues with the **installation** of **Final Fantasy XI** using Lumoria, please direct questions to Lumoria's [GitHub repository](https://github.com/Windower/Lumoria/issues). Support will only be given for Official PlayOnline Viewer and Final Fantasy XI."
+      }
+    ]
+  },
+  "variables": {
+    "ASHITA_DIR": "drive_c/AshitaV4",
+    "ASHITA_ROOT": "${var.PREFIX}/${var.ASHITA_DIR}",
+    "ASHITA_CONFIG_BOOT": "${var.ASHITA_ROOT}/config/boot"
+  },
+  "entrypoints": [
+    {
+      "id": "ashita-cli",
+      "name": "Ashita v4 Beta",
+      "exe": "${var.ASHITA_ROOT}/Ashita-cli.exe",
+      "args": ["lumoria-retail.ini"],
+      "default": true
+    }
+  ],
+  "redists": [
+    "dotnet48",
+    "vcrun2022",
+    "gdiplus",
+    "allfonts"
+  ],
+  "steps": [
+    {
+      "type": "git",
+      "command": "clone",
+      "description": "Clone Ashita V4 Beta into prefix",
+      "src": "https://github.com/AshitaXI/Ashita-v4beta.git",
+      "dst": "${var.ASHITA_ROOT}",
+      "verify_paths": ["${var.ASHITA_ROOT}/Ashita-cli.exe"]
+    },
+    {
+      "type": "copy",
+      "description": "Copy Ashita's example-retail.ini as lumoria-retail.ini",
+      "src": "${var.ASHITA_CONFIG_BOOT}/example-retail.ini",
+      "dst": "${var.ASHITA_CONFIG_BOOT}/lumoria-retail.ini",
+      "when": {
+        "not": {
+          "file_exists": "${var.ASHITA_CONFIG_BOOT}/lumoria-retail.ini"
+        }
+      },
+      "verify_paths": ["${var.ASHITA_CONFIG_BOOT}/lumoria-retail.ini"]
+    }
+  ],
+  "actions": [
+    {
+      "id": "ashita-update",
+      "name": "Update Ashita",
+      "description": "This **git pulls** the repo and overwrites **ALL** git-managed files. **Do not** run it while the game is running.",
+      "confirm": true,
+      "steps": [
+        {
+          "type": "git",
+          "command": "pull",
+          "description": "Update Ashita Repository",
+          "dst": "${var.ASHITA_ROOT}",
+          "verify_paths": ["${var.ASHITA_ROOT}/Ashita-cli.exe"]
+        }
+      ]
+    }
+  ]
+}

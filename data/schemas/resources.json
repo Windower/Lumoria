@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://manifests.lumoria.dev/1/schemas/resources.json",
+  "title": "Lumoria resources",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["resources"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "resources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "url", "sha256", "size"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "kind": { "enum": ["archive"] },
+          "url": { "$ref": "defs.json#/$defs/nonempty_string" },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          },
+          "size": { "type": "integer", "minimum": 1 },
+          "required": { "type": "boolean" }
+        }
+      }
+    },
+    "metadata": { "$ref": "defs.json#/$defs/metadata" }
+  }
+}

@@ -56,6 +56,20 @@ namespace Lumoria.Utils {
             return !has_monitored_descendants (root_pid);
         }
 
+        public static bool terminate_descendants (
+            int root_pid,
+            int term_ms,
+            int kill_ms,
+            int kill_attempts = 1
+        ) {
+            signal_monitored_descendants (root_pid, Posix.Signal.TERM);
+            if (wait_for_monitored_descendants (root_pid, term_ms)) return true;
+            for (var i = 0; i < kill_attempts; i++) {
+                signal_monitored_descendants (root_pid, Posix.Signal.KILL);
+            }
+            return wait_for_monitored_descendants (root_pid, kill_ms);
+        }
+
         public static bool process_alive (int pid) {
             return Posix.kill ((Posix.pid_t) pid, 0) == 0;
         }
@@ -99,6 +113,7 @@ namespace Lumoria.Utils {
                     }
                 }
             } catch (Error e) {
+                debug ("Failed to walk /proc/%d/task: %s", root_pid, e.message);
             }
             return names;
         }
@@ -120,6 +135,7 @@ namespace Lumoria.Utils {
                     }
                 }
             } catch (Error e) {
+                debug ("Failed to walk /proc/%d/task: %s", parent_pid, e.message);
             }
         }
 

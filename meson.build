@@ -1,7 +1,7 @@
 project(
   'net.windower.Lumoria',
   ['c', 'vala'],
-  version: '0.1.26',
+  version: '0.2.0',
   meson_version: '>= 1.0.0',
   license: 'GPL-3.0-or-later',
 )
@@ -19,12 +19,19 @@ config_h.set_quoted('APP_ID', meson.project_name())
 config_h.set_quoted('APP_VERSION', meson.project_version())
 config_h.set_quoted('LOCALE_DIR', join_paths(get_option('prefix'), get_option('localedir')))
 config_h.set_quoted('RESOURCE_BASE', join_paths('/', meson.project_name().replace('.', '/')))
+config_h.set('MANIFEST_FORMAT_VERSION', get_option('manifest_format_version'))
+config_h.set('CONFIG_FORMAT_VERSION', get_option('config_format_version'))
+config_h.set_quoted('MANIFEST_BASE_URL', get_option('manifest_base_url').strip('/'))
 configure_file(output: 'config.h', configuration: config_h)
 
 config_dep = valac.find_library('config', dirs: src_dir)
 config_inc = include_directories('.')
 
-add_global_arguments('-DGETTEXT_PACKAGE="@0@"'.format(meson.project_name()), language: 'c')
+add_global_arguments(
+  '-DGETTEXT_PACKAGE="@0@"'.format(meson.project_name()),
+  '-D_GNU_SOURCE',
+  language: 'c',
+)
 
 install_data('LICENSE', install_dir: get_option('datadir') / 'licenses' / meson.project_name())
 

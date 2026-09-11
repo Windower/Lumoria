@@ -1,0 +1,11 @@
+{
+  "$schema": "https://manifests.lumoria.dev/1/schemas/redist.json",
+  "id": "cjkfonts",
+  "name": "CJK Fonts",
+  "redists": [
+    "fakechinese",
+    "fakejapanese",
+    "fakekorean",
+    "unifont"
+  ]
+}

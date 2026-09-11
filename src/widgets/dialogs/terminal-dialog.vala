@@ -1,9 +1,12 @@
 namespace Lumoria.Widgets.Dialogs {
 
-    public class TerminalDialog : Adw.Dialog {
+    public class TerminalDialog : DialogHelpers.GamepadDialog {
+        public signal void failed (string message);
+
         private Vte.Terminal terminal;
         private Gtk.Button copy_btn;
         private Gtk.Button paste_btn;
+        private uint copy_pulse_id = 0;
 
         public TerminalDialog (
             string working_directory,
@@ -19,17 +22,14 @@ namespace Lumoria.Widgets.Dialogs {
         }
 
         private void build_ui () {
-            var toolbar = new Adw.ToolbarView ();
-            var header = new Adw.HeaderBar ();
-            header.show_start_title_buttons = false;
-            header.show_end_title_buttons = true;
+            var header = DialogHelpers.dialog_header ();
 
             copy_btn = new Gtk.Button.from_icon_name (IconRegistry.COPY);
-            copy_btn.tooltip_text = _("Copy Terminal Output");
+            PageChrome.set_icon_label (copy_btn, _("Copy Terminal Output"));
             copy_btn.clicked.connect (copy_terminal_buffer);
 
             paste_btn = new Gtk.Button.from_icon_name (IconRegistry.PASTE);
-            paste_btn.tooltip_text = _("Paste");
+            PageChrome.set_icon_label (paste_btn, _("Paste"));
             paste_btn.clicked.connect (paste_terminal_clipboard);
 
             var clipboard_actions = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 0);
@@ -37,8 +37,6 @@ namespace Lumoria.Widgets.Dialogs {
             clipboard_actions.append (copy_btn);
             clipboard_actions.append (paste_btn);
             header.pack_end (clipboard_actions);
-
-            toolbar.add_top_bar (header);
 
             terminal = new Vte.Terminal ();
             terminal.hexpand = true;
@@ -60,13 +58,15 @@ namespace Lumoria.Widgets.Dialogs {
             scroll.child = terminal;
             scroll.hexpand = true;
             scroll.vexpand = true;
-            toolbar.content = scroll;
-
             map.connect (() => {
                 terminal.grab_focus ();
             });
 
-            this.child = toolbar;
+            set_body (DialogHelpers.dialog_toolbar (header, scroll));
+            closed.connect (() => {
+                if (copy_pulse_id != 0) Source.remove (copy_pulse_id);
+                copy_pulse_id = 0;
+            });
         }
 
         private void apply_colors () {
@@ -92,11 +92,8 @@ namespace Lumoria.Widgets.Dialogs {
             }
             merged["TERM"] = "xterm-256color";
 
-            var envv = new string[merged.size];
-            int i = 0;
-            foreach (var entry in merged.entries) {
-                envv[i++] = "%s=%s".printf (entry.key, entry.value);
-            }
+            var envv = new Gee.ArrayList<string> ();
+            foreach (var entry in merged.entries) envv.add ("%s=%s".printf (entry.key, entry.value));
 
             string[] argv = { "bash", "-l" };
             string? work_dir = working_directory != "" ? working_directory : null;
@@ -105,43 +102,46 @@ namespace Lumoria.Widgets.Dialogs {
                 Vte.PtyFlags.DEFAULT,
                 work_dir,
                 argv,
-                envv,
+                Utils.strv (envv),
                 SpawnFlags.SEARCH_PATH,
                 null,
                 -1,
                 null,
                 (terminal, pid, error) => {
-                    if (error != null) {
-                        warning ("Terminal spawn failed: %s", error.message);
-                    }
+                    if (error == null) return;
+                    warning ("Terminal spawn failed: %s", error.message);
+                    failed (_("Could not start the shell: %s").printf (user_error (error)));
+                    close ();
                 }
             );
         }
 
         private void install_shortcuts () {
-            var shortcuts = new Gtk.ShortcutController ();
-            shortcuts.add_shortcut (new Gtk.Shortcut (
-                Gtk.ShortcutTrigger.parse_string ("<Primary><Shift>c"),
-                new Gtk.CallbackAction ((widget, args) => {
-                    copy_terminal_selection ();
-                    return true;
-                })
-            ));
-            shortcuts.add_shortcut (new Gtk.Shortcut (
-                Gtk.ShortcutTrigger.parse_string ("<Primary><Shift>v"),
-                new Gtk.CallbackAction ((widget, args) => {
-                    paste_terminal_clipboard ();
-                    return true;
-                })
-            ));
-            shortcuts.add_shortcut (new Gtk.Shortcut (
-                Gtk.ShortcutTrigger.parse_string ("Shift+Insert"),
-                new Gtk.CallbackAction ((widget, args) => {
-                    paste_terminal_clipboard ();
-                    return true;
-                })
-            ));
-            terminal.add_controller (shortcuts);
+            var keys = new Gtk.EventControllerKey ();
+            keys.propagation_phase = Gtk.PropagationPhase.CAPTURE;
+            keys.key_pressed.connect (on_key_pressed);
+            terminal.add_controller (keys);
+        }
+
+        private bool on_key_pressed (uint keyval, uint keycode, Gdk.ModifierType state) {
+            var mods = state & Gtk.accelerator_get_default_mod_mask ();
+            var primary_shift = Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK;
+            switch (Gdk.keyval_to_lower (keyval)) {
+            case Gdk.Key.c:
+                if (mods != primary_shift) return false;
+                copy_terminal_selection ();
+                return true;
+            case Gdk.Key.v:
+                if (mods != primary_shift) return false;
+                paste_terminal_clipboard ();
+                return true;
+            case Gdk.Key.Insert:
+                if (mods != Gdk.ModifierType.SHIFT_MASK) return false;
+                paste_terminal_clipboard ();
+                return true;
+            default:
+                return false;
+            }
         }
 
         private void copy_terminal_selection () {
@@ -170,6 +170,7 @@ namespace Lumoria.Widgets.Dialogs {
                 stream.close ();
             } catch (Error e) {
                 warning ("Terminal copy failed: %s", e.message);
+                failed (_("Could not copy the terminal output: %s").printf (user_error (e)));
                 return null;
             }
 
@@ -193,7 +194,9 @@ namespace Lumoria.Widgets.Dialogs {
         private void pulse_copy_button (string tooltip_text) {
             copy_btn.icon_name = IconRegistry.CHECKMARK;
             copy_btn.tooltip_text = tooltip_text;
-            Timeout.add (2000, () => {
+            if (copy_pulse_id != 0) Source.remove (copy_pulse_id);
+            copy_pulse_id = Timeout.add (2000, () => {
+                copy_pulse_id = 0;
                 copy_btn.icon_name = IconRegistry.COPY;
                 copy_btn.tooltip_text = _("Copy Terminal Output");
                 return false;

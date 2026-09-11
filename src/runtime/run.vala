@@ -1,41 +1,10 @@
 namespace Lumoria.Runtime {
-    private const int WRAP_ENV_FD = 3;
-    private const int WRAP_FD_SCAN_LIMIT = 1024;
     private const string FEATURE_WAYLAND_PRIMARY_MONITOR = "wayland-primary-monitor";
 
     public class RunResult : Object {
         public int pid { get; set; default = 0; }
         public string executable { get; set; default = ""; }
         public string log_path { get; set; default = ""; }
-        public string error_message { get; set; default = ""; }
-    }
-
-    public class LaunchRequest : Object {
-        public Models.PrefixEntry entry { get; set; }
-        public Gee.ArrayList<Models.RunnerSpec> runner_specs { get; set; }
-        public Gee.ArrayList<Models.LauncherSpec> launcher_specs { get; set; }
-        public string entrypoint_id { get; set; default = ""; }
-        public string custom_exe { get; set; default = ""; }
-        public string[] custom_wine_args { get; set; default = {}; }
-        public LaunchPolicy launch_policy { get; set; default = LaunchPolicy.INTERACTIVE; }
-    }
-
-    public RunResult run_launch_request (
-        LaunchRequest request,
-        RuntimeStatusCallback? status_cb = null,
-        UpdateDecisionCallback? update_decision_cb = null
-    ) throws Error {
-        return run_prefix (
-            request.entry,
-            request.runner_specs,
-            request.launcher_specs,
-            request.entrypoint_id,
-            request.custom_exe,
-            request.custom_wine_args,
-            request.launch_policy,
-            status_cb,
-            update_decision_cb
-        );
     }
 
     public enum UpdateDecision {
@@ -57,13 +26,13 @@ namespace Lumoria.Runtime {
 
     private void require_prefix_path (Models.PrefixEntry entry) throws Error {
         if (entry.resolved_path () == "")
-            throw new IOError.FAILED ("Prefix path is required");
+            throw new LumoriaError.NOT_FOUND (_("Prefix path is required"));
     }
 
     public RunResult run_prefix (
         Models.PrefixEntry entry,
-        Gee.ArrayList<Models.RunnerSpec> runner_specs,
-        Gee.ArrayList<Models.LauncherSpec> launcher_specs,
+        Gee.ArrayList<Models.RunnerManifest> runner_manifests,
+        Gee.ArrayList<Models.LauncherManifest> launcher_manifests,
         string entrypoint_id = "",
         string custom_exe = "",
         string[]? custom_wine_args = null,
@@ -71,46 +40,27 @@ namespace Lumoria.Runtime {
         RuntimeStatusCallback? status_cb = null,
         UpdateDecisionCallback? update_decision_cb = null
     ) throws Error {
-        require_prefix_path (entry);
-
-        var session_id = generate_session_id ();
-        var logger = RuntimeLog.for_run (entry.resolved_path (), session_id);
-
-        var active_entrypoint_id = entrypoint_id;
-        if (active_entrypoint_id == "") {
-            active_entrypoint_id = entry.launch_entrypoint_id;
-            if (active_entrypoint_id == "") {
-                active_entrypoint_id = resolve_effective_entrypoint_id (entry, launcher_specs);
-            }
-        }
-
-        var launch_plan = resolve_launch_plan (
-            entry,
-            launcher_specs,
-            active_entrypoint_id,
-            custom_exe,
-            custom_wine_args
-        );
+        var manifests = make_manifest_context (entry, launcher_manifests);
+        var launch_plan = resolve_launch_plan (manifests, entrypoint_id, custom_exe, custom_wine_args);
         var exe = launch_plan.executable;
         var wine_args = launch_plan.args;
         var active_entrypoint = launch_plan.entrypoint;
-        active_entrypoint_id = launch_plan.entrypoint_id;
-        var ctx = prepare_runtime_context (
-            entry,
-            runner_specs,
-            false,
-            logger,
-            active_entrypoint,
-            launch_policy,
-            status_cb,
-            update_decision_cb
+        var active_entrypoint_id = launch_plan.entrypoint_id;
+        RuntimeLog logger;
+        var ctx = begin_run_session (
+            entry, runner_manifests, false, active_entrypoint,
+            launch_policy, status_cb, update_decision_cb, out logger
         );
-        apply_launch_env (entry, launcher_specs, custom_exe != "" ? "" : active_entrypoint_id, ctx.env);
+        apply_launch_env (manifests, custom_exe != "" ? "" : active_entrypoint_id, ctx.env, ctx.paths, logger);
         apply_entrypoint_runtime_overrides (active_entrypoint, ctx.env, logger);
-        apply_wayland_primary_monitor (entry, runner_specs, ctx.env, logger);
+        apply_wayland_primary_monitor (entry, runner_manifests, ctx.env, logger);
         apply_runtime_logging_policy (ctx.env);
         apply_dxvk_config (entry.resolved_path (), entry, active_entrypoint, ctx.env, logger);
 
+        exe = finalize_launch_text (exe, ctx.paths, ctx.env, logger);
+        for (int i = 0; i < wine_args.length; i++) {
+            wine_args[i] = finalize_launch_text (wine_args[i], ctx.paths, ctx.env, logger);
+        }
         var host_exe = resolve_host_path (exe, ctx.prefix_path);
         var wine_path = to_wine_path (ctx.prefix_path, host_exe);
         var wine_argv = new Gee.ArrayList<string> ();
@@ -126,30 +76,20 @@ namespace Lumoria.Runtime {
         write_run_log_header (logger, entry, host_exe, wine_path, work_dir, wine_argv, ctx.env);
 
         if (!FileUtils.test (host_exe, FileTest.EXISTS)) {
-            var err_msg = "Executable not found: %s".printf (host_exe);
+            var err_msg = _("Executable not found: %s").printf (host_exe);
             logger.typed (LogType.ERROR, err_msg);
-            throw new IOError.FAILED ("%s", err_msg);
+            throw new LumoriaError.NOT_FOUND ("%s", err_msg);
         }
 
         if (custom_exe == "") {
-            try {
-                apply_prelaunch_patches (entry, host_exe, logger);
-            } catch (Error e) {
-                logger.typed (LogType.ERROR, e.message);
-                throw e;
-            }
+            apply_prelaunch_patches (entry, host_exe, logger);
         }
 
         var argv = wine_argv;
         if (!Utils.EnvironmentInfo.is_gamescope ()) {
             var prelaunch_work_dir = ctx.prefix_path;
             argv = wrap_with_prelaunch (
-                active_entrypoint != null
-                    ? Utils.resolve_user_path (
-                        active_entrypoint.prelaunch_script,
-                        active_entrypoint.prelaunch_script_portal
-                    )
-                    : "",
+                entrypoint_prelaunch_script (manifests, active_entrypoint, active_entrypoint_id),
                 prelaunch_work_dir,
                 argv
             );
@@ -162,34 +102,25 @@ namespace Lumoria.Runtime {
 
         return spawn_wrapped_process (
             host_exe, work_dir, argv, ctx.env, logger,
-            entry.id, ctx.prefix_path, ctx.paths.wineserver
+            entry.id, ctx.paths.wineserver
         );
     }
 
     public RunResult run_prefix_command (
         Models.PrefixEntry entry,
-        Gee.ArrayList<Models.RunnerSpec> runner_specs,
+        Gee.ArrayList<Models.RunnerManifest> runner_manifests,
         Gee.ArrayList<string> wine_args,
         string command_label,
         LaunchPolicy launch_policy = LaunchPolicy.INTERACTIVE,
         RuntimeStatusCallback? status_cb = null,
         UpdateDecisionCallback? update_decision_cb = null
     ) throws Error {
-        require_prefix_path (entry);
-
-        var session_id = generate_session_id ();
-        var logger = RuntimeLog.for_run (entry.resolved_path (), session_id);
-        var ctx = prepare_runtime_context (
-            entry,
-            runner_specs,
-            true,
-            logger,
-            null,
-            launch_policy,
-            status_cb,
-            update_decision_cb
+        RuntimeLog logger;
+        var ctx = begin_run_session (
+            entry, runner_manifests, true, null,
+            launch_policy, status_cb, update_decision_cb, out logger
         );
-        apply_launch_env (entry, null, "", ctx.env);
+        apply_launch_env (make_manifest_context (entry, null), "", ctx.env, ctx.paths, logger);
         apply_runtime_logging_policy (ctx.env);
         var argv = new Gee.ArrayList<string> ();
         argv.add (ctx.paths.wine);
@@ -204,7 +135,7 @@ namespace Lumoria.Runtime {
 
         return spawn_wrapped_process (
             command_label, work_dir, argv, ctx.env, logger,
-            entry.id, ctx.prefix_path, ctx.paths.wineserver
+            entry.id, ctx.paths.wineserver
         );
     }
 
@@ -215,18 +146,15 @@ namespace Lumoria.Runtime {
 
     public TerminalContext prepare_prefix_terminal_context (
         Models.PrefixEntry entry,
-        Gee.ArrayList<Models.RunnerSpec> runner_specs,
+        Gee.ArrayList<Models.RunnerManifest> runner_manifests,
         UpdateDecisionCallback? update_decision_cb = null
     ) throws Error {
-        require_prefix_path (entry);
-
-        var session_id = generate_session_id ();
-        var logger = RuntimeLog.for_run (entry.resolved_path (), session_id);
-        var ctx = prepare_runtime_context (
-            entry, runner_specs, false, logger, null,
-            LaunchPolicy.INTERACTIVE, null, update_decision_cb
+        RuntimeLog logger;
+        var ctx = begin_run_session (
+            entry, runner_manifests, false, null,
+            LaunchPolicy.INTERACTIVE, null, update_decision_cb, out logger
         );
-        apply_launch_env (entry, null, "", ctx.env);
+        apply_launch_env (make_manifest_context (entry, null), "", ctx.env, ctx.paths, logger);
         apply_runtime_logging_policy (ctx.env);
 
         var result = new TerminalContext ();
@@ -235,16 +163,17 @@ namespace Lumoria.Runtime {
         return result;
     }
 
-    public void stop_prefix_wineserver (
-        Models.PrefixEntry entry,
-        Gee.ArrayList<Models.RunnerSpec> runner_specs
-    ) throws Error {
-        require_prefix_path (entry);
-
-        var session_id = generate_session_id ();
-        var logger = RuntimeLog.for_run (entry.resolved_path (), session_id);
-        var ctx = prepare_runtime_context (entry, runner_specs, true, logger, null);
-        shutdown_wineserver (ctx.paths, ctx.env, logger);
+    /* Custom entries carry literal picker paths; manifest entries may use ${var.*} and prefix-relative paths. */
+    private string entrypoint_prelaunch_script (
+        ManifestContext manifests,
+        Models.Entrypoint? ep,
+        string entrypoint_id
+    ) {
+        if (ep == null || ep.prelaunch_script == "") return "";
+        if (manifests.entry.custom_entrypoint (entrypoint_id) != null) {
+            return Utils.resolve_user_path (ep.prelaunch_script, ep.prelaunch_script_portal);
+        }
+        return resolve_host_path (Utils.expand_vars (ep.prelaunch_script, manifests.vars), manifests.pfx_path);
     }
 
     private Gee.ArrayList<string> wrap_with_prelaunch (
@@ -267,9 +196,27 @@ namespace Lumoria.Runtime {
         return argv;
     }
 
+    private WineRuntime begin_run_session (
+        Models.PrefixEntry entry,
+        Gee.ArrayList<Models.RunnerManifest> runner_manifests,
+        bool disable_mscoree,
+        Models.Entrypoint? active_entrypoint,
+        LaunchPolicy launch_policy,
+        RuntimeStatusCallback? status_cb,
+        UpdateDecisionCallback? update_decision_cb,
+        out RuntimeLog logger
+    ) throws Error {
+        require_prefix_path (entry);
+        logger = RuntimeLog.for_run (entry.resolved_path (), generate_session_id ());
+        return prepare_runtime_context (
+            entry, runner_manifests, disable_mscoree, logger, active_entrypoint,
+            launch_policy, status_cb, update_decision_cb
+        );
+    }
+
     private WineRuntime prepare_runtime_context (
         Models.PrefixEntry entry,
-        Gee.ArrayList<Models.RunnerSpec> runner_specs,
+        Gee.ArrayList<Models.RunnerManifest> runner_manifests,
         bool disable_mscoree,
         RuntimeLog logger,
         Models.Entrypoint? active_entrypoint,
@@ -277,46 +224,67 @@ namespace Lumoria.Runtime {
         RuntimeStatusCallback? status_cb = null,
         UpdateDecisionCallback? update_decision_cb = null
     ) throws Error {
-        var runner_spec = resolve_runner_spec_for_entry (entry, runner_specs);
-        confirm_pending_updates (entry, runner_spec, logger, launch_policy, update_decision_cb);
-        var runtime_request = WineRuntimeRequest.from_prefix (entry, runner_spec, launch_policy);
+        var runner_manifest = Models.RunnerManifest.resolve_for_entry (runner_manifests, entry);
+        confirm_pending_updates (entry, runner_manifest, logger, launch_policy, update_decision_cb);
+        var runtime_request = WineRuntimeRequest.from_prefix (entry, runner_manifest, launch_policy);
         var runtime = prepare_wine_runtime (runtime_request, logger);
         ensure_prefix_runner_ready (entry, runtime, logger, true, launch_policy, status_cb);
 
         if (disable_mscoree) {
-            runtime.env.add_dll_override ("mscoree", DLL_DISABLED);
+            runtime.env.set_dll_override ("mscoree", DLL_DISABLED);
         }
-        var comp_result = apply_enabled_components (
+        runtime.env.set_dll_overrides (apply_enabled_components (
             runtime.paths,
             runtime.prefix_path,
             entry,
             active_entrypoint,
             logger,
             launch_policy
-        );
-        foreach (var ov in comp_result.dll_overrides.entries) {
-            runtime.env.add_dll_override (ov.key, ov.value);
+        ).dll_overrides);
+        runtime.env.set_dll_overrides (entry.runtime_dll_overrides);
+        if (entry.runtime_dll_overrides.size > 0) {
+            logger.typed (LogType.DEBUG, "applied prefix runtime dll overrides");
         }
-        apply_prefix_runtime_dll_overrides (runtime.env, entry, logger);
-        apply_env_overrides (runtime.env, Utils.Preferences.instance ().get_runtime_env_vars ());
-        apply_env_overrides (runtime.env, entry.runtime_env_vars);
-        apply_runtime_logging_policy (runtime.env);
         return runtime;
+    }
+
+    public Gee.ArrayList<PendingUpdate> list_pending_updates (
+        Models.PrefixEntry entry,
+        Gee.ArrayList<Models.RunnerManifest> runner_manifests,
+        RuntimeLog? logger = null
+    ) throws Error {
+        var log = logger ?? new RuntimeLog ();
+        var runner_manifest = Models.RunnerManifest.resolve_for_entry (runner_manifests, entry);
+        return collect_pending_updates (entry, runner_manifest, log);
+    }
+
+    private Gee.ArrayList<PendingUpdate> collect_pending_updates (
+        Models.PrefixEntry entry,
+        Models.RunnerManifest runner_manifest,
+        RuntimeLog logger
+    ) {
+        var pending = new Gee.ArrayList<PendingUpdate> ();
+        var prefs = Utils.Preferences.instance ();
+        if (prefs.updates_runners) {
+            var runner_update = pending_runner_update (entry, runner_manifest, logger);
+            if (runner_update != null) pending.add (runner_update);
+        }
+        if (prefs.updates_components) {
+            collect_pending_component_updates (entry, pending, logger);
+        }
+        return pending;
     }
 
     private void confirm_pending_updates (
         Models.PrefixEntry entry,
-        Models.RunnerSpec runner_spec,
+        Models.RunnerManifest runner_manifest,
         RuntimeLog logger,
         LaunchPolicy launch_policy,
         UpdateDecisionCallback? decision_cb
     ) throws Error {
         if (decision_cb == null || launch_policy != LaunchPolicy.INTERACTIVE) return;
 
-        var pending = new Gee.ArrayList<PendingUpdate> ();
-        var runner_update = pending_runner_update (entry, runner_spec, logger);
-        if (runner_update != null) pending.add (runner_update);
-        collect_pending_component_updates (entry, pending, logger);
+        var pending = collect_pending_updates (entry, runner_manifest, logger);
         if (pending.size == 0) return;
 
         switch (decision_cb (pending)) {
@@ -332,30 +300,30 @@ namespace Lumoria.Runtime {
 
     private PendingUpdate? pending_runner_update (
         Models.PrefixEntry entry,
-        Models.RunnerSpec runner_spec,
+        Models.RunnerManifest runner_manifest,
         RuntimeLog logger
     ) {
         var state = entry.runner_state;
         if (state == null || state.resolved_version == "") return null;
-        if (state.runner_id != runner_spec.id) return null;
+        if (state.runner_id != runner_manifest.id) return null;
 
-        var requested = Utils.Preferences.resolve_version (runner_spec.id, entry.runner_version);
-        if (requested != "" && requested != "latest") return null;
+        var requested = Utils.Preferences.resolve_version (runner_manifest.id, entry.runner_version);
+        if (Models.ToolVersionRef.is_pinned (requested)) return null;
 
         string latest;
         try {
-            var variant = runner_spec.effective_variant (entry.variant_id);
+            var variant = runner_manifest.effective_variant (entry.variant_id);
             if (state.variant_id != "" && state.variant_id != variant.id) return null;
-            latest = resolve_latest_runner_tag (runner_spec, entry.variant_id, logger);
+            latest = new Runtime.RunnerToolAdapter (runner_manifest, entry.variant_id).resolve_latest_tag ();
         } catch (Error e) {
-            logger.typed (LogType.WARN, "Update check failed for %s: %s".printf (runner_spec.id, e.message));
+            logger.typed (LogType.WARN, "Update check failed for %s: %s".printf (runner_manifest.id, e.message));
             return null;
         }
         if (latest == "" || latest == state.resolved_version) return null;
 
         var update = new PendingUpdate ();
         update.is_runner = true;
-        update.label = runner_spec.display_label ();
+        update.label = runner_manifest.display_label ();
         update.current_version = state.resolved_version;
         update.new_version = latest;
         return update;
@@ -365,25 +333,13 @@ namespace Lumoria.Runtime {
         Models.PrefixEntry entry,
         Gee.ArrayList<PendingUpdate> pending,
         RuntimeLog logger
-    ) {
+    ) throws Error {
         foreach (var update in pending) {
             apply_version_pin (entry, update);
             logger.typed (LogType.DEBUG, "pinned %s to %s".printf (update.label, update.current_version));
         }
 
-        var reg_path = Utils.prefix_registry_path ();
-        var reg = Models.PrefixRegistry.load (reg_path);
-        Models.PrefixEntry? target = entry.id != "" ? reg.by_id (entry.id) : null;
-        if (target == null) target = reg.by_path (entry.resolved_path ());
-        if (target == null) return;
-
-        foreach (var update in pending) {
-            apply_version_pin (target, update);
-        }
-        reg.update_entry (target);
-        if (!reg.save (reg_path)) {
-            logger.typed (LogType.WARN, "Failed to save pinned versions for prefix");
-        }
+        persist_prefix_now (entry);
     }
 
     private void apply_version_pin (Models.PrefixEntry entry, PendingUpdate update) {
@@ -391,16 +347,12 @@ namespace Lumoria.Runtime {
             entry.runner_version = update.current_version;
             return;
         }
-        var ov = entry.runtime_component_overrides.has_key (update.component_id)
-            ? entry.runtime_component_overrides[update.component_id]
-            : new Models.RuntimeComponentOverride ();
-        ov.version = update.current_version;
-        entry.runtime_component_overrides[update.component_id] = ov;
+        entry.apply_component_version (update.component_id, update.current_version);
     }
 
     private void apply_wayland_primary_monitor (
         Models.PrefixEntry entry,
-        Gee.ArrayList<Models.RunnerSpec> runner_specs,
+        Gee.ArrayList<Models.RunnerManifest> runner_manifests,
         WineEnv env,
         RuntimeLog logger
     ) {
@@ -408,7 +360,7 @@ namespace Lumoria.Runtime {
         if (connector == "") return;
 
         try {
-            var runner = resolve_runner_spec_for_entry (entry, runner_specs);
+            var runner = Models.RunnerManifest.resolve_for_entry (runner_manifests, entry);
             var variant = runner.effective_variant (entry.variant_id);
             if (!variant.supports_feature (FEATURE_WAYLAND_PRIMARY_MONITOR)) return;
 
@@ -416,22 +368,6 @@ namespace Lumoria.Runtime {
             logger.typed (LogType.DEBUG, "applied Wayland primary monitor: %s".printf (connector));
         } catch (Error e) {
             logger.typed (LogType.WARN, "Failed to resolve Wayland primary monitor support: %s".printf (e.message));
-        }
-    }
-
-    private void apply_prefix_runtime_dll_overrides (
-        WineEnv env,
-        Models.PrefixEntry entry,
-        RuntimeLog logger
-    ) {
-        foreach (var ov in entry.runtime_dll_overrides.entries) {
-            var dll = ov.key.strip ();
-            var mode = ov.value.strip ();
-            if (dll == "" || mode == "") continue;
-            env.set_dll_override (dll, mode);
-        }
-        if (entry.runtime_dll_overrides.size > 0) {
-            logger.typed (LogType.DEBUG, "applied prefix runtime dll overrides");
         }
     }
 
@@ -445,24 +381,10 @@ namespace Lumoria.Runtime {
             apply_env_overrides (env, entrypoint.runtime_env_overrides);
             logger.typed (LogType.DEBUG, "applied entrypoint runtime env overrides");
         }
-        foreach (var ov in entrypoint.runtime_dll_overrides.entries) {
-            var dll = ov.key.strip ();
-            var mode = ov.value.strip ();
-            if (dll == "" || mode == "") continue;
-            env.set_dll_override (dll, mode);
-        }
+        env.set_dll_overrides (entrypoint.runtime_dll_overrides);
         if (entrypoint.runtime_dll_overrides.size > 0) {
             logger.typed (LogType.DEBUG, "applied entrypoint runtime dll overrides");
         }
-    }
-
-    private Models.RunnerSpec resolve_runner_spec_for_entry (
-        Models.PrefixEntry entry,
-        Gee.ArrayList<Models.RunnerSpec> runner_specs
-    ) throws Error {
-        var spec = Models.RunnerSpec.find_by_id (runner_specs, entry.runner_id);
-        if (spec == null) throw new IOError.FAILED ("No runner spec found for: %s", entry.runner_id);
-        return spec;
     }
 
     private void write_log_header_common (
@@ -472,20 +394,19 @@ namespace Lumoria.Runtime {
         string cmd_line,
         WineEnv env
     ) {
-        var now = new DateTime.now_local ();
         var sandbox_kind = Utils.EnvironmentInfo.is_flatpak () ? "flatpak" : "none";
         logger.banner ("Lumoria Run Log", false);
         logger.emit_line ("Version: %s\n".printf (Config.APP_VERSION));
         var uts = Posix.utsname ();
-        var os_name = os_release_value ("PRETTY_NAME")
-            ?? os_release_value ("NAME")
-            ?? lsb_release_value ("DISTRIB_DESCRIPTION")
+        var os_name = release_file_value ("os-release", "PRETTY_NAME")
+            ?? release_file_value ("os-release", "NAME")
+            ?? release_file_value ("lsb-release", "DISTRIB_DESCRIPTION")
             ?? uts.sysname;
-        var os_build = os_release_value ("BUILD_ID");
+        var os_build = release_file_value ("os-release", "BUILD_ID");
         var os_line = os_build != null ? "%s (build: %s)".printf (os_name, os_build) : os_name;
         logger.emit_line ("OS: %s\n".printf (os_line));
         logger.emit_line ("Kernel: %s %s (%s)\n".printf (uts.sysname, uts.release, uts.machine));
-        logger.emit_line ("Started: %s\n".printf (now.format ("%F %T")));
+        logger.emit_line ("Started: %s\n".printf (Utils.log_time ()));
         logger.emit_line ("Prefix: %s\n".printf (entry.resolved_path ()));
         logger.emit_line ("Context: gamescope=%s sandbox=%s\n".printf (
             Utils.EnvironmentInfo.is_gamescope () ? "yes" : "no",
@@ -504,46 +425,9 @@ namespace Lumoria.Runtime {
         logger.emit_line ("\n");
     }
 
-    private string? os_release_value (string key) {
-        var path = Utils.EnvironmentInfo.is_flatpak () && FileUtils.test ("/run/host/etc/os-release", FileTest.EXISTS)
-            ? "/run/host/etc/os-release"
-            : "/etc/os-release";
-        string content;
-        try {
-            FileUtils.get_contents (path, out content);
-        } catch (Error e) {
-            return null;
-        }
-        foreach (var line in content.split ("\n")) {
-            var trimmed = line.strip ();
-            if (trimmed == "" || trimmed.has_prefix ("#")) continue;
-            var eq = trimmed.index_of_char ('=');
-            if (eq <= 0) continue;
-            if (trimmed.substring (0, eq) != key) continue;
-            return unquote_os_release_value (trimmed.substring (eq + 1));
-        }
-        return null;
-    }
-
-    private string? lsb_release_value (string key) {
-        var path = Utils.EnvironmentInfo.is_flatpak () && FileUtils.test ("/run/host/etc/lsb-release", FileTest.EXISTS)
-            ? "/run/host/etc/lsb-release"
-            : "/etc/lsb-release";
-        string content;
-        try {
-            FileUtils.get_contents (path, out content);
-        } catch (Error e) {
-            return null;
-        }
-        foreach (var line in content.split ("\n")) {
-            var trimmed = line.strip ();
-            if (trimmed == "" || trimmed.has_prefix ("#")) continue;
-            var eq = trimmed.index_of_char ('=');
-            if (eq <= 0) continue;
-            if (trimmed.substring (0, eq) != key) continue;
-            return unquote_os_release_value (trimmed.substring (eq + 1));
-        }
-        return null;
+    private string? release_file_value (string filename, string key) {
+        var path = Utils.EnvironmentInfo.host_etc_path (filename);
+        return Utils.key_value_file_value (path, key, unquote_os_release_value);
     }
 
     private string unquote_os_release_value (string value) {
@@ -573,7 +457,7 @@ namespace Lumoria.Runtime {
         detail_lines.add ("Working dir: %s".printf (work_dir));
         write_log_header_common (
             logger, entry, detail_lines,
-            string.joinv (" ", Utils.arraylist_to_strv (argv)),
+            string.joinv (" ", Utils.strv (argv)),
             env
         );
     }
@@ -589,26 +473,21 @@ namespace Lumoria.Runtime {
         detail_lines.add ("Command: %s".printf (command_label));
         write_log_header_common (
             logger, entry, detail_lines,
-            string.joinv (" ", Utils.arraylist_to_strv (argv)),
+            string.joinv (" ", Utils.strv (argv)),
             env
         );
     }
 
-    private bool session_manager_responds () {
-        try {
-            var obj = new Json.Object ();
-            obj.set_string_member ("method", "ping");
-            return Cli.response_ok (Cli.session_send_request (json_object_to_string (obj)));
-        } catch (Error e) {
-            return false;
-        }
-    }
-
     private bool ensure_session_manager () {
-        if (session_manager_responds ()) return true;
+        if (Cli.session_ping ()) return true;
 
         var socket_path = Cli.session_socket_path ();
-        Utils.ensure_dir (Path.get_dirname (socket_path));
+        try {
+            Utils.ensure_private_dir (Path.get_dirname (socket_path));
+        } catch (Error e) {
+            warning ("Failed to create session manager socket directory: %s", e.message);
+            return false;
+        }
         FileUtils.unlink (socket_path);
         try {
             Pid session_pid;
@@ -627,7 +506,7 @@ namespace Lumoria.Runtime {
 
         for (int i = 0; i < 10; i++) {
             Posix.usleep (100 * 1000);
-            if (session_manager_responds ()) return true;
+            if (Cli.session_ping ()) return true;
         }
 
         warning ("Session manager did not respond after 1s");
@@ -644,54 +523,29 @@ namespace Lumoria.Runtime {
 
     private int session_launch (
         string prefix_id,
-        string prefix_path,
         string wineserver_path,
         string log_path,
         string[] env,
         string work_dir,
         string[] argv
     ) throws Error {
-        var obj = new Json.Object ();
-        obj.set_string_member ("method", "launch");
-        obj.set_string_member ("prefix_id", prefix_id);
-        obj.set_string_member ("prefix_path", prefix_path);
-        obj.set_string_member ("wineserver", wineserver_path);
-        obj.set_string_member ("log_path", log_path);
-        obj.set_string_member ("cwd", work_dir);
-        obj.set_array_member ("env", strv_to_json_array (env));
-        obj.set_array_member ("argv", strv_to_json_array (argv));
-
-        var response = Cli.session_send_request (json_object_to_string (obj));
-        if (!Cli.response_ok (response))
-            throw new IOError.FAILED ("%s", Cli.response_error (response));
-
-        var parser = new Json.Parser ();
-        parser.load_from_data (response);
-        return (int) parser.get_root ().get_object ().get_int_member ("pid");
+        var data = Cli.session_call ("launch", (obj) => {
+            obj.set_string_member ("prefix_id", prefix_id);
+            obj.set_string_member ("wineserver", wineserver_path);
+            obj.set_string_member ("log_path", log_path);
+            obj.set_string_member ("cwd", work_dir);
+            obj.set_array_member ("env", Models.strv_to_json_array (env));
+            obj.set_array_member ("argv", Models.strv_to_json_array (argv));
+        });
+        return (int) data.get_int_member ("pid");
     }
 
-    private Json.Array strv_to_json_array (string[] values) {
-        var array = new Json.Array ();
-        foreach (var value in values) {
-            array.add_string_element (value);
-        }
-        return array;
-    }
-
-    private string json_object_to_string (Json.Object obj) {
-        var node = new Json.Node (Json.NodeType.OBJECT);
-        node.set_object (obj);
-        var generator = new Json.Generator ();
-        generator.root = node;
-        return generator.to_data (null);
-    }
-
-    private string[] wine_env_to_strv (WineEnv env) {
+    private string[] wine_env_lines (WineEnv env) {
         var lines = new Gee.ArrayList<string> ();
         foreach (var e in env.snapshot_vars ().entries) {
             lines.add ("%s=%s".printf (e.key, e.value));
         }
-        return Utils.arraylist_to_strv (lines);
+        return Utils.strv (lines);
     }
 
     private RunResult spawn_wrapped_process (
@@ -701,122 +555,37 @@ namespace Lumoria.Runtime {
         WineEnv env,
         RuntimeLog logger,
         string prefix_id = "",
-        string prefix_path = "",
         string wineserver_path = ""
     ) throws Error {
         var log_path = logger.log_path;
 
-        if (Utils.Preferences.instance ().session_manager) {
-            if (ensure_session_manager ()) {
-                logger.close ();
-                try {
-                    var pid = session_launch (
-                        prefix_id, prefix_path, wineserver_path,
-                        log_path, wine_env_to_strv (env), work_dir,
-                        Utils.arraylist_to_strv (argv)
-                    );
-                    var run_result = new RunResult ();
-                    run_result.pid = pid;
-                    run_result.executable = executable_label;
-                    run_result.log_path = log_path;
-                    return run_result;
-                } catch (Error e) {
-                    warning ("Session manager launch failed, falling back to direct fork: %s", e.message);
-                }
-            } else {
-                warning ("Session manager unavailable, falling back to direct fork");
-            }
-        }
-        var env_pipe = new int[2];
-        if (Posix.pipe (env_pipe) != 0) {
-            throw new IOError.FAILED ("Failed to create wrapper environment pipe: %s", Posix.strerror (Posix.errno));
-        }
-
         logger.close ();
 
-        var self_exe = Utils.current_executable_path () ?? "lumoria";
-        var wrapped = new Gee.ArrayList<string> ();
-        wrapped.add (self_exe);
-        wrapped.add ("wrap");
-        wrapped.add ("--log");
-        wrapped.add (log_path);
-        wrapped.add ("--env-fd");
-        wrapped.add (WRAP_ENV_FD.to_string ());
-        if (work_dir != "") {
-            wrapped.add ("--cwd");
-            wrapped.add (work_dir);
-        }
-        wrapped.add ("--");
-        wrapped.add_all (argv);
-
-        var child_pid = Posix.fork ();
-        if (child_pid < 0) {
-            Posix.close (env_pipe[0]);
-            Posix.close (env_pipe[1]);
-            throw new IOError.FAILED ("Failed to fork wrapper: %s", Posix.strerror (Posix.errno));
-        }
-
-        if (child_pid == 0) {
-            Posix.close (env_pipe[1]);
-            if (env_pipe[0] != WRAP_ENV_FD) {
-                Posix.dup2 (env_pipe[0], WRAP_ENV_FD);
+        if (Utils.Preferences.instance ().session_manager) {
+            if (!ensure_session_manager ()) {
+                throw new LumoriaError.FAILED (_("Session manager is enabled but could not be started."));
             }
-            if (work_dir != "") {
-                Posix.chdir (work_dir);
-            }
-            close_unrelated_fds (WRAP_ENV_FD);
-            Posix.execvp (wrapped[0], Utils.arraylist_to_strv (wrapped));
-            Posix._exit (127);
-        }
-        Posix.close (env_pipe[0]);
-        try {
-            write_all_fd (env_pipe[1], build_wrap_env_payload (env));
-        } finally {
-            Posix.close (env_pipe[1]);
+            var pid = session_launch (
+                prefix_id, wineserver_path,
+                log_path, wine_env_lines (env), work_dir,
+                Utils.strv (argv)
+            );
+            var managed = new RunResult ();
+            managed.pid = pid;
+            managed.executable = executable_label;
+            managed.log_path = log_path;
+            return managed;
         }
 
-        var pid_copy = child_pid;
-        new Thread<bool> ("wrap-reaper", () => {
-            int status;
-            Posix.waitpid (pid_copy, out status, 0);
-            Process.close_pid (pid_copy);
-            return true;
-        });
+        var child = Utils.spawn_wrap (
+            log_path, work_dir, string.joinv ("\n", wine_env_lines (env)), Utils.strv (argv)
+        );
 
         var run_result = new RunResult ();
-        run_result.pid = child_pid;
+        run_result.pid = int.parse (child.get_identifier ());
         run_result.executable = executable_label;
         run_result.log_path = log_path;
         return run_result;
-    }
-
-    private void close_unrelated_fds (int keep_fd) {
-        for (int fd = 3; fd < WRAP_FD_SCAN_LIMIT; fd++) {
-            if (fd != keep_fd) Posix.close (fd);
-        }
-    }
-
-    private string build_wrap_env_payload (WineEnv env) {
-        var lines = new Gee.ArrayList<string> ();
-        foreach (var entry in env.snapshot_vars ().entries) {
-            lines.add ("%s=%s".printf (entry.key, entry.value));
-        }
-        return string.joinv ("\n", Utils.arraylist_to_strv (lines));
-    }
-
-    private void write_all_fd (int fd, string payload) throws Error {
-        uint8[] bytes = payload.data;
-        size_t offset = 0;
-        while (offset < bytes.length) {
-            var written = Posix.write (fd, (uint8[]) bytes[offset:bytes.length], bytes.length - offset);
-            if (written < 0) {
-                throw new IOError.FAILED ("Failed to write wrapper environment pipe: %s", Posix.strerror (Posix.errno));
-            }
-            if (written == 0) {
-                throw new IOError.FAILED ("Failed to write wrapper environment pipe");
-            }
-            offset += written;
-        }
     }
 
     private string generate_session_id () {

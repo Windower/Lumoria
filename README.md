@@ -1,4 +1,3 @@
-<div id="content-root"></div>
 <h1 align="center">
       <img align="center" src="data/icons/hicolor/scalable/apps/net.windower.Lumoria.svg" alt="Lumoria" width="175">
     <br><br>

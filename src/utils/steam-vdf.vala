@@ -1,3 +1,4 @@
+// Credit to Lutris for the original implementation in Python: https://github.com/lutris/lutris/
 namespace Lumoria.Utils.SteamVdf {
 
     public errordomain ParseError {

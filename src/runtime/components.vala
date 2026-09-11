@@ -1,11 +1,13 @@
 namespace Lumoria.Runtime {
     private class ResolvedComponentSelection : Object {
-        public Models.ComponentSpec spec { get; set; }
+        public Models.ComponentManifest spec { get; set; }
         public string version { get; set; default = "latest"; }
-        public Models.ComponentToolAdapter adapter { get; set; }
+        public Runtime.ComponentToolAdapter adapter { get; set; }
         public Models.ToolVersion version_obj { get; set; }
         public string installed_path { get; set; default = ""; }
     }
+
+    public const string FEATURE_DXVK_CONFIG = "dxvk_config";
 
     public class ComponentResult : Object {
         public Gee.HashMap<string, string> dll_overrides {
@@ -15,15 +17,17 @@ namespace Lumoria.Runtime {
 
     public int predownload_enabled_components (
         Models.PrefixEntry? entry,
-        RuntimeLog logger
+        RuntimeLog logger,
+        Cancellable? cancellable = null
     ) throws Error {
         int downloaded = 0;
         foreach (var component in resolve_component_selections (entry)) {
+            Utils.check_cancelled (cancellable);
             if (!component.adapter.is_installed (component.version_obj)) {
                 logger.typed (LogType.COMPONENT, "%s %s not installed, predownloading...".printf (
                     component.spec.id, component.version
                 ));
-                component.adapter.install_version (component.version_obj, null);
+                component.adapter.install_version (component.version_obj, null, cancellable);
                 downloaded++;
             } else {
                 logger.typed (LogType.COMPONENT, "%s %s already cached/installed".printf (
@@ -41,16 +45,16 @@ namespace Lumoria.Runtime {
         RuntimeLog logger
     ) {
         var defaults = Utils.Preferences.instance ();
-        foreach (var spec in Models.SpecRepository.shared ().components) {
+        foreach (var spec in Models.ManifestRepository.shared ().all_components) {
             if (!is_component_active (spec, entry, defaults, null)) continue;
             if (!entry.applied_components.has_key (spec.id)) continue;
             var applied = entry.applied_components[spec.id];
-            if (is_deferred_component_version (applied.version)) continue;
-            if (!is_deferred_component_version (resolve_component_version (spec, entry, defaults))) continue;
+            if (Models.ToolVersionRef.is_deferred (applied.version)) continue;
+            if (!Models.ToolVersionRef.is_deferred (requested_component_version (spec, entry, defaults))) continue;
 
             string latest;
             try {
-                latest = new Models.ComponentToolAdapter (spec).resolve_latest_tag ();
+                latest = new Runtime.ComponentToolAdapter (spec).resolve_latest_tag ();
             } catch (Error e) {
                 logger.typed (LogType.WARN, "Update check failed for %s: %s".printf (spec.id, e.message));
                 continue;
@@ -66,211 +70,161 @@ namespace Lumoria.Runtime {
         }
     }
 
+    /* Everything one apply pass shares across its components; entry is null for template prefixes. */
+    private class ComponentApplyContext : Object {
+        public WinePaths wine_paths;
+        public string pfx_path;
+        public Models.PrefixEntry? entry;
+        public Utils.Preferences defaults;
+        public string arch;
+        public RuntimeLog logger;
+        public LaunchPolicy launch_policy;
+        public Cancellable? cancellable;
+
+        public bool offline {
+            get { return launch_policy == LaunchPolicy.OFFLINE_FAST_START; }
+        }
+
+        public void log (string component_id, string message) {
+            logger.typed (LogType.COMPONENT, "%s: %s".printf (component_id, message));
+        }
+
+        public Models.AppliedComponentRecord? applied (string component_id) {
+            if (entry == null || !entry.applied_components.has_key (component_id)) return null;
+            return entry.applied_components[component_id];
+        }
+
+        /* Removes a record's files, keeping any that another applied component also claims. */
+        public void sweep (Models.ComponentManifest spec, Models.AppliedComponentRecord record, bool restore_runner_builtins) {
+            sweep_component_files (
+                record, wine_paths, arch, logger, restore_runner_builtins, retained_component_files (entry, spec.id)
+            );
+        }
+    }
+
     public ComponentResult apply_enabled_components (
         WinePaths wine_paths,
         string pfx_path,
         Models.PrefixEntry? entry,
         Models.Entrypoint? entrypoint,
         RuntimeLog logger,
-        LaunchPolicy launch_policy = LaunchPolicy.INTERACTIVE
+        LaunchPolicy launch_policy = LaunchPolicy.INTERACTIVE,
+        Cancellable? cancellable = null
     ) throws Error {
+        var ctx = new ComponentApplyContext ();
+        ctx.wine_paths = wine_paths;
+        ctx.pfx_path = pfx_path;
+        ctx.entry = entry;
+        ctx.defaults = Utils.Preferences.instance ();
+        ctx.arch = entry != null ? effective_wine_arch (entry) : "win64";
+        ctx.logger = logger;
+        ctx.launch_policy = launch_policy;
+        ctx.cancellable = cancellable;
+
         var result = new ComponentResult ();
-        var specs = Models.SpecRepository.shared ().components;
-        var defaults = Utils.Preferences.instance ();
-        var arch = entry != null ? resolve_effective_wine_arch (entry) : "";
-        if (arch == "") arch = "win64";
+        var entrypoint_overrides = entrypoint != null ? entrypoint.component_overrides : null;
         bool dirty = false;
 
-        foreach (var spec in specs) {
+        foreach (var spec in Models.ManifestRepository.shared ().all_components) {
             try {
-                var prefix_active = is_component_active (spec, entry, defaults, null);
-                var runtime_active = is_component_active (
-                    spec,
-                    entry,
-                    defaults,
-                    entrypoint != null ? entrypoint.component_overrides : null
-                );
-                Models.AppliedComponentRecord? applied = null;
-                if (entry != null && entry.applied_components.has_key (spec.id)) {
-                    applied = entry.applied_components[spec.id];
-                }
+                var prefix_active = is_component_active (spec, entry, ctx.defaults, null);
+                var runtime_active = is_component_active (spec, entry, ctx.defaults, entrypoint_overrides);
 
-                var component_ready = spec.steps.size == 0;
-
-                if (launch_policy == LaunchPolicy.OFFLINE_FAST_START) {
-                    if (prefix_active) {
-                        var desired_version = resolve_component_version_for_policy (
-                            spec,
-                            entry,
-                            defaults,
-                            applied,
-                            launch_policy
-                        );
-                        if (applied == null || applied.version != desired_version) {
-                            throw new IOError.FAILED (
-                                "Component %s is not prepared for shortcut launch. Open Lumoria to prepare this prefix.",
-                                spec.id
-                            );
-                        }
-                        if (!component_record_matches_arch (spec, applied, pfx_path, entry, arch)) {
-                            throw new IOError.FAILED (
-                                "Component %s files are incomplete for shortcut launch. Open Lumoria to repair this prefix.",
-                                spec.id
-                            );
-                        }
-                        logger.typed (LogType.COMPONENT, "%s: %s already applied".printf (
-                            spec.id, desired_version
-                        ));
-                        component_ready = true;
-                    } else if (applied != null) {
-                        throw new IOError.FAILED (
-                            "Component %s is disabled but still applied. Open Lumoria to prepare this prefix.",
-                            spec.id
-                        );
-                    }
-
-                    if (runtime_active && component_ready) {
-                        add_component_overrides (result, spec);
-                    }
-                    continue;
-                }
-
-                if (prefix_active) {
-                    var desired_version = resolve_component_version_for_policy (
-                        spec,
-                        entry,
-                        defaults,
-                        applied,
-                        launch_policy
-                    );
-
-                    if (applied != null && applied.version == desired_version) {
-                        if (component_record_matches_arch (spec, applied, pfx_path, entry, arch)) {
-                            logger.typed (LogType.COMPONENT, "%s: %s already applied".printf (spec.id, desired_version));
-                            component_ready = true;
-                        } else {
-                            logger.typed (LogType.COMPONENT, "%s: reapplying %s for %s prefix".printf (
-                                spec.id,
-                                desired_version,
-                                arch
-                            ));
-                            var record = run_component_install (
-                                spec,
-                                desired_version,
-                                wine_paths,
-                                pfx_path,
-                                entry,
-                                logger,
-                                launch_policy
-                            );
-                            if (record == null) {
-                                throw new IOError.FAILED (
-                                    "Component %s did not produce an install record".printf (spec.id)
-                                );
-                            } else {
-                                if (entry != null) {
-                                    component_ready = store_applied_component_record (
-                                        entry,
-                                        spec,
-                                        record,
-                                        pfx_path,
-                                        arch,
-                                        logger
-                                    );
-                                    dirty = dirty || component_ready;
-                                } else {
-                                    component_ready = component_record_matches_arch (spec, record, pfx_path, null, arch);
-                                }
-                            }
-                        }
-                    } else {
-                        if (applied != null) {
-                            if (is_deferred_component_version (applied.version)) {
-                                logger.typed (LogType.COMPONENT, "%s: preparing %s".printf (
-                                    spec.id, desired_version
-                                ));
-                            } else {
-                                logger.typed (LogType.COMPONENT, "%s: replacing %s with %s".printf (
-                                    spec.id, applied.version, desired_version
-                                ));
-                                sweep_component_files (applied, wine_paths, arch, logger, false);
-                                if (entry != null) {
-                                    entry.applied_components.unset (spec.id);
-                                    dirty = true;
-                                }
-                            }
-                        }
-
-                        var record = run_component_install (
-                            spec,
-                            desired_version,
-                            wine_paths,
-                            pfx_path,
-                            entry,
-                            logger,
-                            launch_policy
-                        );
-                        if (record == null) {
-                            throw new IOError.FAILED (
-                                "Component %s did not produce an install record".printf (spec.id)
-                            );
-                        } else {
-                            if (entry != null) {
-                                component_ready = store_applied_component_record (
-                                    entry,
-                                    spec,
-                                    record,
-                                    pfx_path,
-                                    arch,
-                                    logger
-                                );
-                                dirty = dirty || component_ready;
-                            } else {
-                                component_ready = component_record_matches_arch (spec, record, pfx_path, null, arch);
-                            }
-                        }
-                    }
-                } else if (applied != null) {
-                    logger.typed (LogType.COMPONENT, "%s: disabled, removing %s".printf (spec.id, applied.version));
-                    sweep_component_files (applied, wine_paths, arch, logger, true);
-                    if (entry != null) {
-                        entry.applied_components.unset (spec.id);
-                        dirty = true;
-                    }
-                }
+                bool dirty_component;
+                var component_ready = sync_component_state (ctx, spec, prefix_active, out dirty_component);
+                dirty = dirty || dirty_component;
 
                 if (runtime_active && component_ready) {
-                    add_component_overrides (result, spec);
+                    foreach (var ov in spec.overrides.entries) {
+                        result.dll_overrides[ov.key] = ov.value;
+                    }
                 }
             } catch (Error e) {
-                throw new IOError.FAILED ("Component %s failed: %s".printf (spec.id, e.message));
+                logger.typed (LogType.ERROR, "Component %s failed: %s".printf (spec.id, e.message));
+                throw e;
             }
         }
 
         if (dirty && entry != null) {
-            var reg = Models.PrefixRegistry.load (Utils.prefix_registry_path ());
-            reg.update_entry (entry);
-            reg.save (Utils.prefix_registry_path ());
+            persist_prefix (entry);
         }
 
         return result;
     }
 
-    private bool store_applied_component_record (
-        Models.PrefixEntry entry,
-        Models.ComponentSpec spec,
-        Models.AppliedComponentRecord record,
-        string pfx_path,
-        string arch,
-        RuntimeLog logger
-    ) {
-        if (!component_record_matches_arch (spec, record, pfx_path, entry, arch)) {
-            logger.typed (LogType.COMPONENT, "%s: apply did not produce expected files".printf (spec.id));
-            return false;
+    private bool sync_component_state (
+        ComponentApplyContext ctx,
+        Models.ComponentManifest spec,
+        bool prefix_active,
+        out bool dirty
+    ) throws Error {
+        dirty = false;
+        var applied = ctx.applied (spec.id);
+        if (!prefix_active) {
+            if (applied != null) {
+                ctx.log (spec.id, "disabled, removing %s".printf (applied.version));
+                ctx.sweep (spec, applied, true);
+                ctx.entry.applied_components.unset (spec.id);
+                dirty = true;
+            }
+            return spec.steps.size == 0;
         }
 
-        entry.applied_components[spec.id] = record;
+        var desired_version = resolve_component_version (spec, ctx.entry, ctx.defaults, applied, ctx.launch_policy);
+
+        if (applied != null && applied.version == desired_version) {
+            if (component_record_matches_arch (ctx, spec, applied)) {
+                ctx.log (spec.id, "%s already applied".printf (desired_version));
+                return true;
+            }
+            if (ctx.offline) {
+                throw new LumoriaError.FAILED (
+                    _("Component %s files are incomplete for shortcut launch. Open Lumoria to repair this prefix.").printf (spec.id)
+                );
+            }
+            ctx.log (spec.id, "reapplying %s for %s prefix".printf (desired_version, ctx.arch));
+            commit_component_install (ctx, spec, desired_version);
+            dirty = ctx.entry != null;
+            return true;
+        }
+
+        if (ctx.offline) {
+            throw new LumoriaError.FAILED (
+                _("Component %s is not prepared for shortcut launch. Open Lumoria to prepare this prefix.").printf (spec.id)
+            );
+        }
+
+        if (applied != null) {
+            if (Models.ToolVersionRef.is_deferred (applied.version)) {
+                ctx.log (spec.id, "preparing %s".printf (desired_version));
+            } else {
+                ctx.log (spec.id, "replacing %s with %s".printf (applied.version, desired_version));
+                ctx.sweep (spec, applied, false);
+                ctx.entry.applied_components.unset (spec.id);
+                dirty = true;
+            }
+        }
+
+        commit_component_install (ctx, spec, desired_version);
+        dirty = dirty || ctx.entry != null;
         return true;
+    }
+
+    private void commit_component_install (
+        ComponentApplyContext ctx,
+        Models.ComponentManifest spec,
+        string version
+    ) throws Error {
+        var record = run_component_install (ctx, spec, version);
+        if (!component_record_matches_arch (ctx, spec, record)) {
+            ctx.sweep (spec, record, false);
+            throw new LumoriaError.FAILED (
+                _("Component %s apply did not produce expected files").printf (spec.id)
+            );
+        }
+        if (ctx.entry != null) {
+            ctx.entry.applied_components[spec.id] = record;
+        }
     }
 
     public bool is_dxvk_active (
@@ -278,62 +232,51 @@ namespace Lumoria.Runtime {
         Models.Entrypoint? entrypoint = null
     ) {
         var defaults = Utils.Preferences.instance ();
-        foreach (var spec in Models.SpecRepository.shared ().components) {
-            if (spec.id != "dxvk") continue;
-            return is_component_active (
+        foreach (var spec in Models.ManifestRepository.shared ().all_components) {
+            if (!spec.supports_feature (FEATURE_DXVK_CONFIG)) continue;
+            if (is_component_active (
                 spec,
                 entry,
                 defaults,
                 entrypoint != null ? entrypoint.component_overrides : null
-            );
+            )) {
+                return true;
+            }
         }
         return false;
     }
 
     private bool component_record_matches_arch (
-        Models.ComponentSpec spec,
-        Models.AppliedComponentRecord record,
-        string pfx_path,
-        Models.PrefixEntry? entry,
-        string arch
+        ComponentApplyContext ctx,
+        Models.ComponentManifest spec,
+        Models.AppliedComponentRecord record
     ) {
         if (spec.steps.size > 0 && record.installed_files.size == 0) return false;
         foreach (var path in record.installed_files) {
             if (!FileUtils.test (path, FileTest.EXISTS)) return false;
             var normalized = path.replace ("\\", "/");
-            if (arch == "win32" && normalized.contains ("/drive_c/windows/syswow64/")) {
+            if (ctx.arch == "win32" && normalized.contains ("/drive_c/windows/syswow64/")) {
                 return false;
             }
         }
-        return component_expected_outputs_exist (spec, record, pfx_path, entry, arch);
-    }
-
-    private void add_component_overrides (ComponentResult result, Models.ComponentSpec spec) {
-        foreach (var ov in spec.overrides.entries) {
-            result.dll_overrides[ov.key] = ov.value;
-        }
+        return component_expected_outputs_exist (ctx, spec, record);
     }
 
     private bool component_expected_outputs_exist (
-        Models.ComponentSpec spec,
-        Models.AppliedComponentRecord record,
-        string pfx_path,
-        Models.PrefixEntry? entry,
-        string arch
+        ComponentApplyContext ctx,
+        Models.ComponentManifest spec,
+        Models.AppliedComponentRecord record
     ) {
-        var vars = new Gee.HashMap<string, string> ();
-        vars["COMPONENT"] = "";
-        vars["PREFIX"] = pfx_path;
-        vars["ARCH"] = arch;
-        if (!populate_component_installer_vars (vars, spec, entry)) return false;
+        var vars = build_component_vars (ctx.pfx_path, spec, ctx.entry, ctx.arch);
+        if (vars == null) return false;
 
-        if (record.version != "" && record.version != "latest") {
-            var adapter = new Models.ComponentToolAdapter (spec);
-            vars["COMPONENT"] = adapter.installed_path (new Models.ToolVersion (record.version));
+        if (Models.ToolVersionRef.is_pinned (record.version)) {
+            var adapter = new Runtime.ComponentToolAdapter (spec);
+            vars[VAR_COMPONENT] = adapter.installed_path (new Models.ToolVersion (record.version));
         }
 
         foreach (var step in spec.steps) {
-            if (step.step_type != "copy") continue;
+            if (step.step_type != Models.InstallStepKind.COPY) continue;
             if (step.when != null && !step.when.evaluate (vars)) continue;
             if (step.src.strip ().has_suffix ("/")) continue;
 
@@ -344,24 +287,29 @@ namespace Lumoria.Runtime {
             if (!FileUtils.test (expected, FileTest.EXISTS)) return false;
         }
 
-        if (!component_backup_outputs_are_valid (spec, vars)) return false;
-
-        return true;
+        return component_backup_outputs_are_valid (spec, vars);
     }
 
-    private bool component_backup_outputs_are_valid (
-        Models.ComponentSpec spec,
-        Gee.HashMap<string, string> vars
+    private delegate bool BackupPayloadCallback (
+        string backup,
+        string payload,
+        Models.InstallStep rename_step
+    );
+
+    private bool each_backup_payload_pair (
+        Models.ComponentManifest spec,
+        Gee.HashMap<string, string> vars,
+        BackupPayloadCallback visit
     ) {
         foreach (var rename_step in spec.steps) {
-            if (rename_step.step_type != "rename" || !rename_step.idempotent) continue;
+            if (rename_step.step_type != Models.InstallStepKind.RENAME || !rename_step.idempotent) continue;
             if (rename_step.when != null && !rename_step.when.evaluate (vars)) continue;
 
             var backup = Utils.expand_vars (rename_step.dst, vars);
             if (!FileUtils.test (backup, FileTest.EXISTS)) continue;
 
             foreach (var copy_step in spec.steps) {
-                if (copy_step.step_type != "copy") continue;
+                if (copy_step.step_type != Models.InstallStepKind.COPY) continue;
                 if (copy_step.when != null && !copy_step.when.evaluate (vars)) continue;
                 if (copy_step.src.strip ().has_suffix ("/")) continue;
 
@@ -369,14 +317,23 @@ namespace Lumoria.Runtime {
                 try {
                     payload = resolve_component_src (copy_step.src, vars);
                 } catch (Error e) {
+                    debug ("Failed to resolve component backup source: %s", e.message);
                     continue;
                 }
                 if (!FileUtils.test (payload, FileTest.EXISTS)) continue;
-                if (Utils.files_have_same_contents (backup, payload)) return false;
+                if (visit (backup, payload, rename_step)) return true;
             }
         }
+        return false;
+    }
 
-        return true;
+    private bool component_backup_outputs_are_valid (
+        Models.ComponentManifest spec,
+        Gee.HashMap<string, string> vars
+    ) {
+        return !each_backup_payload_pair (spec, vars, (backup, payload, rename_step) => {
+            return Utils.files_have_same_contents (backup, payload);
+        });
     }
 
     public Gee.HashMap<string, string> resolve_component_env_defaults (
@@ -389,9 +346,9 @@ namespace Lumoria.Runtime {
                 continue;
             }
 
-            var vars = new Gee.HashMap<string, string> ();
-            vars["COMPONENT"] = component.installed_path;
-            vars["PREFIX"] = pfx_path;
+            var vars = build_component_vars (
+                pfx_path, component.spec, entry, "", component.installed_path, false
+            );
             foreach (var env_entry in component.spec.system_env_defaults.entries) {
                 merged[env_entry.key] = Utils.expand_vars (env_entry.value, vars);
             }
@@ -402,7 +359,7 @@ namespace Lumoria.Runtime {
 
     private Gee.ArrayList<ResolvedComponentSelection> resolve_component_selections (Models.PrefixEntry? entry) {
         var selections = new Gee.ArrayList<ResolvedComponentSelection> ();
-        var specs = Models.SpecRepository.shared ().components;
+        var specs = Models.ManifestRepository.shared ().all_components;
         var defaults = Utils.Preferences.instance ();
 
         foreach (var spec in specs) {
@@ -410,11 +367,9 @@ namespace Lumoria.Runtime {
 
             var selection = new ResolvedComponentSelection ();
             selection.spec = spec;
-            selection.version = resolve_component_version (spec, entry, defaults);
-            selection.adapter = new Models.ComponentToolAdapter (spec);
-            selection.version_obj = selection.version == "latest"
-                ? new Models.ToolVersion.latest ("")
-                : new Models.ToolVersion (selection.version);
+            selection.version = requested_component_version (spec, entry, defaults);
+            selection.adapter = new Runtime.ComponentToolAdapter (spec);
+            selection.version_obj = Models.ToolVersionRef.to_version (selection.version);
             selection.installed_path = selection.adapter.installed_path (selection.version_obj);
             selections.add (selection);
         }
@@ -422,12 +377,21 @@ namespace Lumoria.Runtime {
         return selections;
     }
 
+    private bool component_is_listed (Models.ComponentManifest spec, Models.PrefixEntry? entry) {
+        foreach (var listed in Models.ManifestRepository.shared ().components) {
+            if (listed.id == spec.id) return true;
+        }
+        if (Models.ManifestRepository.shared ().components.size == 0) return false;
+        return entry != null && entry.applied_components.has_key (spec.id);
+    }
+
     private bool is_component_active (
-        Models.ComponentSpec spec,
+        Models.ComponentManifest spec,
         Models.PrefixEntry? entry,
         Utils.Preferences defaults,
         Gee.HashMap<string, Models.RuntimeComponentOverride>? entrypoint_overrides
     ) {
+        if (!component_is_listed (spec, entry)) return false;
         if (entry != null && !spec.supports_installer (entry.installer_id)) return false;
         if (entrypoint_overrides != null && entrypoint_overrides.has_key (spec.id)) {
             var ov = entrypoint_overrides[spec.id];
@@ -440,132 +404,107 @@ namespace Lumoria.Runtime {
         return defaults.is_component_enabled (spec.id);
     }
 
-    private string resolve_component_version (
-        Models.ComponentSpec spec,
+    private string requested_component_version (
+        Models.ComponentManifest spec,
         Models.PrefixEntry? entry,
         Utils.Preferences defaults
     ) {
         if (entry != null && entry.runtime_component_overrides.has_key (spec.id)) {
             var ov = entry.runtime_component_overrides[spec.id];
-            if (ov.version != "" && ov.version != "default") return ov.version;
+            if (Models.ToolVersionRef.is_pinned (ov.version)) return ov.version;
         }
         return defaults.get_tool_version (Utils.ToolKind.COMPONENT, spec.id);
     }
 
-    private string resolve_component_version_for_policy (
-        Models.ComponentSpec spec,
+    private string resolve_component_version (
+        Models.ComponentManifest spec,
         Models.PrefixEntry? entry,
         Utils.Preferences defaults,
         Models.AppliedComponentRecord? applied,
         LaunchPolicy launch_policy
     ) throws Error {
-        var requested = resolve_component_version (spec, entry, defaults);
-        if (launch_policy != LaunchPolicy.OFFLINE_FAST_START) {
-            return resolve_concrete_component_version (spec, requested);
+        var requested = requested_component_version (spec, entry, defaults);
+        if (launch_policy == LaunchPolicy.OFFLINE_FAST_START) {
+            if (applied != null && !Models.ToolVersionRef.is_deferred (applied.version)) return applied.version;
+            throw new LumoriaError.FAILED (
+                _("Component %s has no applied version for shortcut launch. Open Lumoria to prepare this prefix.").printf (spec.id)
+            );
         }
+        if (!Models.ToolVersionRef.is_deferred (requested)) return requested;
 
-        if (applied != null && !is_deferred_component_version (applied.version)) return applied.version;
-
-        throw new IOError.FAILED (
-            "Component %s has no applied version for shortcut launch. Open Lumoria to prepare this prefix.",
-            spec.id
-        );
-    }
-
-    private string resolve_concrete_component_version (
-        Models.ComponentSpec spec,
-        string requested
-    ) throws Error {
-        if (!is_deferred_component_version (requested)) return requested;
-
-        var adapter = new Models.ComponentToolAdapter (spec);
-        var resolved = adapter.resolve_latest_tag ();
+        var resolved = new Runtime.ComponentToolAdapter (spec).resolve_latest_tag ();
         if (resolved == "") {
-            throw new IOError.FAILED ("Failed to resolve latest version for component %s", spec.id);
+            throw new LumoriaError.FAILED (_("Failed to resolve latest version for component %s").printf (spec.id));
         }
         return resolved;
     }
 
-    private bool is_deferred_component_version (string version) {
-        var normalized = version.strip ().down ();
-        return normalized == "" || normalized == "default" || normalized == "latest";
-    }
-
-    private Models.AppliedComponentRecord? run_component_install (
-        Models.ComponentSpec spec,
-        string version,
-        WinePaths wine_paths,
-        string pfx_path,
-        Models.PrefixEntry? entry,
-        RuntimeLog logger,
-        LaunchPolicy launch_policy = LaunchPolicy.INTERACTIVE
+    private Models.AppliedComponentRecord run_component_install (
+        ComponentApplyContext ctx,
+        Models.ComponentManifest spec,
+        string version
     ) throws Error {
-        var adapter = new Models.ComponentToolAdapter (spec);
-        var version_obj = (version == "latest")
-            ? new Models.ToolVersion.latest ("")
-            : new Models.ToolVersion (version);
+        var adapter = new Runtime.ComponentToolAdapter (spec);
+        var version_obj = Models.ToolVersionRef.to_version (version);
 
         if (!adapter.is_installed (version_obj)) {
-            if (launch_policy == LaunchPolicy.OFFLINE_FAST_START) {
-                throw new IOError.FAILED (
-                    "Component %s %s is not installed. Open Lumoria to download it before launching from CLI.",
-                    spec.id,
-                    version
+            if (ctx.offline) {
+                throw new LumoriaError.FAILED (
+                    _("Component %s %s is not installed. Open Lumoria to download it before launching from CLI.").printf (
+                        spec.id, version
+                    )
                 );
             }
-            logger.typed (LogType.COMPONENT, "%s: cache miss, fetching %s".printf (spec.id, version));
-            adapter.install_version (version_obj, null);
+            ctx.log (spec.id, "cache miss, fetching %s".printf (version));
+            adapter.install_version (version_obj, null, ctx.cancellable);
         }
         var installed_path = adapter.installed_path (version_obj);
         if (installed_path == "" || !FileUtils.test (installed_path, FileTest.IS_DIR)) {
-            logger.typed (LogType.COMPONENT, "%s: install path missing, aborting apply".printf (spec.id));
-            return null;
+            throw new LumoriaError.FAILED (
+                _("Component %s %s is missing its install directory").printf (spec.id, version)
+            );
         }
-        logger.typed (LogType.COMPONENT, "%s: applying %s".printf (spec.id, version));
+        ctx.log (spec.id, "applying %s".printf (version));
 
         var record = new Models.AppliedComponentRecord ();
         record.version = version;
 
-        var vars = new Gee.HashMap<string, string> ();
-        var arch = component_install_arch (entry);
-        vars["COMPONENT"] = installed_path;
-        vars["PREFIX"] = pfx_path;
-        vars["ARCH"] = arch;
-        if (!populate_component_installer_vars (vars, spec, entry)) {
-            throw new IOError.FAILED (
-                "Component '%s' is incompatible with this installation", spec.id
+        var vars = build_component_vars (ctx.pfx_path, spec, ctx.entry, ctx.arch, installed_path);
+        if (vars == null) {
+            throw new LumoriaError.FAILED (
+                _("Component '%s' is incompatible with this installation").printf (spec.id)
             );
         }
 
+        var logger = ctx.logger;
         foreach (var step in spec.steps) {
+            Utils.check_cancelled (ctx.cancellable);
             if (step.when != null && !step.when.evaluate (vars)) continue;
             var src = resolve_component_src (step.src, vars);
-            var dst = Utils.expand_vars (step.dst, vars);
-            logger.typed (LogType.COMPONENT, "%s: %s %s -> %s".printf (spec.id, step.step_type, src, dst));
+            var dst = require_component_dst (step.dst, vars);
+            ctx.log (spec.id, "%s %s -> %s".printf (step.step_type.id (), src, dst));
 
             switch (step.step_type) {
-                case "copy":
+                case Models.InstallStepKind.COPY:
                     if (!FileUtils.test (src, FileTest.EXISTS)) {
-                        logger.typed (LogType.COMPONENT, "  source missing: %s".printf (src));
-                        break;
+                        throw new LumoriaError.FAILED (_("%s: source missing: %s").printf (spec.id, src));
                     }
                     Utils.copy_path (src, dst, (copied_src, copied_dst) => {
                         logger.typed (LogType.COMPONENT, "  copied %s".printf (Path.get_basename (copied_src)));
                         record.installed_files.add (copied_dst);
                     });
                     break;
-                case "rename":
+                case Models.InstallStepKind.RENAME:
                     if (step.idempotent && FileUtils.test (dst, FileTest.EXISTS)) {
-                        repair_component_backup_if_needed (spec, step, vars, wine_paths, arch, logger);
+                        repair_component_backup_if_needed (ctx, spec, step, vars);
                         logger.typed (LogType.COMPONENT, "  rename target already present: %s".printf (dst));
                         record.installed_files.add (dst);
                         break;
                     }
                     if (!FileUtils.test (src, FileTest.EXISTS)) {
-                        var builtin = runner_builtin_for_dst (wine_paths, src, arch);
+                        var builtin = runner_builtin_for_dst (ctx.wine_paths, src, ctx.arch);
                         if (builtin == "") {
-                            logger.typed (LogType.COMPONENT, "  source missing: %s".printf (src));
-                            break;
+                            throw new LumoriaError.FAILED (_("%s: source missing: %s").printf (spec.id, src));
                         }
                         Utils.copy_path (builtin, dst);
                         logger.typed (LogType.COMPONENT, "  sourced %s from runner".printf (Path.get_basename (dst)));
@@ -574,49 +513,40 @@ namespace Lumoria.Runtime {
                     }
                     Utils.ensure_dir (Path.get_dirname (dst));
                     if (FileUtils.rename (src, dst) != 0) {
-                        throw new IOError.FAILED ("rename failed: %s -> %s".printf (src, dst));
+                        throw new LumoriaError.FAILED (_("rename failed: %s -> %s").printf (src, dst));
                     }
                     logger.typed (LogType.COMPONENT, "  renamed %s -> %s".printf (src, dst));
                     record.installed_files.add (dst);
                     break;
                 default:
-                    logger.typed (LogType.COMPONENT, "%s: unknown step type '%s'".printf (spec.id, step.step_type));
-                    break;
+                    throw new LumoriaError.FAILED (_("%s: unknown step type '%s'").printf (spec.id, step.step_type.id ()));
             }
         }
         return record;
     }
 
+    private string require_component_dst (string raw, Gee.HashMap<string, string> vars) throws Error {
+        return require_confined_path (
+            raw, vars, _("Component path escapes the prefix: %s"), false
+        );
+    }
+
     private void repair_component_backup_if_needed (
-        Models.ComponentSpec spec,
+        ComponentApplyContext ctx,
+        Models.ComponentManifest spec,
         Models.InstallStep rename_step,
-        Gee.HashMap<string, string> vars,
-        WinePaths wine_paths,
-        string arch,
-        RuntimeLog logger
+        Gee.HashMap<string, string> vars
     ) {
-        var backup = Utils.expand_vars (rename_step.dst, vars);
-        if (!FileUtils.test (backup, FileTest.EXISTS)) return;
-
-        foreach (var copy_step in spec.steps) {
-            if (copy_step.step_type != "copy") continue;
-            if (copy_step.when != null && !copy_step.when.evaluate (vars)) continue;
-            if (copy_step.src.strip ().has_suffix ("/")) continue;
-
-            string payload;
-            try {
-                payload = resolve_component_src (copy_step.src, vars);
-            } catch (Error e) {
-                continue;
-            }
-            if (!FileUtils.test (payload, FileTest.EXISTS)) continue;
-            if (!Utils.files_have_same_contents (backup, payload)) continue;
+        var logger = ctx.logger;
+        each_backup_payload_pair (spec, vars, (backup, payload, step) => {
+            if (step != rename_step) return false;
+            if (!Utils.files_have_same_contents (backup, payload)) return false;
 
             var original_dst = Utils.expand_vars (rename_step.src, vars);
-            var builtin = runner_builtin_for_dst (wine_paths, original_dst, arch);
+            var builtin = runner_builtin_for_dst (ctx.wine_paths, original_dst, ctx.arch);
             if (builtin == "") {
                 logger.typed (LogType.COMPONENT, "  backup repair skipped, runner builtin missing: %s".printf (backup));
-                return;
+                return true;
             }
 
             try {
@@ -628,12 +558,20 @@ namespace Lumoria.Runtime {
                     e.message
                 ));
             }
-            return;
-        }
+            return true;
+        });
     }
 
-    private string component_install_arch (Models.PrefixEntry? entry) {
-        return entry != null ? resolve_effective_wine_arch (entry) : "win64";
+    private Gee.Set<string> retained_component_files (Models.PrefixEntry? entry, string except_id) {
+        var keep = new Gee.HashSet<string> ();
+        if (entry == null) return keep;
+        foreach (var other in entry.applied_components.entries) {
+            if (other.key == except_id) continue;
+            foreach (var path in other.value.installed_files) {
+                if (path != "") keep.add (path);
+            }
+        }
+        return keep;
     }
 
     private void sweep_component_files (
@@ -641,9 +579,14 @@ namespace Lumoria.Runtime {
         WinePaths wine_paths,
         string arch,
         RuntimeLog logger,
-        bool restore_runner_builtins
+        bool restore_runner_builtins,
+        Gee.Set<string>? retain = null
     ) {
         foreach (var path in record.installed_files) {
+            if (retain != null && retain.contains (path)) {
+                logger.typed (LogType.COMPONENT, "  kept %s (claimed by another component)".printf (path));
+                continue;
+            }
             if (!FileUtils.test (path, FileTest.EXISTS)) continue;
             if (FileUtils.unlink (path) != 0) {
                 logger.typed (LogType.COMPONENT, "  failed to remove %s".printf (path));
@@ -666,7 +609,7 @@ namespace Lumoria.Runtime {
     }
 
     private string resolve_component_src (string step_src, Gee.HashMap<string, string> vars) throws Error {
-        var component_path = vars["COMPONENT"];
+        var component_path = get_var (vars, VAR_COMPONENT);
         var src = Utils.expand_vars (step_src, vars);
         if (FileUtils.test (src, FileTest.EXISTS)) return src;
         if (component_path == "" || !src.has_prefix (component_path + "/")) return src;
@@ -696,27 +639,51 @@ namespace Lumoria.Runtime {
         return null;
     }
 
-    private bool populate_component_installer_vars (
-        Gee.HashMap<string, string> vars,
-        Models.ComponentSpec component,
-        Models.PrefixEntry? entry
+    private Gee.HashMap<string, string>? build_component_vars (
+        string pfx_path,
+        Models.ComponentManifest spec,
+        Models.PrefixEntry? entry,
+        string arch = "",
+        string installed_path = "",
+        bool populate_installer = true
     ) {
-        if (entry == null) return component.installer_ids.size == 0;
-        var installer = Models.SpecRepository.shared ().installer (entry.installer_id);
-        if (installer == null || !component.supports_installer (installer.id)) return false;
-
-        foreach (var value in installer.variables.entries) {
-            vars[value.key] = value.value;
-        }
-        resolve_prefix_vars (vars, entry);
-        foreach (var rule in installer.variable_rules) {
-            if (rule.when != null && !rule.when.evaluate (vars)) continue;
-            foreach (var value in rule.vars.entries) {
-                vars[value.key] = Utils.expand_vars (value.value, vars);
-            }
-        }
-        Utils.resolve_var_references (vars);
-        return true;
+        var vars = populate_installer
+            ? component_installer_vars (pfx_path, spec, entry, arch)
+            : new Gee.HashMap<string, string> ();
+        if (vars == null) return null;
+        vars[VAR_COMPONENT] = installed_path;
+        seed_prefix_paths (vars, pfx_path);
+        if (arch != "") set_arch_vars (vars, arch);
+        return vars;
     }
 
+    private Gee.HashMap<string, string>? component_installer_vars (
+        string pfx_path,
+        Models.ComponentManifest component,
+        Models.PrefixEntry? entry,
+        string arch
+    ) {
+        if (entry == null) {
+            return component.installer_ids.size == 0 ? new Gee.HashMap<string, string> () : null;
+        }
+        var installer = Models.ManifestRepository.shared ().installer (entry.installer_id);
+        if (installer == null || !component.supports_installer (installer.id)) return null;
+        return build_launch_vars (pfx_path, entry, installer, arch);
+    }
+
+    private string runner_builtin_for_dst (WinePaths paths, string dst_path, string wine_arch) {
+        var parent_dir = Path.get_basename (Path.get_dirname (dst_path));
+        string arch_subdir;
+        if (parent_dir == "syswow64") {
+            arch_subdir = "i386-windows";
+        } else if (parent_dir == "system32") {
+            arch_subdir = (wine_arch == "win32") ? "i386-windows" : "x86_64-windows";
+        } else {
+            return "";
+        }
+        var pe_dir = paths.find_runner_pe_dir (arch_subdir);
+        if (pe_dir == "") return "";
+        var candidate = Path.build_filename (pe_dir, Path.get_basename (dst_path));
+        return FileUtils.test (candidate, FileTest.EXISTS) ? candidate : "";
+    }
 }

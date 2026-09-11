@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://manifests.lumoria.dev/1/schemas/installable.json",
+  "title": "Lumoria installable manifest",
+  "type": "object",
+  "required": ["id", "name"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "id": { "$ref": "defs.json#/$defs/nonempty_string" },
+    "name": { "type": "string" },
+    "label": { "type": "string" },
+    "icon": { "type": "string" },
+    "skip_versions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "features": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "downloads": {
+      "type": "array",
+      "items": { "$ref": "defs.json#/$defs/download" }
+    },
+    "steps": {
+      "type": "array",
+      "items": { "$ref": "defs.json#/$defs/step" }
+    },
+    "actions": {
+      "type": "array",
+      "items": { "$ref": "defs.json#/$defs/action" }
+    },
+    "remote_manifest_actions": {
+      "type": "array",
+      "items": { "$ref": "defs.json#/$defs/remote_manifest_action" }
+    },
+    "env": {
+      "type": "array",
+      "items": { "$ref": "defs.json#/$defs/env_rule" }
+    },
+    "reinstallable": { "type": "boolean" },
+    "wineboot_mscoree": { "type": "string" },
+    "variables": {
+      "type": "object",
+      "additionalProperties": { "$ref": "defs.json#/$defs/variable" }
+    },
+    "entrypoints": {
+      "type": "array",
+      "items": { "$ref": "defs.json#/$defs/entrypoint" }
+    },
+    "redists": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "recommended": { "type": "boolean" },
+    "support": { "$ref": "defs.json#/$defs/support" },
+    "messages": { "$ref": "defs.json#/$defs/messages" },
+    "links": { "$ref": "defs.json#/$defs/links" },
+    "metadata": { "$ref": "defs.json#/$defs/metadata" }
+  }
+}

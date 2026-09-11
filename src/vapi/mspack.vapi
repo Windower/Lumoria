@@ -34,6 +34,12 @@ namespace MsPack {
 
         [CCode (cname = "lum_cab_get_next")]
         public unowned Cabinet? get_next ();
+
+        [CCode (cname = "lum_cab_get_folder_count")]
+        public int get_folder_count ();
+
+        [CCode (cname = "lum_cab_get_folder_index")]
+        public int get_folder_index (CabFile file);
     }
 
     [Compact]

@@ -1,0 +1,20 @@
+option(
+  'manifest_format_version',
+  type: 'integer',
+  value: 1,
+  description: 'Manifest format version (URL path segment)',
+)
+
+option(
+  'config_format_version',
+  type: 'integer',
+  value: 1,
+  description: 'User config / prefix registry format version',
+)
+
+option(
+  'manifest_base_url',
+  type: 'string',
+  value: 'https://manifests.lumoria.dev',
+  description: 'Origin for published manifests (no trailing slash)',
+)

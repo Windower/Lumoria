@@ -1,9 +1,8 @@
 namespace Lumoria.Widgets.Dialogs {
 
-    public class SessionManagerDialog : Adw.Dialog {
+    public class SessionManagerDialog : DialogHelpers.GamepadDialog {
         private Models.PrefixRegistry registry;
-        private Services.SessionManagerService service;
-        private Adw.ToastOverlay toast_overlay;
+        private Services.SessionClient service;
         private Gtk.Stack content_stack;
         private Gtk.ListBox launch_list;
         private Adw.StatusPage not_running_page;
@@ -21,30 +20,25 @@ namespace Lumoria.Widgets.Dialogs {
                 content_height: 420
             );
             this.registry = registry;
-            this.service = new Services.SessionManagerService ();
+            this.service = new Services.SessionClient ();
             build_ui ();
         }
 
         private void build_ui () {
-            var toolbar = new Adw.ToolbarView ();
-            var header = new Adw.HeaderBar ();
-            header.show_start_title_buttons = false;
-            header.show_end_title_buttons = true;
+            var header = DialogHelpers.dialog_header ();
 
             refresh_btn = new Gtk.Button.from_icon_name (IconRegistry.REFRESH);
-            refresh_btn.tooltip_text = _("Refresh");
+            PageChrome.set_icon_label (refresh_btn, _("Refresh"));
             refresh_btn.clicked.connect (() => refresh_launches ());
             header.pack_start (refresh_btn);
 
             if (!Utils.EnvironmentInfo.is_gamescope ()) {
                 session_logs_btn = new Gtk.Button.from_icon_name (IconRegistry.OPEN_FOLDER);
-                session_logs_btn.tooltip_text = _("Open Session Manager Logs");
+                PageChrome.set_icon_label (session_logs_btn, _("Open Session Manager Logs"));
                 session_logs_btn.clicked.connect (open_session_manager_logs);
                 header.pack_start (session_logs_btn);
                 update_session_logs_button ();
             }
-
-            toolbar.add_top_bar (header);
 
             not_running_page = new Adw.StatusPage () {
                 icon_name = IconRegistry.WARNING,
@@ -60,9 +54,7 @@ namespace Lumoria.Widgets.Dialogs {
             launch_list.selection_mode = Gtk.SelectionMode.NONE;
             launch_list.add_css_class ("boxed-list");
 
-            var list_scroll = new Gtk.ScrolledWindow ();
-            list_scroll.vexpand = true;
-            list_scroll.child = launch_list;
+            var list_scroll = PageChrome.scrolled (launch_list);
 
             content_stack = new Gtk.Stack ();
             content_stack.vexpand = true;
@@ -70,21 +62,14 @@ namespace Lumoria.Widgets.Dialogs {
             content_stack.add_named (empty_page, "empty");
             content_stack.add_named (list_scroll, "list");
 
-            toast_overlay = new Adw.ToastOverlay ();
-            toast_overlay.vexpand = true;
-            toast_overlay.child = content_stack;
-            toolbar.content = toast_overlay;
-
             stop_all_btn = new Gtk.Button.with_label (_("Stop All"));
             stop_all_btn.add_css_class ("destructive-action");
-            stop_all_btn.margin_start = 12;
-            stop_all_btn.margin_end = 12;
-            stop_all_btn.margin_top = 8;
-            stop_all_btn.margin_bottom = 8;
+            PageChrome.margins (stop_all_btn, Lumoria.Ui.Metrics.PAGE_MARGIN, Lumoria.Ui.Metrics.EDITOR_INSET);
             stop_all_btn.clicked.connect (on_stop_all);
+            var toolbar = DialogHelpers.dialog_toolbar (header, content_stack);
             toolbar.add_bottom_bar (stop_all_btn);
 
-            this.child = toolbar;
+            set_body (toolbar);
 
             map.connect (on_mapped);
             unmap.connect (on_unmapped);
@@ -129,7 +114,7 @@ namespace Lumoria.Widgets.Dialogs {
                         stop_all_btn.sensitive = launches.size > 0;
                     },
                     (error) => {
-                        show_toast (_("Failed to list launches: %s").printf (error));
+                        push_toast (_("Failed to list launches: %s").printf (error));
                         show_state ("not_running");
                         refresh_pending = false;
                         refresh_btn.sensitive = true;
@@ -161,31 +146,37 @@ namespace Lumoria.Widgets.Dialogs {
             }
 
             show_state ("list");
+            navigator.refresh ();
         }
 
         private Gtk.ListBoxRow build_launch_row (Cli.SessionLaunchInfo info) {
-            var row = new Adw.ActionRow ();
-            row.title = info.label != "" ? info.label : _("Unknown");
-            row.subtitle = "%s · PID %d".printf (prefix_display_name (info.prefix_id), info.pid);
-
-            if (!Utils.EnvironmentInfo.is_gamescope () && info.log_path != "") {
-                var logs_btn = new Gtk.Button.from_icon_name (IconRegistry.OPEN_FOLDER);
-                logs_btn.tooltip_text = _("Open Logs");
-                logs_btn.add_css_class ("flat");
-                logs_btn.valign = Gtk.Align.CENTER;
-                logs_btn.clicked.connect (() => open_launch_logs (info));
-                row.add_suffix (logs_btn);
-            }
-
-            var stop_btn = new Gtk.Button ();
-            stop_btn.icon_name = "process-stop-symbolic";
-            stop_btn.tooltip_text = _("Stop");
-            stop_btn.add_css_class ("flat");
-            stop_btn.valign = Gtk.Align.CENTER;
-            stop_btn.clicked.connect (() => confirm_stop_launch (info));
-            row.add_suffix (stop_btn);
-
+            var row = new LaunchRow (info, prefix_display_name (info.prefix_id));
+            row.logs_requested.connect (open_launch_logs);
+            row.stop_requested.connect (confirm_stop_launch);
             return row;
+        }
+
+        private class LaunchRow : Adw.ActionRow {
+            public signal void logs_requested (Cli.SessionLaunchInfo info);
+            public signal void stop_requested (Cli.SessionLaunchInfo info);
+
+            private Cli.SessionLaunchInfo info;
+
+            public LaunchRow (Cli.SessionLaunchInfo info, string prefix_name) {
+                this.info = info;
+                title = info.label != "" ? info.label : _("Unknown");
+                subtitle = _("%s · PID %d").printf (prefix_name, info.pid);
+
+                if (!Utils.EnvironmentInfo.is_gamescope () && info.log_path != "") {
+                    var logs_btn = PageChrome.icon_button (IconRegistry.OPEN_FOLDER, _("Open Logs"));
+                    logs_btn.clicked.connect (() => logs_requested (this.info));
+                    add_suffix (logs_btn);
+                }
+
+                var stop_btn = PageChrome.icon_button (IconRegistry.STOP, _("Stop"));
+                stop_btn.clicked.connect (() => stop_requested (this.info));
+                add_suffix (stop_btn);
+            }
         }
 
         private string prefix_display_name (string prefix_id) {
@@ -197,12 +188,12 @@ namespace Lumoria.Widgets.Dialogs {
         private void open_launch_logs (Cli.SessionLaunchInfo info) {
             var log_dir = Path.get_dirname (info.log_path);
             if (log_dir == null || log_dir == ".") {
-                show_toast (_("Log directory is unavailable."));
+                push_toast (_("Log directory is unavailable."));
                 return;
             }
 
-            SettingsShared.open_directory (null, log_dir, (message) => {
-                show_toast (_("Could not open log directory: %s").printf (message));
+            FileDialogs.open_directory (get_root () as Gtk.Window, log_dir, (message) => {
+                push_toast (_("Could not open log directory: %s").printf (message));
             });
         }
 
@@ -210,11 +201,11 @@ namespace Lumoria.Widgets.Dialogs {
             var log_dir = Utils.session_manager_log_dir ();
             if (!FileUtils.test (log_dir, FileTest.IS_DIR)) {
                 update_session_logs_button ();
-                show_toast (_("Session manager log directory is unavailable."));
+                push_toast (_("Session manager log directory is unavailable."));
                 return;
             }
-            SettingsShared.open_directory (null, log_dir, (message) => {
-                show_toast (_("Could not open session manager log directory: %s").printf (message));
+            FileDialogs.open_directory (get_root () as Gtk.Window, log_dir, (message) => {
+                push_toast (_("Could not open session manager log directory: %s").printf (message));
             });
         }
 
@@ -225,7 +216,7 @@ namespace Lumoria.Widgets.Dialogs {
 
         private void confirm_stop_launch (Cli.SessionLaunchInfo info) {
             var target = info.label != "" ? info.label : _("this process");
-            SettingsShared.present_destructive_confirmation (
+            DialogHelpers.present_destructive_confirmation (
                 this,
                 _("Stop Process?"),
                 _("Stop %s?").printf (target),
@@ -236,11 +227,11 @@ namespace Lumoria.Widgets.Dialogs {
                     service.stop_pid_async (
                         info.pid,
                         () => {
-                            show_toast (_("Launch stopped."));
+                            push_toast (_("Launch stopped."));
                             refresh_launches ();
                         },
                         (error) => {
-                            show_toast (_("Stop failed: %s").printf (error));
+                            push_toast (_("Stop failed: %s").printf (error));
                             refresh_launches ();
                         }
                     );
@@ -249,7 +240,7 @@ namespace Lumoria.Widgets.Dialogs {
         }
 
         private void on_stop_all () {
-            SettingsShared.present_destructive_confirmation (
+            DialogHelpers.present_destructive_confirmation (
                 this,
                 _("Stop All Processes?"),
                 _("Stop all running processes?"),
@@ -260,11 +251,11 @@ namespace Lumoria.Widgets.Dialogs {
                     stop_all_btn.sensitive = false;
                     service.stop_all_async (
                         () => {
-                            show_toast (_("All processes stopped."));
+                            push_toast (_("All processes stopped."));
                             refresh_launches ();
                         },
                         (error) => {
-                            show_toast (_("Stop all processes failed: %s").printf (error));
+                            push_toast (_("Stop all processes failed: %s").printf (error));
                             refresh_launches ();
                         }
                     );
@@ -274,10 +265,6 @@ namespace Lumoria.Widgets.Dialogs {
 
         private void show_state (string name) {
             content_stack.visible_child_name = name;
-        }
-
-        private void show_toast (string message) {
-            toast_overlay.add_toast (new Adw.Toast (message));
         }
     }
 }

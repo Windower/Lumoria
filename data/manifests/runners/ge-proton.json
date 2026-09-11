@@ -1,0 +1,145 @@
+{
+  "$schema": "https://manifests.lumoria.dev/1/schemas/runner.json",
+  "id": "ge-proton",
+  "name": "GE-Proton",
+  "wine_arch": "win64",
+  "default": true,
+  "recommended": true,
+  "links": {
+    "website": "https://github.com/GloriousEggroll/proton-ge-custom",
+    "license": "https://github.com/GloriousEggroll/proton-ge-custom/blob/master/LICENSE"
+  },
+  "messages": {
+    "description": "Fork of Proton with additional components and patches. Maintained by GloriousEggroll. This is the recommended runner for most users."
+  },
+  "features": [
+    "wayland-primary-monitor"
+  ],
+  "github_repo": "GloriousEggroll/proton-ge-custom",
+  "version_dir": "GE-Proton(.+)",
+  "asset_regex": "^GE-Proton(?!.*-aarch64(?:\\.|-)).*\\.tar\\.(gz|zst)$",
+  "checksum_regex": "^GE-Proton(?!.*-aarch64(?:\\.|-)).*\\.(sha512sum|sha512)$",
+  "skip_versions": [
+    "GE-Proton11-1"
+  ],
+  "support_files": [
+    {
+      "id": "icu-win32",
+      "mode": "symlink",
+      "files": [
+        "icudt68.dll",
+        "icuin68.dll",
+        "icuuc68.dll"
+      ],
+      "src_dirs": [
+        "files/lib/wine/icu/i386-windows"
+      ],
+      "dst_dir": "drive_c/windows/system32",
+      "when": {
+        "var": {
+          "ARCH": "win32"
+        }
+      }
+    },
+    {
+      "id": "icu-win64-x86",
+      "mode": "symlink",
+      "files": [
+        "icudt68.dll",
+        "icuin68.dll",
+        "icuuc68.dll"
+      ],
+      "src_dirs": [
+        "files/lib/wine/icu/i386-windows"
+      ],
+      "dst_dir": "drive_c/windows/syswow64",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    },
+    {
+      "id": "icu-win64-x64",
+      "mode": "symlink",
+      "files": [
+        "icudt68.dll",
+        "icuin68.dll",
+        "icuuc68.dll"
+      ],
+      "src_dirs": [
+        "files/lib/wine/icu/x86_64-windows"
+      ],
+      "dst_dir": "drive_c/windows/system32",
+      "when": {
+        "var": {
+          "ARCH": "win64"
+        }
+      }
+    }
+  ],
+  "paths": {
+    "lib": [
+      "files/lib"
+    ],
+    "lib_32": [
+      "files/lib/i386-linux-gnu"
+    ],
+    "lib_64": [
+      "files/lib/x86_64-linux-gnu"
+    ],
+    "wine_dll": [
+      "files/lib/wine",
+      "files/lib/wine/i386-windows",
+      "files/lib/wine/x86_64-windows",
+      "files/lib/wine/icu/i386-windows",
+      "files/lib/wine/icu/x86_64-windows",
+      "files/lib/vkd3d",
+      "files/lib/wine/vkd3d-proton",
+      "files/lib/wine/dxvk",
+      "files/lib/wine/nvapi"
+    ],
+    "wine_unix": [
+      "files/lib/wine/x86_64-unix",
+      "files/lib/wine/i386-unix"
+    ]
+  },
+  "variants": [
+    {
+      "id": "wow64",
+      "label": "WoW64",
+      "default": true,
+      "wine_bin": "files/bin-wow64/wine",
+      "wineserver": "files/bin-wow64/wineserver",
+      "wine_bins": [
+        "files/bin-wow64/wine",
+        "files/bin/wine"
+      ],
+      "wineservers": [
+        "files/bin-wow64/wineserver",
+        "files/bin/wineserver"
+      ],
+      "binary_kind": "wow64",
+      "sandbox_supported": true,
+      "paths": {
+        "bin": "files/bin-wow64",
+        "bin_paths": [
+          "files/bin-wow64",
+          "files/bin"
+        ]
+      }
+    },
+    {
+      "id": "32bit",
+      "label": "32-bit (legacy)",
+      "wine_bin": "files/bin/wine",
+      "wineserver": "files/bin/wineserver",
+      "wine_arch": "win32",
+      "binary_kind": "legacy32",
+      "sandbox_supported": false,
+      "paths": {
+        "bin": "files/bin"
+      }
+    }
+  ]
+}

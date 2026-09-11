@@ -13,6 +13,7 @@ namespace Lumoria.Widgets {
         construct {
             ActionEntry[] action_entries = {
                 { "preferences", this.on_preferences_action },
+                { "about", this.on_about_action },
                 { "quit", this.quit },
             };
             this.add_action_entries (action_entries, this);
@@ -41,13 +42,24 @@ namespace Lumoria.Widgets {
                 warning ("Failed to load CSS: %s", e.message);
             }
 
-            var win = this.active_window ?? new Window (this);
+            var win = this.active_window ?? new Ui.Window (this);
             win.present ();
         }
 
         private void on_preferences_action () {
-            var win = this.active_window as Window;
+            var win = this.active_window as Ui.Window;
             if (win != null) win.show_preferences ();
+        }
+
+        private void on_about_action () {
+            var win = this.active_window;
+            if (win != null) Ui.present_about (win);
+        }
+
+        protected override void shutdown () {
+            var win = this.active_window as Ui.Window;
+            if (win != null) win.persist_and_shutdown ();
+            base.shutdown ();
         }
     }
 }

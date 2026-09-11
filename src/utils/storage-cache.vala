@@ -10,9 +10,10 @@ namespace Lumoria.Utils {
         CACHE_INSTALLER,
         CACHE_LAUNCHERS,
         CACHE_REDIST,
-        CACHE_REMOTE_MANIFESTS;
+        CACHE_REMOTE_MANIFESTS,
+        CACHE_MANIFESTS;
 
-        public const int COUNT = 10;
+        public const int COUNT = 11;
 
         public string dir_path () {
             switch (this) {
@@ -34,6 +35,8 @@ namespace Lumoria.Utils {
                     return Path.build_filename (Utils.cache_dir (), "redist");
                 case CACHE_REMOTE_MANIFESTS:
                     return Path.build_filename (Utils.cache_dir (), "remote-manifests");
+                case CACHE_MANIFESTS:
+                    return Path.build_filename (Utils.cache_dir (), "manifests");
                 default:
                     return "";
             }
@@ -47,6 +50,7 @@ namespace Lumoria.Utils {
                 case CACHE_LAUNCHERS:
                 case CACHE_REDIST:
                 case CACHE_REMOTE_MANIFESTS:
+                case CACHE_MANIFESTS:
                     return true;
                 default:
                     return false;
@@ -105,17 +109,8 @@ namespace Lumoria.Utils {
         public int64 total () {
             int64 sum = 0;
             for (int i = 0; i < StorageCategory.COUNT; i++) {
+                if (sizes[i] < 0) return -1;
                 if (sizes[i] > 0) sum += sizes[i];
-            }
-            return sum;
-        }
-
-        public int64 cache_total () {
-            int64 sum = 0;
-            for (int i = 0; i < StorageCategory.COUNT; i++) {
-                if (((StorageCategory) i).is_cache () && sizes[i] > 0) {
-                    sum += sizes[i];
-                }
             }
             return sum;
         }
@@ -136,21 +131,61 @@ namespace Lumoria.Utils {
             }
         }
 
-        public void invalidate_all () {
-            for (int i = 0; i < StorageCategory.COUNT; i++) {
-                valid[i] = false;
-                pending[i] = false;
+        public void drop_prefix (string prefix_id) {
+            int64 lost = 0;
+            if (prefix_sizes.has_key (prefix_id)) {
+                lost = (int64) prefix_sizes[prefix_id];
+                prefix_sizes.unset (prefix_id);
             }
-            prefix_sizes.clear ();
-            active_prefix_refresh++;
+            if (!valid[StorageCategory.PREFIXES]) return;
+            if (lost > 0) {
+                sizes[StorageCategory.PREFIXES] = int64.max (0, sizes[StorageCategory.PREFIXES] - lost);
+            }
+            size_updated (StorageCategory.PREFIXES, sizes[StorageCategory.PREFIXES]);
         }
 
-        public void invalidate_all_cache () {
-            for (int i = 0; i < StorageCategory.COUNT; i++) {
-                if (((StorageCategory) i).is_cache ()) {
-                    valid[i] = false;
-                    pending[i] = false;
+        public void refresh_prefix (Models.PrefixEntry entry, Cancellable? cancellable = null) {
+            var prefix_id = entry.id;
+            var path = entry.resolved_path ();
+            if (path == "") return;
+            DiskUsage.calculate_async (path, cancellable, (measured_path, bytes) => {
+                if (cancellable != null && cancellable.is_cancelled ()) return;
+                int64 prev = prefix_sizes.has_key (prefix_id) ? (int64) prefix_sizes[prefix_id] : 0;
+                prefix_sizes[prefix_id] = bytes;
+                prefix_size_updated (prefix_id, bytes);
+                if (!valid[StorageCategory.PREFIXES]) return;
+                if (bytes < 0 || sizes[StorageCategory.PREFIXES] < 0) {
+                    sizes[StorageCategory.PREFIXES] = -1;
+                } else {
+                    sizes[StorageCategory.PREFIXES] = int64.max (0, sizes[StorageCategory.PREFIXES] - int64.max (prev, 0) + bytes);
                 }
+                size_updated (StorageCategory.PREFIXES, sizes[StorageCategory.PREFIXES]);
+            });
+        }
+
+        /* Deletes one cache subdirectory off the UI thread and invalidates its size once done. */
+        public void clear_cache_async (StorageCategory category, string subdir, owned BackgroundDone? on_done = null) {
+            var path = Path.build_filename (Utils.cache_dir (), subdir);
+            run_background ("cache-clear", () => remove_or_throw (path), (error) => {
+                invalidate (category);
+                if (on_done != null) on_done (error);
+            });
+        }
+
+        /* Deletes the whole cache directory and drops every cached size that depended on it. */
+        public void clear_all_cache_async (owned BackgroundDone? on_done = null) {
+            run_background ("cache-clear", () => remove_or_throw (Utils.cache_dir ()), (error) => {
+                for (int i = 0; i < StorageCategory.COUNT; i++) {
+                    if (((StorageCategory) i).is_cache ()) invalidate ((StorageCategory) i);
+                }
+                invalidate (StorageCategory.APP_DATA);
+                if (on_done != null) on_done (error);
+            });
+        }
+
+        private static void remove_or_throw (string path) throws Error {
+            if (!Utils.remove_recursive (path)) {
+                throw new LumoriaError.FAILED (_("Failed to clear some cache files."));
             }
         }
 
@@ -207,23 +242,23 @@ namespace Lumoria.Utils {
                 if (cat.is_cache ()) cache_excludes.add (cat.dir_path ());
             }
 
-            new Thread<bool> ("disk-usage-app-data", () => {
-                int64 total = 0;
+            int64 total = 0;
+            Utils.run_background ("disk-usage-app-data", () => {
                 total += DiskUsage.calculate_excluding_sync (Utils.data_dir (), data_excludes, cancellable);
-                if (cancellable != null && cancellable.is_cancelled ()) return true;
+                if (cancellable != null && cancellable.is_cancelled ()) return;
                 total += DiskUsage.calculate_sync (Utils.config_dir (), cancellable);
-                if (cancellable != null && cancellable.is_cancelled ()) return true;
+                if (cancellable != null && cancellable.is_cancelled ()) return;
                 total += DiskUsage.calculate_excluding_sync (Utils.cache_dir (), cache_excludes, cancellable);
-                if (cancellable != null && cancellable.is_cancelled ()) return true;
-                Idle.add (() => {
-                    if (cancellable != null && cancellable.is_cancelled ()) return false;
-                    sizes[StorageCategory.APP_DATA] = total;
-                    valid[StorageCategory.APP_DATA] = true;
-                    pending[StorageCategory.APP_DATA] = false;
-                    size_updated (StorageCategory.APP_DATA, total);
-                    return false;
-                });
-                return true;
+            }, (error) => {
+                if (cancellable != null && cancellable.is_cancelled ()) return;
+                if (error != null) {
+                    warning ("Disk usage failed for app data: %s", error.message);
+                    total = -1;
+                }
+                sizes[StorageCategory.APP_DATA] = total;
+                valid[StorageCategory.APP_DATA] = true;
+                pending[StorageCategory.APP_DATA] = false;
+                size_updated (StorageCategory.APP_DATA, total);
             });
         }
 
@@ -277,6 +312,10 @@ namespace Lumoria.Utils {
 
                     int64 total = 0;
                     foreach (var value in measured.values) {
+                        if ((int64) value < 0) {
+                            total = -1;
+                            break;
+                        }
                         total += (int64) value;
                     }
 

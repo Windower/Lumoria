@@ -1,22 +1,21 @@
 namespace Lumoria.Widgets.Preferences {
 
     public class ComponentsPage : Gtk.Box {
-        public signal void toast_message (string message);
-
-        public ComponentsPage () {
+        public ComponentsPage (Lumoria.Application.Context ctx) {
             Object (orientation: Gtk.Orientation.VERTICAL, spacing: 0);
 
-            var specs = Models.ComponentSpec.load_all_from_resource ();
+            append (ManifestUi.components_disable_note ());
+            var specs = Models.ManifestRepository.shared ().components;
+            var first = true;
             foreach (var spec in specs) {
-                var adapter = new Models.ComponentToolAdapter (spec);
-                var group = new ToolGroupWidget (adapter);
-                group.toast_message.connect ((msg) => toast_message (msg));
-                append (group);
+                var adapter = new Runtime.ComponentToolAdapter (spec);
+                append (new ToolGroupWidget (ctx, adapter, first));
+                first = false;
             }
 
             var spacer = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
             spacer.vexpand = true;
-            spacer.margin_bottom = 12;
+            spacer.margin_bottom = Ui.Metrics.GROUP_SPACING;
             append (spacer);
         }
     }
