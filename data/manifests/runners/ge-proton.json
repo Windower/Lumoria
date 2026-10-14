@@ -20,7 +20,7 @@
   "asset_regex": "^GE-Proton(?!.*-aarch64(?:\\.|-)).*\\.tar\\.(gz|zst)$",
   "checksum_regex": "^GE-Proton(?!.*-aarch64(?:\\.|-)).*\\.(sha512sum|sha512)$",
   "skip_versions": [
-    "GE-Proton11-1", "GE-Proton11-7", "GE-Proton11-8"
+    "GE-Proton11-1", "GE-Proton11-7", "GE-Proton11-8", "GE-Proton11-9"
   ],
   "support_files": [
     {
