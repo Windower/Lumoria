@@ -3,7 +3,7 @@
   <gresource prefix="/net/windower/Lumoria">
     <file>css/style.css</file>
     <file alias="appdata/net.windower.Lumoria.metainfo.xml">net.windower.Lumoria.metainfo.xml.in</file>
-    <file>ui/lumoria-mascot.svg</file>
+    <file>ui/lumoria-mascot.png</file>
     <file>images/steam.svg</file>
     <file>icons/scalable/actions/windower-mandie-symbolic.svg</file>
     <file>icons/scalable/actions/discord-symbolic.svg</file>

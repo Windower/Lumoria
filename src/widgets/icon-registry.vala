@@ -39,7 +39,7 @@ namespace Lumoria.Widgets {
         public const string BOOKMARK = "bookmark-new-symbolic";
         public const string BOOKMARKED = "user-bookmarks-symbolic";
         public const string BOOKMARKED_ALT = "bookmarks-bookmarked-symbolic";
-        public const string MASCOT_RESOURCE = Config.RESOURCE_BASE + "/ui/lumoria-mascot.svg";
+        public const string MASCOT_RESOURCE = Config.RESOURCE_BASE + "/ui/lumoria-mascot.png";
 
         public static Gtk.Image mascot_image (int pixel_size) {
             var image = new Gtk.Image.from_resource (MASCOT_RESOURCE);
