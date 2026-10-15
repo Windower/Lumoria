@@ -107,6 +107,8 @@ lumoria_sources = files(
   'runtime/prefix-paths.vala',
   'runtime/wine-runtime.vala',
   'runtime/wine-process.vala',
+  'runtime/wine-file-output.vala',
+  'runtime/install-process.vala',
   'runtime/wine-vars.vala',
   'runtime/install.vala',
   'runtime/install-phase.vala',

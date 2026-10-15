@@ -67,6 +67,17 @@ namespace Lumoria.Runtime {
                 run_wineexec_step (ctx);
                 break;
 
+            case Models.InstallStepKind.SLEEP:
+                ctx.logger.typed (LogType.CMD, "sleep %d ms".printf (step.duration_ms));
+                wait_install_delay (step.duration_ms, ctx.cancellable);
+                break;
+
+            case Models.InstallStepKind.WINEKILL:
+                var kill_args = new Gee.ArrayList<string> ();
+                foreach (var arg in step.args) kill_args.add (ctx.expand (arg));
+                kill_wine_processes (ctx.prefix, ctx.expand (step.command), kill_args.to_array (), ctx.logger, ctx.cancellable);
+                break;
+
             case Models.InstallStepKind.COPY:
                 var src = ctx.require_copy_src (step.src, step.allow_external_src);
                 var dst = ctx.require_managed_path (step.dst);

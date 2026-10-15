@@ -1,0 +1,178 @@
+{
+  "$schema": "https://manifests.lumoria.dev/1/schemas/redist.json",
+  "id": "webview2",
+  "name": "Microsoft Edge WebView2 Evergreen Runtime",
+  "variables": {
+    "PROGRAM_FILES_X86": {
+      "default": "${var.PREFIX}/drive_c/Program Files",
+      "rules": [
+        {
+          "value": "${var.PREFIX}/drive_c/Program Files (x86)",
+          "when": {
+            "var": {
+              "ARCH": "win64"
+            }
+          }
+        }
+      ]
+    },
+    "WEBVIEW2_SETUP": "${var.CACHE_REDIST}/webview2/MicrosoftEdgeWebview2Setup.exe",
+    "WEBVIEW2_REG": "${var.CACHE_REDIST}/webview2/webview2.reg",
+    "EDGEUPDATE_EXE": "${var.PROGRAM_FILES_X86}/Microsoft/EdgeUpdate/MicrosoftEdgeUpdate.exe",
+    "WEBVIEW2_PENDING": {
+      "default": "yes",
+      "rules": [
+        {
+          "value": "no",
+          "when": {
+            "all": [
+              {
+                "var": {
+                  "ARCH": "win64"
+                }
+              },
+              {
+                "file_exists": "${var.PREFIX}/drive_c/Program Files (x86)/Microsoft/EdgeUpdate/MicrosoftEdgeUpdate.exe"
+              }
+            ]
+          }
+        },
+        {
+          "value": "no",
+          "when": {
+            "all": [
+              {
+                "var": {
+                  "ARCH": "win32"
+                }
+              },
+              {
+                "file_exists": "${var.PREFIX}/drive_c/Program Files/Microsoft/EdgeUpdate/MicrosoftEdgeUpdate.exe"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "downloads": [
+    {
+      "id": "webview2_bootstrapper",
+      "url": "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
+      "dest": "${var.CACHE_REDIST}/webview2/MicrosoftEdgeWebview2Setup.exe"
+    }
+  ],
+  "steps": [
+    {
+      "type": "wineexec",
+      "description": "Run WebView2 Evergreen bootstrapper",
+      "output": "file",
+      "command": "${var.WEBVIEW2_SETUP}",
+      "args": [
+        "/silent",
+        "/install"
+      ],
+      "working_dir": "${var.CACHE_REDIST}/webview2",
+      "verify_paths": [
+        "${var.EDGEUPDATE_EXE}"
+      ],
+      "allow_nonzero_exit": true,
+      "when": {
+        "var": {
+          "WEBVIEW2_PENDING": "yes"
+        }
+      }
+    },
+    {
+      "type": "write",
+      "description": "Stage EdgeUpdate manual startup setting (Wine bug 53925)",
+      "dst": "${var.WEBVIEW2_REG}",
+      "content": [
+        "Windows Registry Editor Version 5.00",
+        "",
+        "[HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Services\\edgeupdate]",
+        "\"Start\"=dword:00000003",
+        "",
+        ""
+      ],
+      "when": {
+        "var": {
+          "WEBVIEW2_PENDING": "yes"
+        }
+      }
+    },
+    {
+      "type": "wineexec",
+      "description": "Set edgeupdate service to manual",
+      "output": "file",
+      "command": "regedit",
+      "args": [
+        "/S",
+        "${var.WEBVIEW2_REG}"
+      ],
+      "when": {
+        "var": {
+          "WEBVIEW2_PENDING": "yes"
+        }
+      }
+    },
+    {
+      "type": "sleep",
+      "description": "Wait for EdgeUpdate service startup",
+      "duration_ms": 5000,
+      "when": {
+        "var": {
+          "WEBVIEW2_PENDING": "yes"
+        }
+      }
+    },
+    {
+      "type": "winekill",
+      "description": "Stop the EdgeUpdate service process (Wine bug 53925)",
+      "command": "MicrosoftEdgeUpdate.exe",
+      "args": [
+        "/c"
+      ],
+      "when": {
+        "var": {
+          "WEBVIEW2_PENDING": "yes"
+        }
+      }
+    },
+    {
+      "type": "write",
+      "description": "Stage WebView2 Windows version setting (Wine bug 58921)",
+      "dst": "${var.WEBVIEW2_REG}",
+      "content": [
+        "Windows Registry Editor Version 5.00",
+        "",
+        "[HKEY_CURRENT_USER\\Software\\Wine\\AppDefaults\\msedgewebview2.exe]",
+        "\"Version\"=\"win7\"",
+        ""
+      ],
+      "when": {
+        "var": {
+          "WEBVIEW2_PENDING": "yes"
+        }
+      }
+    },
+    {
+      "type": "wineexec",
+      "description": "Set msedgewebview2.exe to Windows 7",
+      "output": "file",
+      "command": "regedit",
+      "args": [
+        "/S",
+        "${var.WEBVIEW2_REG}"
+      ],
+      "when": {
+        "var": {
+          "WEBVIEW2_PENDING": "yes"
+        }
+      }
+    }
+  ],
+  "links": {
+    "website": "https://developer.microsoft.com/microsoft-edge/webview2/"
+  }
+}

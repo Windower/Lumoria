@@ -398,6 +398,63 @@
         {
           "unevaluatedProperties": false,
           "allOf": [
+            {
+              "$ref": "#/$defs/step_common"
+            },
+            {
+              "type": "object",
+              "required": [
+                "type",
+                "duration_ms"
+              ],
+              "properties": {
+                "type": {
+                  "const": "sleep"
+                },
+                "duration_ms": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                }
+              }
+            }
+          ]
+        },
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
+            {
+              "$ref": "#/$defs/step_common"
+            },
+            {
+              "type": "object",
+              "required": [
+                "type",
+                "command"
+              ],
+              "properties": {
+                "type": {
+                  "const": "winekill"
+                },
+                "command": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[^/\\\\]+$"
+                },
+                "args": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        },
+
+        {
+          "unevaluatedProperties": false,
+          "allOf": [
             { "$ref": "#/$defs/step_common" },
             {
               "type": "object",
@@ -426,6 +483,7 @@
                   "items": { "type": "string" }
                 },
                 "working_dir": { "type": "string" },
+                "output": { "type": "string", "enum": ["pipe", "file"], "default": "pipe" },
                 "allow_nonzero_exit": { "type": "boolean" }
               }
             }

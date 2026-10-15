@@ -3,6 +3,8 @@ namespace Lumoria.Models {
     public enum InstallStepKind {
         TASK,
         WINEEXEC,
+        SLEEP,
+        WINEKILL,
         COPY,
         RENAME,
         DELETE,
@@ -29,6 +31,8 @@ namespace Lumoria.Models {
             switch (type) {
                 case "task": return TASK;
                 case "wineexec": return WINEEXEC;
+                case "sleep": return SLEEP;
+                case "winekill": return WINEKILL;
                 case "copy": return COPY;
                 case "rename": return RENAME;
                 case "delete": return DELETE;
@@ -58,6 +62,8 @@ namespace Lumoria.Models {
         public unowned string id () {
             switch (this) {
                 case WINEEXEC: return "wineexec";
+                case SLEEP: return "sleep";
+                case WINEKILL: return "winekill";
                 case COPY: return "copy";
                 case RENAME: return "rename";
                 case DELETE: return "delete";
@@ -84,15 +90,31 @@ namespace Lumoria.Models {
         }
     }
 
+    public enum WineOutputMode {
+        PIPE,
+        FILE;
+
+        public static WineOutputMode parse (string value) throws Error {
+            switch (value) {
+                case "pipe": return PIPE;
+                case "file": return FILE;
+                default:
+                    throw new LumoriaError.INVALID_MANIFEST ("Unknown wineexec output mode: %s", value);
+            }
+        }
+    }
+
     public class InstallStep : Object {
         public const string TASK_CREATE_PREFIX = "create_prefix";
         public InstallStepKind step_type { get; set; default = InstallStepKind.TASK; }
+        public int duration_ms { get; set; default = 0; }
         public string description { get; set; default = ""; }
         public string command { get; set; default = ""; }
         public string mode { get; set; default = ""; }
         public string src { get; set; default = ""; }
         public string dst { get; set; default = ""; }
         public string working_dir { get; set; default = ""; }
+        public WineOutputMode output { get; set; default = WineOutputMode.PIPE; }
         public string content { get; set; default = ""; }
         public string root { get; set; default = ""; }
         public string element { get; set; default = ""; }
@@ -118,12 +140,18 @@ namespace Lumoria.Models {
         public static InstallStep from_json (Json.Object obj) throws Error {
             var s = new InstallStep ();
             s.step_type = InstallStepKind.parse (json_string (obj, "type"));
+            if (s.step_type == InstallStepKind.SLEEP) {
+                var duration = json_int (obj, "duration_ms", -1);
+                s.require (duration >= 0 && duration <= int.MAX, "duration_ms between 0 and int.MAX");
+                s.duration_ms = (int) duration;
+            }
             s.description = json_string (obj, "description");
             s.command = json_string (obj, "command");
             s.mode = json_string (obj, "mode");
             s.src = json_string (obj, "src");
             s.dst = json_string (obj, "dst");
             s.working_dir = json_string (obj, "working_dir");
+            s.output = WineOutputMode.parse (json_string (obj, "output", "pipe"));
             s.content = json_string_or_array (obj, "content");
             s.root = json_string (obj, "root");
             s.element = json_string (obj, "element");

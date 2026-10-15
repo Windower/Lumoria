@@ -18,9 +18,9 @@ namespace Lumoria.Runtime {
     ) throws Error {
         Utils.check_cancelled (cancellable);
         var adapter = new Runtime.RunnerToolAdapter (spec, variant_id);
-        var ver = Models.ToolVersionRef.is_pinned (version)
-            ? new Models.ToolVersion (version)
-            : new Models.ToolVersion.latest ("");
+        var tag = Models.ToolVersionRef.is_pinned (version) ? version : adapter.resolve_latest_tag ();
+        if (tag == "") throw new LumoriaError.FAILED (_("No runner release is available for %s").printf (spec.id));
+        var ver = new Models.ToolVersion (tag);
 
         if (adapter.is_installed (ver)) {
             return runner_result (adapter, ver);
@@ -42,7 +42,7 @@ namespace Lumoria.Runtime {
 
     private DownloadResult runner_result (Runtime.RunnerToolAdapter adapter, Models.ToolVersion ver) throws Error {
         var result = new DownloadResult ();
-        result.version = ver.is_latest ? adapter.resolve_latest_tag () : ver.tag;
+        result.version = ver.tag;
         result.extracted_to = adapter.installed_path (ver);
         return result;
     }

@@ -145,14 +145,9 @@ namespace Lumoria.Application {
         private delegate void ShortcutsMutator (Utils.SteamVdf.Value shortcuts) throws Error;
 
         private void mutate_shortcuts (string path, owned ShortcutsMutator mutate) throws Error {
-            var lock_fd = Utils.acquire_exclusive_lock (path + ".lock", true);
-            try {
-                var root = load_shortcuts_file (path);
-                mutate (Utils.SteamVdf.shortcuts_object (root));
-                save_shortcuts_file (path, root);
-            } finally {
-                Posix.close (lock_fd);
-            }
+            var root = load_shortcuts_file (path);
+            mutate (Utils.SteamVdf.shortcuts_object (root));
+            save_shortcuts_file (path, root);
         }
 
         private Utils.SteamVdf.Value load_shortcuts_file (string path) throws Error {

@@ -8,6 +8,7 @@ namespace Lumoria.Runtime {
         private Cond cond;
         private bool completed = false;
         private bool terminating = false;
+        private bool termination_finished = false;
         private bool cancelled = false;
         private bool timed_out = false;
 
@@ -45,6 +46,36 @@ namespace Lumoria.Runtime {
             mutex.unlock ();
         }
 
+        public void mark_termination_finished () {
+            mutex.lock ();
+            termination_finished = true;
+            cond.broadcast ();
+            mutex.unlock ();
+        }
+
+        public int wait_for_file_command (int child_pid) throws Error {
+            mutex.lock ();
+            try {
+                while (true) {
+                    while (terminating && !termination_finished) cond.wait (mutex);
+                    int status;
+                    var waited = Posix.waitpid (child_pid, out status, Posix.WNOHANG);
+                    if (waited < 0 && Posix.errno == Posix.EINTR) continue;
+                    if (waited != 0) {
+                        completed = true;
+                        cond.broadcast ();
+                        if (waited < 0) {
+                            throw new IOError.FAILED ("Cannot wait for Wine command: %s", Posix.strerror (Posix.errno));
+                        }
+                        return Process.if_exited (status) ? Process.exit_status (status) : -1;
+                    }
+                    cond.wait_until (mutex, GLib.get_monotonic_time () + 50 * 1000);
+                }
+            } finally {
+                mutex.unlock ();
+            }
+        }
+
         public bool was_cancelled () {
             mutex.lock ();
             var value = cancelled;
@@ -77,9 +108,10 @@ namespace Lumoria.Runtime {
         string? working_dir,
         RuntimeLog logger,
         Cancellable? cancellable = null,
-        int timeout_ms = 0
+        int timeout_ms = 0,
+        Models.WineOutputMode output_mode = Models.WineOutputMode.PIPE
     ) throws Error {
-        run_wine_command_internal (paths, wine_args, wine_env, working_dir, logger, cancellable, timeout_ms, false);
+        run_wine_command_internal (paths, wine_args, wine_env, working_dir, logger, cancellable, timeout_ms, false, output_mode);
     }
 
     /* Like run_wine_command, but returns everything the command wrote to stdout. */
@@ -90,9 +122,10 @@ namespace Lumoria.Runtime {
         string? working_dir,
         RuntimeLog logger,
         Cancellable? cancellable = null,
-        int timeout_ms = 0
+        int timeout_ms = 0,
+        Models.WineOutputMode output_mode = Models.WineOutputMode.PIPE
     ) throws Error {
-        return run_wine_command_internal (paths, wine_args, wine_env, working_dir, logger, cancellable, timeout_ms, true);
+        return run_wine_command_internal (paths, wine_args, wine_env, working_dir, logger, cancellable, timeout_ms, true, output_mode);
     }
 
     private string run_wine_command_internal (
@@ -103,7 +136,8 @@ namespace Lumoria.Runtime {
         RuntimeLog logger,
         Cancellable? cancellable,
         int timeout_ms,
-        bool capture_stdout
+        bool capture_stdout,
+        Models.WineOutputMode output_mode
     ) throws Error {
         var wine_bin = paths.wine;
         var argv = new Gee.ArrayList<string> ();
@@ -128,19 +162,29 @@ namespace Lumoria.Runtime {
         };
 
         int child_pid;
-        int stdout_fd;
-        int stderr_fd;
-        Process.spawn_async_with_pipes (
-            working_dir,
-            Utils.strv (argv),
-            full_env,
-            CHILD_SPAWN_FLAGS,
-            null,
-            out child_pid,
-            null,
-            out stdout_fd,
-            out stderr_fd
-        );
+        int stdout_fd = -1;
+        int stderr_fd = -1;
+        WineFileOutput? file_output = null;
+        if (output_mode == Models.WineOutputMode.FILE) {
+            Utils.check_cancelled (cancellable);
+            file_output = new WineFileOutput ();
+            Process.spawn_async_with_fds (
+                working_dir, Utils.strv (argv), full_env, CHILD_SPAWN_FLAGS,
+                null, out child_pid, -1, file_output.stdout_fd, file_output.stderr_fd
+            );
+        } else {
+            Process.spawn_async_with_pipes (
+                working_dir,
+                Utils.strv (argv),
+                full_env,
+                CHILD_SPAWN_FLAGS,
+                null,
+                out child_pid,
+                null,
+                out stdout_fd,
+                out stderr_fd
+            );
+        }
 
         var stdout_output = new StringBuilder ();
         var stderr_output = new StringBuilder ();
@@ -152,6 +196,7 @@ namespace Lumoria.Runtime {
             cancel_handler = cancellable.connect (() => {
                 if (command_state.request_cancel ()) {
                     terminate_wine_command_tree (pid_copy);
+                    command_state.mark_termination_finished ();
                 }
             });
         }
@@ -161,27 +206,34 @@ namespace Lumoria.Runtime {
                 if (command_state.wait_until_timeout (timeout_ms)) {
                     logger.typed (LogType.WARN, "command timed out after %d seconds; terminating process tree".printf (timeout_ms / 1000));
                     terminate_wine_command_tree (pid_copy);
+                    command_state.mark_termination_finished ();
                 }
                 return true;
             });
         }
 
-        int exit_code = drain_spawned_process (
-            child_pid,
-            stdout_fd,
-            stderr_fd,
-            stdout_output,
-            stderr_output,
-            emit_fn,
-            capture_stdout || logger.is_disk_enabled () ? 0 : LOG_OUTPUT_TAIL_BYTES,
-            cancellable
-        );
-        command_state.mark_completed ();
-        if (timeout_thread != null) timeout_thread.join ();
-
-        if (cancellable != null && cancel_handler != 0) {
-            cancellable.disconnect (cancel_handler);
+        var retained_bytes = capture_stdout || logger.is_disk_enabled () ? 0 : LOG_OUTPUT_TAIL_BYTES;
+        int exit_code = -1;
+        try {
+            if (file_output != null) {
+                exit_code = command_state.wait_for_file_command (child_pid);
+                file_output.snapshot (logger);
+            } else {
+                exit_code = drain_spawned_process (
+                    child_pid, stdout_fd, stderr_fd, stdout_output, stderr_output,
+                    emit_fn, retained_bytes, cancellable
+                );
+            }
+        } finally {
+            command_state.mark_completed ();
+            if (timeout_thread != null) timeout_thread.join ();
+            if (cancellable != null && cancel_handler != 0) {
+                cancellable.disconnect (cancel_handler);
+            }
+            if (file_output != null) Process.close_pid (child_pid);
         }
+
+        if (file_output != null) file_output.collect (stdout_output, stderr_output, logger, retained_bytes);
 
         if (command_state.was_timed_out ()) {
             throw new IOError.TIMED_OUT ("Wine command timed out");
@@ -218,11 +270,12 @@ namespace Lumoria.Runtime {
         WineEnv wine_env,
         string? working_dir,
         RuntimeLog logger,
-        Cancellable? cancellable = null
+        Cancellable? cancellable = null,
+        Models.WineOutputMode output_mode = Models.WineOutputMode.PIPE
     ) throws Error {
         shutdown_wineserver (paths, wine_env, logger);
         Thread.usleep (750000);
-        run_wine_command (paths, wine_args, wine_env, working_dir, logger, cancellable);
+        run_wine_command (paths, wine_args, wine_env, working_dir, logger, cancellable, 0, output_mode);
     }
 
     public void run_wine_command_with_retry (
@@ -232,15 +285,16 @@ namespace Lumoria.Runtime {
         string? working_dir,
         RuntimeLog logger,
         Cancellable? cancellable = null,
-        string retry_message = "wine command failed; retrying once after wineserver shutdown"
+        string retry_message = "wine command failed; retrying once after wineserver shutdown",
+        Models.WineOutputMode output_mode = Models.WineOutputMode.PIPE
     ) throws Error {
         try {
-            run_wine_command (paths, wine_args, wine_env, working_dir, logger, cancellable);
+            run_wine_command (paths, wine_args, wine_env, working_dir, logger, cancellable, 0, output_mode);
         } catch (Error e) {
             if (!(e is IOError.FAILED)) throw e;
             logger.typed (LogType.WARN, retry_message);
             retry_wine_command_after_wineserver (
-                paths, wine_args, wine_env, working_dir, logger, cancellable
+                paths, wine_args, wine_env, working_dir, logger, cancellable, output_mode
             );
         }
     }

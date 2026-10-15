@@ -50,7 +50,7 @@ namespace Lumoria.Runtime {
         validate_wineexec_file_args (args, ctx.logger);
 
         try {
-            run_wine_command (ctx.paths, args, ctx.env, working, ctx.logger, ctx.cancellable);
+            run_wine_command (ctx.paths, args, ctx.env, working, ctx.logger, ctx.cancellable, 0, step.output);
         } catch (Error e) {
             if (e is IOError.CANCELLED) throw e;
             bool all_verified = verify_paths_with_logging (step.verify_paths, vars, ctx.logger);
@@ -58,7 +58,7 @@ namespace Lumoria.Runtime {
                 ctx.logger.typed (LogType.WARN, "msiexec failed; retrying once after wineserver shutdown");
                 try {
                     retry_wine_command_after_wineserver (
-                        ctx.paths, args, ctx.env, working, ctx.logger, ctx.cancellable
+                        ctx.paths, args, ctx.env, working, ctx.logger, ctx.cancellable, step.output
                     );
                     verify_paths_with_logging (step.verify_paths, vars, ctx.logger);
                     return;

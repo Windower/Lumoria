@@ -145,11 +145,11 @@ namespace Lumoria.Runtime {
         LaunchPolicy launch_policy,
         Models.PrefixRunnerState? runner_state
     ) throws Error {
-        if (launch_policy == LaunchPolicy.INTERACTIVE) {
-            return Utils.Preferences.resolve_version (runner_manifest.id, runner_version);
-        }
-
-        var requested = runner_version.strip ();
+        var interactive = launch_policy == LaunchPolicy.INTERACTIVE;
+        var requested = interactive
+            ? Utils.Preferences.resolve_version (runner_manifest.id, runner_version).strip ()
+            : runner_version.strip ();
+        if (interactive && Utils.Preferences.instance ().updates_runners) return requested;
         if (Models.ToolVersionRef.is_pinned (requested)) {
             return requested;
         }
@@ -158,9 +158,11 @@ namespace Lumoria.Runtime {
         if (runner_state != null
             && runner_state.runner_id == runner_manifest.id
             && (runner_state.variant_id == effective_variant.id || runner_state.variant_id == "")
-            && runner_state.resolved_version != "") {
+            && Models.ToolVersionRef.is_pinned (runner_state.resolved_version)) {
             return runner_state.resolved_version;
         }
+
+        if (interactive) return requested;
 
         throw new LumoriaError.FAILED (
             _("No installed runner version is stamped for %s. Open Lumoria once to prepare this prefix before launching from CLI.").printf (
@@ -182,9 +184,17 @@ namespace Lumoria.Runtime {
         var resolved_version = runtime.runner_version;
         var state = entry.runner_state;
         var changed = state == null
-            || !state.matches (runner_id, variant_id, resolved_version);
+            || state.runner_id != runner_id
+            || (state.variant_id != "" && state.variant_id != variant_id)
+            || state.resolved_version != resolved_version;
 
-        if (!changed) return;
+        if (!changed) {
+            if (state.variant_id == "" && launch_policy == LaunchPolicy.INTERACTIVE) {
+                state.variant_id = variant_id;
+                persist_prefix (entry);
+            }
+            return;
+        }
 
         if (launch_policy == LaunchPolicy.OFFLINE_FAST_START) {
             throw new LumoriaError.FAILED (
@@ -193,6 +203,12 @@ namespace Lumoria.Runtime {
                 )
             );
         }
+
+        logger.typed (LogType.DEBUG, "prefix runner: %s -> %s/%s/%s".printf (
+            state == null ? "unprepared" : "%s/%s/%s".printf (
+                state.runner_id, state.variant_id, state.resolved_version
+            ), runner_id, variant_id, resolved_version
+        ));
 
         if (cleanup_runner_support_files (entry, logger)) {
             persist_prefix (entry);

@@ -42,6 +42,7 @@
     <file>manifests/launchers/ashita-v4-beta.json</file>
     <file>manifests/redists/corefonts.json</file>
     <file>manifests/redists/gdiplus.json</file>
+    <file>manifests/redists/webview2.json</file>
     <file>manifests/redists/d3dcompiler_42.json</file>
     <file>manifests/redists/d3dcompiler_43.json</file>
     <file>manifests/redists/d3dcompiler_46.json</file>

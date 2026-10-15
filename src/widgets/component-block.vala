@@ -35,7 +35,7 @@ namespace Lumoria.Widgets {
             var default_label = Utils.Preferences.instance ().is_component_enabled (spec.id)
                 ? _("enabled") : _("disabled");
             enabled_row = PageChrome.build_toggle_override_combo (
-                _("Enabled"),
+                _("Use %s").printf (spec.display_label ()),
                 enabled,
                 default_label
             );

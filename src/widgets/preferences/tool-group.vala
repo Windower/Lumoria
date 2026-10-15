@@ -28,7 +28,7 @@ namespace Lumoria.Widgets.Preferences {
 
             if (tool.tool_kind == Utils.ToolKind.COMPONENT) {
                 enabled_row = new Adw.SwitchRow ();
-                enabled_row.title = _("Enabled");
+                enabled_row.title = _("Use %s").printf (tool.tool_name);
                 enabled_row.subtitle = _("Apply this component to prefixes during install and launch");
                 enabled_row.active = Utils.Preferences.instance ().is_component_enabled (tool.tool_id);
                 enabled_row.notify["active"].connect (on_enabled_toggled);
