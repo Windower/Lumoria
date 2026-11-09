@@ -102,7 +102,7 @@ namespace Lumoria.Runtime {
 
         return spawn_wrapped_process (
             host_exe, work_dir, argv, ctx.env, logger,
-            entry.id, ctx.paths.wineserver
+            entry.id
         );
     }
 
@@ -135,7 +135,7 @@ namespace Lumoria.Runtime {
 
         return spawn_wrapped_process (
             command_label, work_dir, argv, ctx.env, logger,
-            entry.id, ctx.paths.wineserver
+            entry.id
         );
     }
 
@@ -478,39 +478,23 @@ namespace Lumoria.Runtime {
         );
     }
 
-    private bool ensure_session_manager () {
-        if (Cli.session_ping ()) return true;
-
-        var socket_path = Cli.session_socket_path ();
-        try {
-            Utils.ensure_private_dir (Path.get_dirname (socket_path));
-        } catch (Error e) {
-            warning ("Failed to create session manager socket directory: %s", e.message);
-            return false;
-        }
-        FileUtils.unlink (socket_path);
-        try {
+    private void ensure_session_manager () throws Error {
+        string message;
+        var status = Cli.session_probe (out message);
+        if (status == Cli.SessionStatus.READY) return;
+        if (status == Cli.SessionStatus.ABSENT) {
             Pid session_pid;
-            Process.spawn_async (
-                null,
-                session_manager_spawn_argv (),
-                null,
-                SpawnFlags.SEARCH_PATH,
-                null,
-                out session_pid
-            );
-        } catch (Error e) {
-            warning ("Session manager self-spawn failed: %s", e.message);
-            return false;
+            Process.spawn_async (null, session_manager_spawn_argv (), null,
+                SpawnFlags.SEARCH_PATH, null, out session_pid);
         }
-
-        for (int i = 0; i < 10; i++) {
+        var deadline = GLib.get_monotonic_time () + 5 * TimeSpan.SECOND;
+        while (GLib.get_monotonic_time () < deadline) {
             Posix.usleep (100 * 1000);
-            if (Cli.session_ping ()) return true;
+            if (Cli.session_probe (out message) == Cli.SessionStatus.READY) return;
         }
-
-        warning ("Session manager did not respond after 1s");
-        return false;
+        throw new LumoriaError.FAILED (
+            _("Cannot connect to the session manager: %s. Existing sessions have been left running.").printf (message)
+        );
     }
 
     private string[] session_manager_spawn_argv () throws Error {
@@ -523,7 +507,6 @@ namespace Lumoria.Runtime {
 
     private int session_launch (
         string prefix_id,
-        string wineserver_path,
         string log_path,
         string[] env,
         string work_dir,
@@ -531,7 +514,6 @@ namespace Lumoria.Runtime {
     ) throws Error {
         var data = Cli.session_call ("launch", (obj) => {
             obj.set_string_member ("prefix_id", prefix_id);
-            obj.set_string_member ("wineserver", wineserver_path);
             obj.set_string_member ("log_path", log_path);
             obj.set_string_member ("cwd", work_dir);
             obj.set_array_member ("env", Models.strv_to_json_array (env));
@@ -554,19 +536,16 @@ namespace Lumoria.Runtime {
         Gee.ArrayList<string> argv,
         WineEnv env,
         RuntimeLog logger,
-        string prefix_id = "",
-        string wineserver_path = ""
+        string prefix_id = ""
     ) throws Error {
         var log_path = logger.log_path;
 
         logger.close ();
 
         if (Utils.Preferences.instance ().session_manager) {
-            if (!ensure_session_manager ()) {
-                throw new LumoriaError.FAILED (_("Session manager is enabled but could not be started."));
-            }
+            ensure_session_manager ();
             var pid = session_launch (
-                prefix_id, wineserver_path,
+                prefix_id,
                 log_path, wine_env_lines (env), work_dir,
                 Utils.strv (argv)
             );

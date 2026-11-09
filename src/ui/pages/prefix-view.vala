@@ -11,6 +11,7 @@ namespace Lumoria.Ui {
         private Gtk.Box runtime_host;
         private Gtk.Box scripts_host;
         private Gtk.Box advanced_host;
+        private Gtk.Box diagnostics_host;
         private bool remotes_refreshed = false;
 
         public PrefixView (Application.Context ctx, Models.PrefixEntry entry) {
@@ -33,6 +34,8 @@ namespace Lumoria.Ui {
             runtime_host = lazy_tab (stack, Widgets.PageChrome.PAGE_RUNTIME, _("Runtime"));
             scripts_host = lazy_tab (stack, Widgets.PageChrome.PAGE_SCRIPTS, _("Scripts"));
             advanced_host = lazy_scrolled_tab (stack, Widgets.PageChrome.PAGE_ADVANCED, _("Advanced"));
+
+            diagnostics_host = lazy_scrolled_tab (stack, Widgets.PageChrome.PAGE_DIAGNOSTICS, _("Diagnostics"));
 
             stack.notify["visible-child-name"].connect (() => realize_tab (stack.visible_child_name));
 
@@ -102,6 +105,8 @@ namespace Lumoria.Ui {
                 runtime_host.append (runtime_page);
             } else if (id == Widgets.PageChrome.PAGE_SCRIPTS && scripts_host.get_first_child () == null) {
                 scripts_host.append (new ScriptListEditor (ctx, entry.post_install_manifests, entry));
+            } else if (id == Widgets.PageChrome.PAGE_DIAGNOSTICS && diagnostics_host.get_first_child () == null) {
+                diagnostics_host.append (new PrefixDiagnosticsPage (ctx, entry));
             } else if (id == Widgets.PageChrome.PAGE_ADVANCED && advanced_host.get_first_child () == null) {
                 advanced_host.append (new PrefixAdvancedPage (ctx, entry));
             }

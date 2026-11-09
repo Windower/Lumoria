@@ -72,9 +72,16 @@ namespace Lumoria.Ui {
             return row;
         }
 
+        private const Utils.ManifestUpdateMode[] MANIFEST_MODES = {
+            Utils.ManifestUpdateMode.ASK,
+            Utils.ManifestUpdateMode.AUTOMATIC,
+            Utils.ManifestUpdateMode.SKIP,
+        };
+
         private Application.Context ctx;
         private Utils.Preferences prefs;
         private Widgets.OptionListRow startup_row;
+        private Widgets.OptionListRow manifest_mode_row;
         private Adw.ActionRow ql_row;
         private Widgets.ShortcutToggles ql_toggles;
         private Adw.ActionRow steam_row;
@@ -131,6 +138,19 @@ namespace Lumoria.Ui {
                 () => !ctx.manifest_updates.busy && !ctx.busy,
                 (report) => ctx.manifest_updates.check_async (true, (owned) report)
             );
+            manifest_mode_row = new Widgets.OptionListRow ();
+            manifest_mode_row.title = _("When Manifest Updates Are Found");
+            var modes = new Gtk.StringList (null);
+            foreach (var mode in MANIFEST_MODES) modes.append (mode.label ());
+            manifest_mode_row.model = modes;
+            sync_manifest_mode_row ();
+            manifest_mode_row.notify["selected"].connect (() => {
+                prefs.set_manifest_update_mode (MANIFEST_MODES[manifest_mode_row.selected]);
+            });
+            prefs.notify["updates-manifests-ask"].connect (sync_manifest_mode_row);
+            prefs.notify["updates-manifests-auto"].connect (sync_manifest_mode_row);
+            prefs.bind_property ("updates-lumoria", manifest_mode_row, "sensitive", BindingFlags.SYNC_CREATE);
+            updates.add (manifest_mode_row);
             add_update_check (
                 updates,
                 _("Required Resources"),
@@ -210,6 +230,15 @@ namespace Lumoria.Ui {
         private void sync_startup_row () {
             var idx = Widgets.StartupViewControl.index_of (prefs.startup_view);
             if (startup_row.selected != idx) startup_row.selected = idx;
+        }
+
+        private void sync_manifest_mode_row () {
+            var mode = prefs.manifest_update_mode ();
+            for (uint i = 0; i < MANIFEST_MODES.length; i++) {
+                if (MANIFEST_MODES[i] != mode) continue;
+                if (manifest_mode_row.selected != i) manifest_mode_row.selected = i;
+                return;
+            }
         }
 
         private void toggle_quick_launch_menu () {

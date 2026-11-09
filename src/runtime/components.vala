@@ -531,6 +531,36 @@ namespace Lumoria.Runtime {
         );
     }
 
+    public void refresh_component_backups (Models.PrefixEntry entry, WineRuntime runtime, RuntimeLog logger) {
+        var repo = Models.ManifestRepository.shared ();
+        foreach (var applied in entry.applied_components.entries) {
+            var spec = Models.find_by_id<Models.ComponentManifest> (repo.all_components, applied.key);
+            if (spec == null) continue;
+            var vars = build_component_vars (runtime.prefix_path, spec, entry, runtime.wine_arch);
+            if (vars == null) continue;
+
+            foreach (var step in spec.steps) {
+                if (step.step_type != Models.InstallStepKind.RENAME) continue;
+                if (step.when != null && !step.when.evaluate (vars)) continue;
+                var backup = Utils.expand_vars (step.dst, vars);
+                if (!FileUtils.test (backup, FileTest.EXISTS)) continue;
+                var original = Utils.expand_vars (step.src, vars);
+                var builtin = runner_builtin_for_dst (runtime.paths, original, runtime.wine_arch);
+                if (builtin == "" || Utils.files_have_same_contents (backup, builtin)) continue;
+                try {
+                    Utils.copy_path (builtin, backup);
+                    logger.typed (LogType.COMPONENT, "%s: refreshed %s from runner".printf (
+                        spec.id, Path.get_basename (backup)
+                    ));
+                } catch (Error e) {
+                    logger.typed (LogType.COMPONENT, "%s: failed to refresh %s: %s".printf (
+                        spec.id, Path.get_basename (backup), e.message
+                    ));
+                }
+            }
+        }
+    }
+
     private void repair_component_backup_if_needed (
         ComponentApplyContext ctx,
         Models.ComponentManifest spec,

@@ -5,6 +5,20 @@ namespace Lumoria.Utils {
         COMPONENT
     }
 
+    public enum ManifestUpdateMode {
+        ASK,
+        AUTOMATIC,
+        SKIP;
+
+        public unowned string label () {
+            switch (this) {
+                case AUTOMATIC: return _("Install automatically");
+                case SKIP: return _("Skip until checked manually");
+                default: return _("Ask me");
+            }
+        }
+    }
+
     public enum WineSyncMode {
         NTSYNC,
         FSYNC,
@@ -220,11 +234,22 @@ namespace Lumoria.Utils {
             if (_batch_count == 0 && _dirty) save (true);
         }
 
+        public ManifestUpdateMode manifest_update_mode () {
+            if (updates_manifests_ask) return ManifestUpdateMode.ASK;
+            return updates_manifests_auto ? ManifestUpdateMode.AUTOMATIC : ManifestUpdateMode.SKIP;
+        }
+
+        public void set_manifest_update_mode (ManifestUpdateMode mode) {
+            begin_batch ();
+            updates_manifests_ask = mode == ManifestUpdateMode.ASK;
+            updates_manifests_auto = mode == ManifestUpdateMode.AUTOMATIC;
+            end_batch ();
+        }
+
         public void remember_manifest_consent (bool update, bool dont_ask, string revision) {
             begin_batch ();
             if (dont_ask) {
-                updates_manifests_ask = false;
-                updates_manifests_auto = update;
+                set_manifest_update_mode (update ? ManifestUpdateMode.AUTOMATIC : ManifestUpdateMode.SKIP);
             }
             updates_skipped_revision = update ? "" : revision;
             end_batch ();

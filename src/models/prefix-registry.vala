@@ -53,10 +53,8 @@ namespace Lumoria.Models {
             prefixes.remove_at (index);
         }
 
-        /* dirty is set when unreadable entries were dropped and the pruned registry should be re-saved. */
-        public static PrefixRegistry load (string path, out bool dirty) {
+        public static PrefixRegistry load (string path) {
             var reg = new PrefixRegistry ();
-            dirty = false;
             string json;
             Json.Object root;
             try {
@@ -87,7 +85,6 @@ namespace Lumoria.Models {
                 }
             }
             Utils.preserve_broken_copy (path);
-            dirty = true;
             reg.load_error = ngettext (
                 "Skipped %d unreadable prefix entry; a copy of the old registry was kept.",
                 "Skipped %d unreadable prefix entries; a copy of the old registry was kept.",

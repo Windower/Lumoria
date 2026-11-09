@@ -76,6 +76,7 @@ lumoria_sources = files(
   'ui/pages/prefix-runtime-page.vala',
   'ui/pages/prefix-packages-page.vala',
   'ui/pages/prefix-advanced-page.vala',
+  'ui/pages/prefix-diagnostics-page.vala',
   'ui/pages/manage-runners-page.vala',
   'ui/pages/preferences-page.vala',
 
@@ -83,6 +84,7 @@ lumoria_sources = files(
   'utils/portal-path.vala',
   'utils/expand-vars.vala',
   'utils/environment.vala',
+  'utils/diagnostics.vala',
   'utils/filesystem.vala',
   'utils/web.vala',
   'utils/remote-manifest-cache.vala',
@@ -204,7 +206,7 @@ lumoria_deps = [
 
 cc = meson.get_compiler('c')
 mspack_c_dep = cc.find_library('mspack')
-mspack_shim = files('native/mspack-shim.c')
+native_shims = files('native/mspack-shim.c', 'native/session-peer.c')
 
 cargo = find_program('cargo')
 find_program('rustc')
@@ -256,9 +258,9 @@ lumoria_vala_args = [
 
 executable(
   'lumoria',
-  lumoria_sources, mspack_shim,
+  lumoria_sources, native_shims,
   vala_args: lumoria_vala_args,
-  include_directories: [config_inc, native_inc],
+  include_directories: [config_inc, native_inc, include_directories('native')],
   dependencies: [lumoria_deps, mspack_c_dep, native_dep],
   install: true,
 )

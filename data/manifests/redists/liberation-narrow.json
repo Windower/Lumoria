@@ -1,0 +1,34 @@
+{
+  "$schema": "https://manifests.lumoria.dev/1/schemas/redist.json",
+  "id": "liberation-narrow",
+  "name": "Liberation Sans Narrow",
+  "downloads": [
+    {
+      "id": "liberation_narrow_archive",
+      "url": "https://github.com/liberationfonts/liberation-sans-narrow/files/2579431/liberation-narrow-fonts-ttf-1.07.6.tar.gz",
+      "dest": "${var.CACHE_REDIST}/liberation-narrow/liberation-narrow-fonts-ttf-1.07.6.tar.gz",
+      "sha256": "8879d89b5ff7b506c9fc28efc31a5c0b954bbe9333e66e5283d27d20a8519ea3"
+    }
+  ],
+  "steps": [
+    {
+      "type": "fonts",
+      "description": "Install Liberation Sans Narrow fonts",
+      "dst": "${var.FONTS}",
+      "args": [
+        "${var.CACHE_REDIST}/liberation-narrow/liberation-narrow-fonts-ttf-1.07.6.tar.gz"
+      ],
+      "font_registrations": [
+        "liberationsansnarrow-bold.ttf|Liberation Sans Narrow Bold",
+        "liberationsansnarrow-bolditalic.ttf|Liberation Sans Narrow Bold Italic",
+        "liberationsansnarrow-italic.ttf|Liberation Sans Narrow Italic",
+        "liberationsansnarrow-regular.ttf|Liberation Sans Narrow"
+      ],
+      "when": {
+        "not": {
+          "file_exists": "${var.FONTS}/liberationsansnarrow-regular.ttf"
+        }
+      }
+    }
+  ]
+}

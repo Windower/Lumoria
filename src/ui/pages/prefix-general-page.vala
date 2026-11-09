@@ -75,6 +75,9 @@ namespace Lumoria.Ui {
                 var folder = Widgets.PageChrome.action_row (_("Open Prefix Folder"), _("Open"));
                 folder.button.clicked.connect (open_prefix_folder);
                 tools.add (folder);
+                var logs = Widgets.PageChrome.action_row (_("Open Logs Folder"), _("Open"));
+                logs.button.clicked.connect (() => ctx.open_log_dir (Utils.prefix_log_dir (entry.resolved_path ())));
+                tools.add (logs);
             }
             var wine_tools = Widgets.PageChrome.action_row (
                 _("Wine Tools"),

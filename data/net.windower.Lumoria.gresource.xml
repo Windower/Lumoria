@@ -72,6 +72,7 @@
     <file>manifests/redists/meiryo.json</file>
     <file>manifests/redists/pptfonts.json</file>
     <file>manifests/redists/liberation.json</file>
+    <file>manifests/redists/liberation-narrow.json</file>
     <file>manifests/redists/notosans.json</file>
     <file>manifests/redists/segoeui-noto.json</file>
     <file>manifests/redists/sourcehansans.json</file>

@@ -27,6 +27,7 @@ namespace Lumoria.Widgets {
         public const string PAGE_RUNTIME = "runtime";
         public const string PAGE_SHORTCUTS = "shortcuts";
         public const string PAGE_PACKAGES = "packages";
+        public const string PAGE_DIAGNOSTICS = "diagnostics";
         public const string PAGE_ADVANCED = "advanced";
         public const string PAGE_SCRIPTS = "scripts";
 

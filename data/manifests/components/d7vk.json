@@ -18,7 +18,7 @@
   "checksum_regex": "",
   "default_version": "latest",
   "skip_versions": [
-    "v1.12"
+    "v1.12", "v2.4"
   ],
   "system_env_defaults": {},
   "overrides": {

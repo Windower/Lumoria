@@ -9,7 +9,7 @@ namespace Lumoria.Cli {
     private const int MAX_WRAP_POLL_MS = 5000;
     private const int WRAP_CLEANUP_TERM_WAIT_MS = 1000;
     private const int WRAP_CLEANUP_KILL_WAIT_MS = 1000;
-    private const int WRAP_REAP_WAIT_MS = 1000;
+    private const int WRAP_LOG_RELAY_IDLE_MS = 50;
     private const int WRAP_LOG_RELAY_JOIN_WAIT_MS = 1000;
     private const int WRAP_INHIBIT_RESOLVE_WAIT_MS = 2000;
     private const int WRAP_FERAL_GAME_MODE_WAIT_MS = 2000;
@@ -18,6 +18,7 @@ namespace Lumoria.Cli {
     private int wrap_signal_number = 0;
     private Thread<void>? log_relay_thread = null;
     private bool log_relay_done = false;
+    private bool log_relay_closing = false;
 
     private class WrapProcessIntegrations : Object {
         private Utils.FeralGameModePortal? feral_game_mode = null;
@@ -106,6 +107,7 @@ namespace Lumoria.Cli {
         }
         cmd[args.length - cmd_start] = null;
 
+        install_wrap_signal_handlers ();
         var child_pid = Posix.fork ();
         if (child_pid < 0) {
             wrap_log ("fork failed: %s".printf (Posix.strerror (Posix.errno)));
@@ -113,6 +115,7 @@ namespace Lumoria.Cli {
         }
 
         if (child_pid == 0) {
+            restore_default_wrap_signal_handlers ();
             apply_child_env (env_fd);
             if (child_pwd != "") {
                 Environment.set_variable ("PWD", child_pwd, true);
@@ -215,6 +218,7 @@ namespace Lumoria.Cli {
     private void finish_log_relay () {
         if (log_relay_thread == null) return;
 
+        log_relay_closing = true;
         var deadline = GLib.get_monotonic_time () + (int64) WRAP_LOG_RELAY_JOIN_WAIT_MS * 1000;
         while (!log_relay_done && GLib.get_monotonic_time () < deadline) {
             Thread.usleep (100000);
@@ -242,8 +246,16 @@ namespace Lumoria.Cli {
 
     private void relay_pipe_to_fd (int read_fd, int write_fd) {
         var buf = new uint8[65536];
-        ssize_t n;
-        while ((n = Posix.read (read_fd, buf, buf.length)) > 0) {
+        Posix.pollfd[] fds = { Posix.pollfd () { fd = read_fd, events = Posix.POLLIN } };
+        while (true) {
+            var ready = Posix.poll (fds, WRAP_LOG_RELAY_IDLE_MS);
+            if (ready < 0 && Posix.errno == Posix.EINTR) continue;
+            if (ready == 0) {
+                if (log_relay_closing) break;
+                continue;
+            }
+            var n = Posix.read (read_fd, buf, buf.length);
+            if (n <= 0) break;
             ssize_t offset = 0;
             while (offset < n) {
                 var w = Posix.write (write_fd, (uint8[]) buf[offset:n], (size_t) (n - offset));
@@ -267,8 +279,6 @@ namespace Lumoria.Cli {
         bool no_more_children = false;
         bool soft_signal_processed = false;
         bool hard_signal_processed = false;
-
-        install_wrap_signal_handlers ();
 
         try {
             process_integrations.poll ();
@@ -353,28 +363,12 @@ namespace Lumoria.Cli {
         Utils.ProcessTree.terminate_descendants (
             (int) Posix.getpid (), WRAP_CLEANUP_TERM_WAIT_MS, WRAP_CLEANUP_KILL_WAIT_MS, 3
         );
-        drain_remaining_children ();
+        reap_remaining_children ();
     }
 
-    private bool reap_remaining_children () {
-        bool reaped = false;
-        while (true) {
-            int status;
-            var pid = Posix.waitpid (-1, out status, Posix.WNOHANG);
-            if (pid > 0) {
-                reaped = true;
-                continue;
-            }
-            return reaped || (pid < 0 && Posix.errno == Posix.ECHILD);
-        }
-    }
-
-    private void drain_remaining_children () {
-        var deadline = GLib.get_monotonic_time () + (int64) WRAP_REAP_WAIT_MS * 1000;
-        while (GLib.get_monotonic_time () < deadline) {
-            if (reap_remaining_children ()) return;
-            Thread.usleep (100000);
-        }
+    private void reap_remaining_children () {
+        int status;
+        while (Posix.waitpid (-1, out status, Posix.WNOHANG) > 0) {}
     }
 
     private void install_wrap_signal_handlers () {

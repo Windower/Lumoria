@@ -97,8 +97,11 @@ namespace Lumoria.Widgets.Dialogs {
             refresh_btn.sensitive = false;
             stop_all_btn.sensitive = false;
 
-            service.ping_async ((running) => {
-                if (!running) {
+            service.ping_async ((status, message) => {
+                if (status != Cli.SessionStatus.READY) {
+                    not_running_page.title = status == Cli.SessionStatus.ABSENT
+                        ? _("Session Manager Not Running") : _("Session Manager Unavailable");
+                    not_running_page.description = status == Cli.SessionStatus.ABSENT ? "" : message;
                     show_state ("not_running");
                     refresh_pending = false;
                     refresh_btn.sensitive = true;
@@ -111,10 +114,11 @@ namespace Lumoria.Widgets.Dialogs {
                         rebuild_launch_list (launches);
                         refresh_pending = false;
                         refresh_btn.sensitive = true;
-                        stop_all_btn.sensitive = launches.size > 0;
+                        stop_all_btn.sensitive = launches.any_match ((info) => !info.stopping);
                     },
                     (error) => {
-                        push_toast (_("Failed to list launches: %s").printf (error));
+                        not_running_page.title = _("Session Manager Unavailable");
+                        not_running_page.description = error;
                         show_state ("not_running");
                         refresh_pending = false;
                         refresh_btn.sensitive = true;
@@ -153,19 +157,27 @@ namespace Lumoria.Widgets.Dialogs {
             var row = new LaunchRow (info, prefix_display_name (info.prefix_id));
             row.logs_requested.connect (open_launch_logs);
             row.stop_requested.connect (confirm_stop_launch);
+            row.force_requested.connect (confirm_force_launch);
             return row;
         }
 
         private class LaunchRow : Adw.ActionRow {
             public signal void logs_requested (Cli.SessionLaunchInfo info);
             public signal void stop_requested (Cli.SessionLaunchInfo info);
+            public signal void force_requested (Cli.SessionLaunchInfo info);
 
             private Cli.SessionLaunchInfo info;
 
             public LaunchRow (Cli.SessionLaunchInfo info, string prefix_name) {
                 this.info = info;
-                title = info.label != "" ? info.label : _("Unknown");
-                subtitle = _("%s · PID %d").printf (prefix_name, info.pid);
+                if (info.stopping && info.processes.length == 0) {
+                    title = _("Stopping…");
+                } else {
+                    title = info.label != "" ? info.label : _("Unknown");
+                }
+                subtitle = info.stopping
+                    ? _("%s · PID %d · Stopping…").printf (prefix_name, info.pid)
+                    : _("%s · PID %d").printf (prefix_name, info.pid);
 
                 if (!Utils.EnvironmentInfo.is_gamescope () && info.log_path != "") {
                     var logs_btn = PageChrome.icon_button (IconRegistry.OPEN_FOLDER, _("Open Logs"));
@@ -173,9 +185,17 @@ namespace Lumoria.Widgets.Dialogs {
                     add_suffix (logs_btn);
                 }
 
-                var stop_btn = PageChrome.icon_button (IconRegistry.STOP, _("Stop"));
-                stop_btn.clicked.connect (() => stop_requested (this.info));
-                add_suffix (stop_btn);
+                if (info.stopping) {
+                    var force_btn = new Gtk.Button.with_label (_("Force Stop"));
+                    force_btn.valign = Gtk.Align.CENTER;
+                    force_btn.add_css_class ("destructive-action");
+                    force_btn.clicked.connect (() => force_requested (this.info));
+                    add_suffix (force_btn);
+                } else {
+                    var stop_btn = PageChrome.icon_button (IconRegistry.STOP, _("Stop"));
+                    stop_btn.clicked.connect (() => stop_requested (this.info));
+                    add_suffix (stop_btn);
+                }
             }
         }
 
@@ -227,11 +247,32 @@ namespace Lumoria.Widgets.Dialogs {
                     service.stop_pid_async (
                         info.pid,
                         () => {
-                            push_toast (_("Launch stopped."));
+                            push_toast (_("Stopping launch…"));
                             refresh_launches ();
                         },
                         (error) => {
                             push_toast (_("Stop failed: %s").printf (error));
+                            refresh_launches ();
+                        }
+                    );
+                }
+            );
+        }
+
+        private void confirm_force_launch (Cli.SessionLaunchInfo info) {
+            var target = info.label != "" ? info.label : _("this process");
+            DialogHelpers.present_destructive_confirmation (
+                this,
+                _("Force Stop Process?"),
+                _("Force stop %s? Unsaved data may be lost.").printf (target),
+                "force",
+                _("Force Stop"),
+                () => {
+                    service.force_pid_async (
+                        info.pid,
+                        () => refresh_launches (),
+                        (error) => {
+                            push_toast (_("Force stop failed: %s").printf (error));
                             refresh_launches ();
                         }
                     );
@@ -251,7 +292,7 @@ namespace Lumoria.Widgets.Dialogs {
                     stop_all_btn.sensitive = false;
                     service.stop_all_async (
                         () => {
-                            push_toast (_("All processes stopped."));
+                            push_toast (_("Stopping all processes."));
                             refresh_launches ();
                         },
                         (error) => {
