@@ -6,6 +6,7 @@ namespace Lumoria.Utils {
         private const string[] SYSTEM_PROCESSES = {
             "wineserver",
             "services.exe",
+            "lsass.exe",
             "winedevice.exe",
             "plugplay.exe",
             "explorer.exe",

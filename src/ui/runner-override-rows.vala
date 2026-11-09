@@ -11,7 +11,8 @@ namespace Lumoria.Ui {
         private Adw.ActionRow? runner_label;
         private Adw.ActionRow? variant_label;
         private Adw.ActionRow version_row;
-        private Gtk.Box runner_about;
+        private Widgets.PageSection runner_group;
+        private Adw.PreferencesRow? runner_links;
         private Gtk.Widget latest_warning;
         private string runner_version = Models.ToolVersionRef.INHERIT.id ();
         private string bound_runner_id = "";
@@ -65,6 +66,7 @@ namespace Lumoria.Ui {
 
         private void build_ui () {
             var group = new Widgets.PageSection (_("Runner"));
+            runner_group = group;
             if (lock_identity) {
                 runner_label = new Adw.ActionRow ();
                 runner_label.title = _("Runner");
@@ -106,9 +108,6 @@ namespace Lumoria.Ui {
             version_row.activated.connect (open_version_picker);
             group.add (version_row);
             append (group);
-
-            runner_about = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
-            append (runner_about);
 
             latest_warning = Widgets.Messages.warning (
                 _("Latest keeps this prefix on the newest runner automatically. Updates may change compatibility or behavior without notice.")
@@ -172,11 +171,21 @@ namespace Lumoria.Ui {
         }
 
         private void update_runner_about () {
-            if (runner_about == null) return;
-            Widgets.ManifestUi.populate_about (
-                runner_about,
-                Models.find_by_id<Models.RunnerManifest> (ctx.runner_manifests, effective_runner_id ())
-            );
+            if (runner_links != null) {
+                runner_group.remove_row (runner_links);
+                runner_links = null;
+            }
+            var runner = Models.find_by_id<Models.RunnerManifest> (ctx.runner_manifests, effective_runner_id ());
+            if (runner == null) return;
+            var description = Widgets.ManifestUi.prose_markdown (runner);
+            if (runner_label != null) {
+                runner_label.subtitle = runner.display_label ()
+                    + (description != "" ? "\n" + description : "");
+            } else if (runner_combo != null) {
+                runner_combo.tooltip_text = description;
+            }
+            runner_links = Widgets.Messages.footer_row (runner, null);
+            if (runner_links != null) runner_group.add (runner_links);
         }
 
         private void open_version_picker () {

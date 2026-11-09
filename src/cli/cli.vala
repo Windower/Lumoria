@@ -12,7 +12,8 @@ namespace Lumoria.Cli {
         stdout.printf ("                             %s\n", _("Run a prefix action"));
         stdout.printf ("  remove <prefix-id> [--delete-files]\n");
         stdout.printf ("                             %s\n", _("Remove a prefix from the list"));
-        stdout.printf ("  stop [<prefix-id>|--pid N]  %s\n", _("Stop a running prefix or wrap process"));
+        stdout.printf ("  stop [--force] [<prefix-id>|--pid N]\n");
+        stdout.printf ("                             %s\n", _("Stop a running prefix or wrap process"));
         stdout.printf ("  update-manifests            %s\n", _("Fetch and apply Lumoria manifest updates"));
     }
 
@@ -275,8 +276,11 @@ namespace Lumoria.Cli {
         string prefix_id = "";
         int pid = 0;
         bool pid_set = false;
+        bool force = false;
         for (int i = 2; i < args.length; i++) {
-            if (args[i] == "--pid" && i + 1 < args.length) {
+            if (args[i] == "--force") {
+                force = true;
+            } else if (args[i] == "--pid" && i + 1 < args.length) {
                 int64 parsed;
                 if (!int64.try_parse (args[i + 1], out parsed) || parsed <= 0 || parsed > int.MAX) {
                     stderr.printf ("%s\n", _("Invalid pid: %s").printf (args[i + 1]));
@@ -288,13 +292,15 @@ namespace Lumoria.Cli {
             } else if (!args[i].has_prefix ("-") && prefix_id == "") {
                 prefix_id = args[i];
             } else {
-                stderr.printf (_("Usage: lumoria stop [<prefix-id>|--pid N]\n"));
+                stderr.printf (_("Usage: lumoria stop [--force] [<prefix-id>|--pid N]\n"));
                 return 1;
             }
         }
         try {
             if (pid_set) {
                 session_stop_pid (pid);
+                if (force) session_force_pid (pid);
+                session_wait_stopped ((info) => info.pid == pid);
                 return 0;
             }
             if (prefix_id != "") {
@@ -305,6 +311,8 @@ namespace Lumoria.Cli {
                 }
                 if (Utils.Preferences.instance ().session_manager) {
                     session_stop_prefix (prefix_id);
+                    if (force) session_force_prefix (prefix_id);
+                    session_wait_stopped ((info) => info.prefix_id == prefix_id);
                 } else {
                     Runtime.try_stop_prefix_wineserver (entry, ctx.runner_manifests);
                 }
@@ -312,6 +320,8 @@ namespace Lumoria.Cli {
             }
             if (Utils.Preferences.instance ().session_manager) {
                 session_stop_all ();
+                if (force) session_force_all ();
+                session_wait_stopped ((info) => true);
                 return 0;
             }
             stderr.printf ("%s\n", _("Specify a prefix id or --pid when Session Manager is off."));

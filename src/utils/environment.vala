@@ -48,8 +48,12 @@ namespace Lumoria.Utils {
         }
 
         public static string host_etc_path (string name) {
-            var host = Path.build_filename ("/run/host/etc", name);
-            if (is_flatpak () && FileUtils.test (host, FileTest.EXISTS)) return host;
+            if (is_flatpak ()) {
+                foreach (var dir in new string[] { "/run/host/etc", "/run/host" }) {
+                    var host = Path.build_filename (dir, name);
+                    if (FileUtils.test (host, FileTest.EXISTS)) return host;
+                }
+            }
             return Path.build_filename ("/etc", name);
         }
     }

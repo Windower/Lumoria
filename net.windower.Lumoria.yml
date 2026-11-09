@@ -1,8 +1,8 @@
 app-id: net.windower.Lumoria
 runtime: org.gnome.Platform
-runtime-version: '50'
+runtime-version: '51'
 base: org.winehq.Wine
-base-version: stable-25.08
+base-version: stable-26.08
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.vala
@@ -24,9 +24,23 @@ finish-args:
   - --share=network
   - --share=ipc
 
+add-extensions:
+  org.freedesktop.Platform.Compat.i386:
+    directory: lib/i386-linux-gnu
+    version: '26.08'
+  org.freedesktop.Platform.GL32:
+    directory: lib/i386-linux-gnu/GL
+    version: '1.4'
+    versions: 26.08;26.08-extra;1.4
+    subdirectories: true
+    no-autodownload: true
+    add-ld-path: lib
+    download-if: active-gl-driver
+    enable-if: active-gl-driver
+    autoprune-unless: active-gl-driver
+    merge-dirs: vulkan/icd.d;glvnd/egl_vendor.d;egl/egl_external_platform.d;OpenCL/vendors;lib/dri;lib/d3d;lib/gbm;vulkan/explicit_layer.d;vulkan/implicit_layer.d;vdpau
+
 inherit-extensions:
-  - org.freedesktop.Platform.Compat.i386
-  - org.freedesktop.Platform.GL32
   - org.winehq.Wine.gecko
   - org.winehq.Wine.mono
 
@@ -53,8 +67,8 @@ modules:
     sources:
       - type: git
         url: https://github.com/fastfloat/fast_float.git
-        tag: v8.2.5
-        commit: 05087a303dad9c98768b33c829d398223a649bc6
+        tag: v8.3.3
+        commit: dbeabeeb3e6791cb96994c2a7a084c36e62ccfb2
 
   - name: simdutf
     buildsystem: cmake-ninja
@@ -64,8 +78,8 @@ modules:
     sources:
       - type: git
         url: https://github.com/simdutf/simdutf.git
-        tag: v9.0.0
-        commit: ca7acbcea967b5dcbab490066e99e3a6e6925539
+        tag: v9.3.3
+        commit: 59589cd3df6823cbfdbd253cde3377e7c3e1fe9b
 
   - name: vte
     buildsystem: meson
@@ -82,8 +96,8 @@ modules:
     sources:
       - type: git
         url: https://gitlab.gnome.org/GNOME/vte.git
-        tag: 0.84.0
-        commit: 5da1ed34b210f2b000ef954c147f9a1391da363b
+        tag: 0.84.1
+        commit: f2223e45d7f04c5383c59e76772501f0ed4215bc
 
   - name: libmspack
     buildsystem: autotools
@@ -105,8 +119,8 @@ modules:
     sources:
       - type: git
         url: https://github.com/flatpak/libportal.git
-        tag: 0.9.1
-        commit: 8f5dc8d192f6e31dafe69e35219e3b707bde71ce
+        tag: 0.11.0
+        commit: fc4d62cfe131e8494c82f597f92b2234d584c367
 
   - name: libgit2
     buildsystem: cmake-ninja
@@ -119,8 +133,8 @@ modules:
     sources:
       - type: git
         url: https://github.com/libgit2/libgit2.git
-        tag: v1.9.2
-        commit: ca225744b992bf2bf24e9a2eb357ddef78179667
+        tag: v1.9.7
+        commit: 49e408b3208bc3093757a1c2db938d3590f3f412
 
   - name: libgit2-glib
     buildsystem: meson
@@ -134,6 +148,11 @@ modules:
         tag: 1.2.1
         commit: 4684169522f31796e1d1daedd90aae35e89c4d86
 
+  - name: compat-mountpoints
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/lib/i386-linux-gnu/GL
+
   - name: lumoria
     builddir: true
     buildsystem: meson
@@ -145,8 +164,7 @@ modules:
       - cargo-sources.json
       - type: git
         url: https://github.com/Windower/Lumoria.git
-        tag: v0.1.26
-        commit: 6dbe25744ce725de4fa3697ee7f01daeb940e83b
+        tag: v0.2.2
         x-checker-data:
           type: git
           tag-pattern: ^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.\-]+)?)$

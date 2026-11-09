@@ -50,6 +50,7 @@ namespace Lumoria.Models {
         public string wine_arch { get; set; default = ""; }
         public string wine_debug { get; set; default = ""; }
         public bool? wine_wayland = null;
+        public bool use_runner_libxkbcommon = false;
         public string wayland_primary_monitor { get; set; default = ""; }
         public bool? large_address_aware = null;
         public string sync_mode { get; set; default = ""; }
@@ -306,6 +307,7 @@ namespace Lumoria.Models {
             if (variant_id != "") obj.set_string_member ("variant_id", variant_id);
             if (wine_arch != "") obj.set_string_member ("wine_arch", wine_arch);
             if (wine_debug != "") obj.set_string_member ("wine_debug", wine_debug);
+            if (use_runner_libxkbcommon) obj.set_boolean_member ("use_runner_libxkbcommon", true);
             if (wine_wayland != null) obj.set_boolean_member ("wine_wayland", (bool) wine_wayland);
             if (wayland_primary_monitor != "") obj.set_string_member ("wayland_primary_monitor", wayland_primary_monitor);
             if (large_address_aware != null) obj.set_boolean_member (InstallerPatch.SETTING_LARGE_ADDRESS_AWARE, (bool) large_address_aware);
@@ -405,6 +407,7 @@ namespace Lumoria.Models {
             e.wine_arch = wine_arch;
             e.wine_debug = wine_debug;
             e.wine_wayland = wine_wayland;
+            e.use_runner_libxkbcommon = use_runner_libxkbcommon;
             e.wayland_primary_monitor = wayland_primary_monitor;
             e.large_address_aware = large_address_aware;
             e.sync_mode = sync_mode;
@@ -536,6 +539,7 @@ namespace Lumoria.Models {
             e.wine_arch = json_string (obj, "wine_arch");
             e.wine_debug = json_string (obj, "wine_debug");
             e.wine_wayland = json_bool_nullable (obj, "wine_wayland");
+            e.use_runner_libxkbcommon = json_bool (obj, "use_runner_libxkbcommon", false);
             e.wayland_primary_monitor = json_string (obj, "wayland_primary_monitor");
             e.large_address_aware = json_bool_nullable (obj, InstallerPatch.SETTING_LARGE_ADDRESS_AWARE);
             e.sync_mode = json_string (obj, "sync_mode");

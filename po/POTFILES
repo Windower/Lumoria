@@ -100,3 +100,4 @@ src/widgets/preferences/tool-group.vala
 src/widgets/preferences/version-row.vala
 src/widgets/script-overview.vala
 src/widgets/startup-view-control.vala
+src/ui/pages/prefix-diagnostics-page.vala

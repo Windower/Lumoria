@@ -313,6 +313,52 @@ namespace Lumoria.Runtime {
             return spec.skips_version (tag);
         }
 
+        public string latest_installed_tag () {
+            string latest = "";
+            string published = "";
+            var cache = releases_cache_dir ();
+            Dir dir;
+            try {
+                dir = Dir.open (cache);
+            } catch (FileError e) {
+                return latest;
+            }
+            string? name;
+            while ((name = dir.read_name ()) != null) {
+                if (!name.has_prefix ("releases-page-") || !name.has_suffix (".json")) continue;
+                try {
+                    var parser = new Json.Parser ();
+                    parser.load_from_file (Path.build_filename (cache, name));
+                    var root = parser.get_root ();
+                    if (root.get_node_type () != Json.NodeType.ARRAY) continue;
+                    var releases = root.get_array ();
+                    for (uint i = 0; i < releases.get_length (); i++) {
+                        var release = Utils.GitHubRelease.from_json (releases.get_object_element (i));
+                        if (!usable_installed_release (release)) continue;
+                        if (latest == "" || strcmp (release.published_at, published) > 0) {
+                            latest = release.tag_name;
+                            published = release.published_at;
+                        }
+                    }
+                } catch (Error e) {
+                    debug ("Ignoring cached runner releases %s: %s", name, e.message);
+                }
+            }
+            return latest;
+        }
+
+        private bool usable_installed_release (Utils.GitHubRelease release) {
+            if (skips_version (release.tag_name) || match_asset (release) == null) return false;
+            var version = new Models.ToolVersion (release.tag_name);
+            if (!is_installed (version)) return false;
+            try {
+                resolve_wine_paths (installed_path (version), spec, variant_id);
+                return true;
+            } catch (Error e) {
+                return false;
+            }
+        }
+
         public override string installed_path (Models.ToolVersion ver) {
             if (ver.is_latest) {
                 return base.installed_path (ver);

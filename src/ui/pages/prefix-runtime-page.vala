@@ -38,7 +38,38 @@ namespace Lumoria.Ui {
             runner_rows = new RunnerOverrideRows (ctx, true);
             runner_rows.bind (entry.runner_id, entry.runner_version, entry.variant_id);
             runner_rows.changed.connect (save_runner);
-            return runner_rows;
+            var box = new Gtk.Box (Gtk.Orientation.VERTICAL, 0);
+            box.append (runner_rows);
+            if (runner_selects_xkbcommon ()) {
+                var section = new Widgets.PageSection (_("Compatibility"));
+                var row = new Adw.SwitchRow () {
+                    title = _("Use runner libxkbcommon"),
+                    subtitle = _(
+                        "Prefer the runner’s bundled libxkbcommon. " +
+                        "Close all applications in this prefix before changing this setting."
+                    ),
+                    active = entry.use_runner_libxkbcommon
+                };
+                row.notify["active"].connect (() => {
+                    entry.use_runner_libxkbcommon = row.active;
+                    schedule_save ();
+                });
+                section.add (row);
+                box.append (section);
+            }
+            return box;
+        }
+
+        private bool runner_selects_xkbcommon () {
+            var runner = Models.find_by_id<Models.RunnerManifest> (
+                ctx.runner_manifests, Utils.Preferences.effective_runner_id (entry.runner_id)
+            );
+            if (runner == null) return false;
+            try {
+                return runner.effective_variant (entry.variant_id).supports_feature ("libxkbcommon-selection");
+            } catch (Error e) {
+                return false;
+            }
         }
 
         private Gtk.Widget components_tab () {

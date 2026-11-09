@@ -1,9 +1,10 @@
 namespace Lumoria.Cli {
 
     private const int SESSION_IDLE_TIMEOUT_SECS = 30;
-    private const int STOP_DESCENDANT_WAIT_MS = 5000;
-    private const int STOP_DESCENDANT_KILL_WAIT_MS = 1000;
-    private const int STOP_WRAP_WAIT_MS = 500;
+    private const uint STOP_TERM_GRACE_SECS = 5;
+    private const uint STOP_KILL_GRACE_SECS = 3;
+    private const int STOP_WAIT_TIMEOUT_MS = 15000;
+    private const int STOP_WAIT_POLL_MS = 200;
 
     public class SessionLaunchInfo : Object {
         public int pid { get; construct set; }
@@ -11,20 +12,23 @@ namespace Lumoria.Cli {
         public string log_path { get; construct set; default = ""; }
         public string label { get; construct set; default = ""; }
         public string[] processes { get; construct set; default = {}; }
+        public bool stopping { get; construct set; default = false; }
 
         public SessionLaunchInfo (
             int pid,
             string prefix_id,
             string log_path,
             string label,
-            owned string[] processes
+            owned string[] processes,
+            bool stopping
         ) {
             Object (
                 pid: pid,
                 prefix_id: prefix_id,
                 log_path: log_path,
                 label: label,
-                processes: (owned) processes
+                processes: (owned) processes,
+                stopping: stopping
             );
         }
     }
@@ -47,14 +51,20 @@ namespace Lumoria.Cli {
         return label.len > 0 ? label.str : _("Starting...");
     }
 
-    private SessionLaunchInfo session_launch_info_from_processes (int wrap_pid, string prefix_id, string log_path) {
+    private SessionLaunchInfo session_launch_info_from_processes (
+        int wrap_pid,
+        string prefix_id,
+        string log_path,
+        bool stopping
+    ) {
         var processes = session_launch_process_names (wrap_pid);
         return new SessionLaunchInfo (
             wrap_pid,
             prefix_id,
             log_path,
             session_format_process_label (processes),
-            processes
+            processes,
+            stopping
         );
     }
 
@@ -63,16 +73,15 @@ namespace Lumoria.Cli {
         private class LaunchState {
             public int pid;
             public string prefix_id;
-            public string wineserver_path;
             public string log_path;
-            public string[] env;
+            public bool stopping = false;
+            public bool forced = false;
+            public uint stop_timer_id = 0;
 
-            public LaunchState (int pid, string prefix_id, string wineserver_path, string log_path, string[] env) {
+            public LaunchState (int pid, string prefix_id, string log_path) {
                 this.pid = pid;
                 this.prefix_id = prefix_id;
-                this.wineserver_path = wineserver_path;
                 this.log_path = log_path;
-                this.env = env;
             }
         }
 
@@ -104,7 +113,7 @@ namespace Lumoria.Cli {
                 if (session_ping ()) {
                     throw new IOError.EXISTS ("session manager already running");
                 }
-                throw new IOError.FAILED ("session manager lock is held but the socket is not ready");
+                throw new IOError.FAILED ("session manager lock is held but the existing manager could not be reached");
             }
             FileUtils.unlink (socket_path);
 
@@ -146,7 +155,6 @@ namespace Lumoria.Cli {
 
         public uint launch (
             string prefix_id,
-            string wineserver_path,
             string log_path,
             string[] env,
             string cwd,
@@ -170,7 +178,7 @@ namespace Lumoria.Cli {
 
             cancel_idle_exit ();
             exit_when_empty = false;
-            launches[child_pid] = new LaunchState (child_pid, prefix_id, wineserver_path, log_path, env);
+            launches[child_pid] = new LaunchState (child_pid, prefix_id, log_path);
             session_log ("spawned wrap pid=%d prefix=%s".printf (child_pid, prefix_id));
 
             child.wait_async.begin (null, (obj, res) => {
@@ -185,61 +193,116 @@ namespace Lumoria.Cli {
             return (uint) child_pid;
         }
 
-        public void stop_pid (int wrap_pid) {
-            if (!launches.has_key (wrap_pid)) return;
-            stop_wrap_tree (launches.get (wrap_pid));
+        public bool stop_pid (int wrap_pid) {
+            return begin_stops (pid_states (wrap_pid));
         }
 
-        public void stop (string prefix_id) {
-            var states = new Gee.ArrayList<LaunchState> ();
-            foreach (var state in launches.values) {
-                if (state.prefix_id == prefix_id) states.add (state);
-            }
-            foreach (var state in states) stop_wrap_tree (state);
+        public bool stop (string prefix_id) {
+            return begin_stops (prefix_states (prefix_id));
         }
 
-        public void stop_all () {
-            var states = new Gee.ArrayList<LaunchState> ();
-            foreach (var state in launches.values) states.add (state);
+        public bool stop_all () {
             exit_when_empty = true;
-            foreach (var state in states) stop_wrap_tree (state);
+            var stopping = begin_stops (all_states ());
             quit_if_empty ();
+            return stopping;
+        }
+
+        public void force_pid (int wrap_pid) throws IOError {
+            force_stops (pid_states (wrap_pid));
+        }
+
+        public void force (string prefix_id) throws IOError {
+            force_stops (prefix_states (prefix_id));
+        }
+
+        public void force_all () throws IOError {
+            force_stops (all_states ());
         }
 
         public Gee.ArrayList<SessionLaunchInfo> list_launches () {
             var result = new Gee.ArrayList<SessionLaunchInfo> ();
             foreach (var entry in launches.entries) {
-                result.add (session_launch_info_from_processes (entry.key, entry.value.prefix_id, entry.value.log_path));
+                result.add (session_launch_info_from_processes (
+                    entry.key, entry.value.prefix_id, entry.value.log_path, entry.value.stopping
+                ));
             }
             return result;
         }
 
-        private void stop_wrap_tree (LaunchState state) {
-            if (state.wineserver_path != "") {
-                var status = Runtime.shutdown_wineserver_bin (state.wineserver_path, state.env);
-                session_log ("wineserver -k prefix=%s status=%d".printf (state.prefix_id, status));
-            }
-            Utils.ProcessTree.terminate_descendants (
-                state.pid, STOP_DESCENDANT_WAIT_MS, STOP_DESCENDANT_KILL_WAIT_MS, 3
-            );
+        private Gee.ArrayList<LaunchState> pid_states (int wrap_pid) {
+            var states = new Gee.ArrayList<LaunchState> ();
+            if (launches.has_key (wrap_pid)) states.add (launches.get (wrap_pid));
+            return states;
+        }
 
-            if (Utils.ProcessTree.process_alive (state.pid)) {
-                Posix.kill ((Posix.pid_t) state.pid, Posix.Signal.TERM);
-                var deadline = GLib.get_monotonic_time () + (int64) STOP_WRAP_WAIT_MS * 1000;
-                while (GLib.get_monotonic_time () < deadline
-                    && Utils.ProcessTree.process_alive (state.pid)) {
-                    Thread.usleep (100000);
-                }
+        private Gee.ArrayList<LaunchState> prefix_states (string prefix_id) {
+            var states = new Gee.ArrayList<LaunchState> ();
+            foreach (var state in launches.values) {
+                if (state.prefix_id == prefix_id) states.add (state);
             }
+            return states;
+        }
 
-            if (Utils.ProcessTree.process_alive (state.pid)
-                && !Utils.ProcessTree.has_monitored_descendants (state.pid)) {
+        private Gee.ArrayList<LaunchState> all_states () {
+            var states = new Gee.ArrayList<LaunchState> ();
+            states.add_all (launches.values);
+            return states;
+        }
+
+        private bool begin_stops (Gee.ArrayList<LaunchState> states) {
+            foreach (var state in states) begin_stop (state);
+            return states.size > 0;
+        }
+
+        private void force_stops (Gee.ArrayList<LaunchState> states) throws IOError {
+            var forced = false;
+            foreach (var state in states) {
+                if (!state.stopping) continue;
+                escalate_stop (state);
+                forced = true;
+            }
+            if (!forced && states.size > 0) {
+                throw new IOError.FAILED ("launch is not stopping");
+            }
+        }
+
+        private void begin_stop (LaunchState state) {
+            if (state.stopping) return;
+            state.stopping = true;
+            session_log ("stopping wrap pid=%d prefix=%s".printf (state.pid, state.prefix_id));
+            Posix.kill ((Posix.pid_t) state.pid, Posix.Signal.TERM);
+            state.stop_timer_id = Timeout.add_seconds (STOP_TERM_GRACE_SECS, () => {
+                state.stop_timer_id = 0;
+                escalate_stop (state);
+                return Source.REMOVE;
+            });
+        }
+
+        private void escalate_stop (LaunchState state) {
+            if (state.forced) return;
+            state.forced = true;
+            cancel_stop_timer (state);
+            session_log ("force stopping wrap pid=%d prefix=%s".printf (state.pid, state.prefix_id));
+            Posix.kill ((Posix.pid_t) state.pid, Posix.Signal.TERM);
+            state.stop_timer_id = Timeout.add_seconds (STOP_KILL_GRACE_SECS, () => {
+                state.stop_timer_id = 0;
+                session_log ("killing wrap pid=%d prefix=%s".printf (state.pid, state.prefix_id));
+                Utils.ProcessTree.signal_monitored_descendants (state.pid, Posix.Signal.KILL);
                 Posix.kill ((Posix.pid_t) state.pid, Posix.Signal.KILL);
-            }
+                return Source.REMOVE;
+            });
+        }
+
+        private void cancel_stop_timer (LaunchState state) {
+            if (state.stop_timer_id == 0) return;
+            Source.remove (state.stop_timer_id);
+            state.stop_timer_id = 0;
         }
 
         private void on_wrap_exited (int pid, int status) {
             session_log ("wrap exited pid=%d status=%d".printf (pid, status));
+            if (launches.has_key (pid)) cancel_stop_timer (launches.get (pid));
             launches.unset (pid);
             if (quit_if_empty ()) return;
             if (launches.size == 0) {
@@ -290,10 +353,12 @@ namespace Lumoria.Cli {
             }
         }
 
+        [CCode (cname = "lumoria_session_peer_allowed", cheader_filename = "session-peer.h")]
+        private static extern bool native_peer_allowed (int fd) throws Error;
+
         private bool peer_uid_allowed (SocketConnection connection) {
             try {
-                var creds = connection.socket.get_credentials ();
-                return creds.get_unix_user () == Posix.getuid ();
+                return native_peer_allowed (connection.socket.fd);
             } catch (Error e) {
                 session_log ("rejected peer credentials: %s".printf (e.message));
                 return false;
@@ -317,13 +382,19 @@ namespace Lumoria.Cli {
                     case "list":
                         return list_response ();
                     case "stop_pid":
-                        stop_pid ((int) obj.get_int_member ("pid"));
-                        return ok_response ();
+                        return stop_response (stop_pid ((int) obj.get_int_member ("pid")));
                     case "stop":
-                        stop (obj.get_string_member ("prefix_id"));
-                        return ok_response ();
+                        return stop_response (stop (obj.get_string_member ("prefix_id")));
                     case "stop_all":
-                        stop_all ();
+                        return stop_response (stop_all ());
+                    case "force_pid":
+                        force_pid ((int) obj.get_int_member ("pid"));
+                        return ok_response ();
+                    case "force":
+                        force (obj.get_string_member ("prefix_id"));
+                        return ok_response ();
+                    case "force_all":
+                        force_all ();
                         return ok_response ();
                     default:
                         return error_response ("unknown method: %s".printf (method));
@@ -342,7 +413,6 @@ namespace Lumoria.Cli {
             var prefix_id = obj.get_string_member ("prefix_id");
             var pid = launch (
                 prefix_id,
-                obj.get_string_member ("wineserver"),
                 obj.get_string_member ("log_path"),
                 Models.json_array_to_strv (obj.get_array_member ("env")),
                 cwd,
@@ -368,6 +438,7 @@ namespace Lumoria.Cli {
                     processes.add_string_element (process);
                 }
                 entry.set_array_member ("processes", processes);
+                entry.set_boolean_member ("stopping", info.stopping);
                 launches.add_object_element (entry);
             }
             var root = new Json.Object ();
@@ -431,6 +502,20 @@ namespace Lumoria.Cli {
             switch (args[2]) {
                 case "stop-all":
                     return session_cli_call (() => session_stop_all ());
+                case "force-all":
+                    return session_cli_call (() => session_force_all ());
+                case "force-pid":
+                    if (args.length < 4) {
+                        stderr.printf ("Usage: lumoria session-manager force-pid <wrap-pid>\n");
+                        return 1;
+                    }
+                    return session_cli_call (() => session_force_pid (int.parse (args[3])));
+                case "force":
+                    if (args.length < 4) {
+                        stderr.printf ("Usage: lumoria session-manager force <prefix-id>\n");
+                        return 1;
+                    }
+                    return session_cli_call (() => session_force_prefix (args[3]));
                 case "stop-pid":
                     if (args.length < 4) {
                         stderr.printf ("Usage: lumoria session-manager stop-pid <wrap-pid>\n");
@@ -464,8 +549,28 @@ namespace Lumoria.Cli {
             op ();
             return 0;
         } catch (Error e) {
-            stderr.printf ("Failed to connect to session manager: %s\n", e.message);
+            stderr.printf ("Session manager request failed: %s\n", e.message);
             return 1;
+        }
+    }
+
+    public enum SessionStatus { READY, ABSENT, UNAVAILABLE }
+
+    public SessionStatus session_probe (out string message) {
+        message = "";
+        try {
+            session_call ("ping");
+            return SessionStatus.READY;
+        } catch (Error e) {
+            message = e.message;
+        }
+        try {
+            Utils.ensure_private_dir (Path.get_dirname (session_socket_path ()));
+            var fd = Utils.acquire_exclusive_lock (Utils.session_lock_path ());
+            Posix.close (fd);
+            return SessionStatus.ABSENT;
+        } catch (Error e) {
+            return SessionStatus.UNAVAILABLE;
         }
     }
 
@@ -500,7 +605,8 @@ namespace Lumoria.Cli {
                 entry.get_string_member ("prefix_id"),
                 entry.has_member ("log_path") ? entry.get_string_member ("log_path") : "",
                 session_format_process_label (process_names),
-                process_names
+                process_names,
+                Models.json_bool (entry, "stopping")
             ));
         }
         return launches;
@@ -516,6 +622,45 @@ namespace Lumoria.Cli {
 
     public void session_stop_all () throws Error {
         session_call ("stop_all");
+    }
+
+    public void session_force_pid (int wrap_pid) throws Error {
+        session_call ("force_pid", (obj) => obj.set_int_member ("pid", wrap_pid));
+    }
+
+    public void session_force_prefix (string prefix_id) throws Error {
+        session_call ("force", (obj) => obj.set_string_member ("prefix_id", prefix_id));
+    }
+
+    public void session_force_all () throws Error {
+        try {
+            session_call ("force_all");
+        } catch (Error e) {
+            string message;
+            if (session_probe (out message) != SessionStatus.ABSENT) throw e;
+        }
+    }
+
+    public delegate bool SessionLaunchMatch (SessionLaunchInfo info);
+
+    public void session_wait_stopped (SessionLaunchMatch matches) throws Error {
+        var deadline = GLib.get_monotonic_time () + (int64) STOP_WAIT_TIMEOUT_MS * 1000;
+        while (true) {
+            try {
+                var running = false;
+                foreach (var info in session_list_launches ()) {
+                    if (matches (info)) running = true;
+                }
+                if (!running) return;
+            } catch (Error e) {
+                string message;
+                if (session_probe (out message) == SessionStatus.ABSENT) return;
+            }
+            if (GLib.get_monotonic_time () >= deadline) {
+                throw new IOError.TIMED_OUT ("processes are still stopping");
+            }
+            Thread.usleep ((uint) STOP_WAIT_POLL_MS * 1000);
+        }
     }
 
     public string session_socket_path () {
@@ -572,6 +717,7 @@ namespace Lumoria.Cli {
 
     private string session_send_request (string request) throws Error {
         var client = new SocketClient ();
+        client.timeout = 2;
         var address = new UnixSocketAddress (session_socket_path ());
         var connection = client.connect (address);
         var output = new DataOutputStream (connection.output_stream);
@@ -603,6 +749,14 @@ namespace Lumoria.Cli {
     private void write_response (DataOutputStream output, bool ok, string error = "") throws Error {
         output.put_string (ok ? ok_response () + "\n" : error_response (error) + "\n");
         output.flush ();
+    }
+
+    private string stop_response (bool stopping) {
+        if (!stopping) return ok_response ();
+        var obj = new Json.Object ();
+        obj.set_boolean_member ("ok", true);
+        obj.set_string_member ("status", "stopping");
+        return Models.json_object_to_string (obj);
     }
 
     private string ok_response () {

@@ -8,6 +8,7 @@ namespace Lumoria.Runtime {
         public string sync_mode { get; set; default = ""; }
         public string wine_debug { get; set; default = ""; }
         public bool? wine_wayland = null;
+        public bool use_runner_libxkbcommon = false;
         public bool? large_address_aware = null;
         public Gee.HashMap<string, string> environment_overrides {
             get; owned set; default = new Gee.HashMap<string, string> ();
@@ -30,6 +31,7 @@ namespace Lumoria.Runtime {
             request.sync_mode = entry.sync_mode;
             request.wine_debug = entry.wine_debug;
             request.wine_wayland = entry.wine_wayland;
+            request.use_runner_libxkbcommon = entry.use_runner_libxkbcommon;
             request.large_address_aware = entry.large_address_aware;
             request.environment_overrides = entry.runtime_env_vars;
             request.launch_policy = launch_policy;
@@ -162,7 +164,10 @@ namespace Lumoria.Runtime {
             return runner_state.resolved_version;
         }
 
-        if (interactive) return requested;
+        if (interactive) {
+            var installed = new RunnerToolAdapter (runner_manifest, variant_id).latest_installed_tag ();
+            return installed != "" ? installed : requested;
+        }
 
         throw new LumoriaError.FAILED (
             _("No installed runner version is stamped for %s. Open Lumoria once to prepare this prefix before launching from CLI.").printf (
@@ -226,6 +231,9 @@ namespace Lumoria.Runtime {
             logger.emit_line ("Variant: %s\n".printf (variant_id));
             logger.emit_line ("Resolved version: %s\n\n".printf (resolved_version));
             create_wine_prefix (runtime.paths, runtime.env, logger);
+            // wineboot resets font replacements from wine.inf.
+            restore_installed_font_replacements (entry, runtime, logger);
+            refresh_component_backups (entry, runtime, logger);
         }
 
         var next = new Models.PrefixRunnerState ();

@@ -48,11 +48,12 @@ manifests.publish:
 
 flatpak.deps:
 	flatpak install --user -y flathub \
-		org.gnome.Platform//50 \
-		org.gnome.Sdk//50 \
-		org.freedesktop.Sdk.Extension.vala//25.08 \
-		org.freedesktop.Sdk.Extension.rust-stable//25.08 \
-		org.winehq.Wine//stable-25.08
+		org.gnome.Platform//51 \
+		org.gnome.Sdk//51 \
+		org.freedesktop.Platform.Compat.i386//26.08 \
+		org.freedesktop.Sdk.Extension.vala//26.08 \
+		org.freedesktop.Sdk.Extension.rust-stable//26.08 \
+		org.winehq.Wine//stable-26.08
 
 flatpak.dev.build: $(CARGO_SOURCES)
 	flatpak run org.flatpak.Builder \

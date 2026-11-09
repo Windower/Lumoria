@@ -2,6 +2,19 @@ namespace Lumoria.Utils {
     [DBus (name = "org.freedesktop.portal.Documents")]
     private interface DocumentPortal : Object {
         public abstract uint8[] GetMountPoint () throws Error;
+        [DBus (signature = "a{say}")]
+        public abstract Variant GetHostPaths (string[] doc_ids) throws Error;
+    }
+
+    public static string portal_host_path (string path) {
+        if (!EnvironmentInfo.is_flatpak ()) return "";
+        string document_id;
+        string document_path;
+        if (!parse_document_portal_path (path, out document_id, out document_path)) return "";
+        var host = document_host_path (document_id);
+        if (host == "") return "";
+        var below_document = document_path.split ("/", 2);
+        return below_document.length > 1 ? Path.build_filename (host, below_document[1]) : host;
     }
 
     public static Models.PortalPathRef? portal_path_ref_from_path_uri (
@@ -104,18 +117,36 @@ namespace Lumoria.Utils {
         return document_id != "" && document_path != "";
     }
 
+    private static DocumentPortal document_portal () throws Error {
+        return Bus.get_proxy_sync<DocumentPortal> (
+            BusType.SESSION,
+            "org.freedesktop.portal.Documents",
+            "/org/freedesktop/portal/documents"
+        );
+    }
+
     private static string document_portal_mount_point () {
         try {
-            var portal = Bus.get_proxy_sync<DocumentPortal> (
-                BusType.SESSION,
-                "org.freedesktop.portal.Documents",
-                "/org/freedesktop/portal/documents"
-            );
-            return uint8_array_to_string (portal.GetMountPoint ());
+            return uint8_array_to_string (document_portal ().GetMountPoint ());
         } catch (Error e) {
             warning ("Failed to resolve document portal mount point: %s", e.message);
             return "";
         }
+    }
+
+    private static string document_host_path (string document_id) {
+        try {
+            var paths = document_portal ().GetHostPaths ({ document_id });
+            var iter = paths.iterator ();
+            string id;
+            Variant host;
+            while (iter.next ("{s@ay}", out id, out host)) {
+                if (id == document_id) return host.get_bytestring ();
+            }
+        } catch (Error e) {
+            warning ("Failed to resolve document portal host path: %s", e.message);
+        }
+        return "";
     }
 
     private static string uint8_array_to_string (uint8[] bytes) {

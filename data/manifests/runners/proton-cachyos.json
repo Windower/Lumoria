@@ -11,6 +11,7 @@
     "description": "Fork of Proton with additional components and patches. Maintained by the CachyOS team."
   },
   "features": [
+    "libxkbcommon-selection",
     "wayland-primary-monitor"
   ],
   "github_repo": "CachyOS/proton-cachyos",

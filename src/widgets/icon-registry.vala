@@ -9,6 +9,7 @@ namespace Lumoria.Widgets {
         public const string DELETE = "user-trash-symbolic";
         public const string CHECKMARK = "object-select-symbolic";
         public const string EDIT = "document-edit-symbolic";
+        public const string SAVE = "document-save-symbolic";
         public const string COPY = "edit-copy-symbolic";
         public const string PASTE = "edit-paste-symbolic";
         public const string REFRESH = "view-refresh-symbolic";
@@ -221,6 +222,7 @@ namespace Lumoria.Widgets {
         public const string PAGE_ADVANCED = "applications-system-symbolic";
         public const string PAGE_ABOUT = "help-about-symbolic";
         public const string PAGE_SCRIPTS = "text-x-script-symbolic";
+        public const string PAGE_DIAGNOSTICS = "document-properties-symbolic";
 
         public static string settings_page_icon (string page_id) {
             switch (page_id) {
@@ -232,6 +234,8 @@ namespace Lumoria.Widgets {
                     return PAGE_SHORTCUTS;
                 case PageChrome.PAGE_PACKAGES:
                     return PAGE_PACKAGES;
+                case PageChrome.PAGE_DIAGNOSTICS:
+                    return PAGE_DIAGNOSTICS;
                 case PageChrome.PAGE_ADVANCED:
                     return PAGE_ADVANCED;
                 case PageChrome.PAGE_SCRIPTS:

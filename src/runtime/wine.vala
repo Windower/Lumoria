@@ -276,12 +276,59 @@ namespace Lumoria.Runtime {
 
             env.prepend_path ("PATH", join_existing_paths (bin_parts));
             env.prepend_path ("LD_LIBRARY_PATH", ld);
+            if (v.supports_feature ("libxkbcommon-selection") && !request.use_runner_libxkbcommon) {
+                prefer_system_xkbcommon (env, ld_parts);
+            }
             env.prepend_path ("WINEDLLPATH", wine_dll);
         }
 
         apply_sync_mode (env, sync_mode);
 
         return env;
+    }
+
+    private void prefer_system_xkbcommon (WineEnv env, Gee.List<string> runner_dirs) throws Error {
+        bool bundled = false;
+        foreach (var dir in runner_dirs) {
+            if (FileUtils.test (Path.build_filename (dir, "libxkbcommon.so.0"), FileTest.EXISTS)) {
+                bundled = true;
+                break;
+            }
+        }
+        if (!bundled) return;
+
+        // The runtime's SDL needs a newer libxkbcommon than Proton bundles.
+        var dirs = new Gee.ArrayList<string> ();
+        var lib64 = system_xkbcommon_dir ("x86_64", {
+            "/usr/lib/x86_64-linux-gnu/libxkbcommon.so.0",
+            "/usr/lib64/libxkbcommon.so.0", "/usr/lib/libxkbcommon.so.0"
+        });
+        var lib32 = system_xkbcommon_dir ("i386", {
+            "/app/lib/i386-linux-gnu/libxkbcommon.so.0",
+            "/usr/lib/i386-linux-gnu/libxkbcommon.so.0", "/usr/lib32/libxkbcommon.so.0"
+        });
+        if (lib64 != "") dirs.add (lib64);
+        if (lib32 != "") dirs.add (lib32);
+        env.prepend_path ("LD_LIBRARY_PATH", string.joinv (":", Utils.strv (dirs)));
+    }
+
+    private string system_xkbcommon_dir (string arch, string[] candidates) throws Error {
+        foreach (var target in candidates) {
+            if (!FileUtils.test (target, FileTest.EXISTS)) continue;
+            var dir = Path.build_filename (Utils.cache_dir (), "system-libraries", arch);
+            Utils.ensure_dir (dir);
+            var link = Path.build_filename (dir, "libxkbcommon.so.0");
+            if (FileUtils.test (link, FileTest.IS_SYMLINK) && FileUtils.read_link (link) == target) return dir;
+            var staged = link + "." + Uuid.string_random ();
+            File.new_for_path (staged).make_symbolic_link (target);
+            try {
+                File.new_for_path (staged).move (File.new_for_path (link), FileCopyFlags.OVERWRITE);
+            } finally {
+                FileUtils.unlink (staged);
+            }
+            return dir;
+        }
+        return "";
     }
 
     private void apply_wayland_driver_env (WineEnv env, WinePaths paths) {

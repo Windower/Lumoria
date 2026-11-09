@@ -74,6 +74,18 @@
   </screenshots>
 
   <releases>
+    <release version="0.2.2" date="2026-11-06">
+      <description>
+        <ul>
+          <li>Fix session manager not always accepting auth token.</li>
+          <li>Fix permissions issues with components and GE-Proton.</li>
+          <li>Automatically reinstall font substitution files when updating prefixes.</li>
+          <li>New Diagnostics tab for sharing logs for support.</li>
+          <li>Prefix should be slightly faster to launch due to bug fixes handling libxkbcommon better.</li>
+          <li>Bump Flatpak runtimes and other dependencies.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.1" date="2026-10-11">
       <description>
         <ul>

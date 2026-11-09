@@ -1,5 +1,41 @@
 namespace Lumoria.Runtime {
 
+    internal void restore_installed_font_replacements (
+        Models.PrefixEntry entry,
+        WineRuntime runtime,
+        RuntimeLog logger
+    ) throws Error {
+        var manifests = Models.ManifestRepository.shared ().all_redists;
+        foreach (var id in entry.installed_redists) {
+            if (!manifests.has_key (id)) continue;
+            var spec = manifests[id];
+            Gee.HashMap<string, string>? vars = null;
+            WineEnv? env = null;
+            foreach (var step in spec.steps) {
+                if (step.step_type != Models.InstallStepKind.FONT_REPLACEMENT) continue;
+                if (vars == null) {
+                    vars = build_prefix_vars (runtime.prefix_path, Utils.cache_dir (), spec.variables);
+                    inject_prefix_context (vars, runtime, entry, logger, spec.variable_rules);
+                    finalize_manifest_vars (vars, runtime.paths, runtime.env);
+                    env = runtime.env.copy ();
+                    apply_env_rules (env, spec.env, vars);
+                }
+                foreach (var step_vars in item_vars_for (step.for_each, vars)) {
+                    if (!step_applies (step, step_vars, false)) continue;
+                    var ctx = new InstallStepContext ();
+                    ctx.step = step;
+                    ctx.vars = step_vars;
+                    ctx.paths = runtime.paths;
+                    ctx.env = env.copy ();
+                    apply_env_rules (ctx.env, step.env, step_vars);
+                    ctx.logger = logger;
+                    logger.typed (LogType.FONTS, "restoring font replacements from %s after prefix update".printf (id));
+                    install_font_replacements (ctx);
+                }
+            }
+        }
+    }
+
     internal void install_fonts_step (InstallStepContext ctx) throws Error {
         var step = ctx.step;
         var fonts_dir = ctx.require_managed_path (step.dst);

@@ -179,12 +179,10 @@ namespace Lumoria.Application {
             Object ();
             MigrationService.ensure_current ();
             Utils.ensure_prefix_indexer_ignores ();
-            bool registry_dirty;
-            registry = Models.PrefixRegistry.load (Utils.prefix_registry_path (), out registry_dirty);
+            registry = Models.PrefixRegistry.load (Utils.prefix_registry_path ());
             reload_manifests ();
-            bool state_touched_registry;
-            state = AppState.load (registry, out state_touched_registry);
-            registry_dirty |= state_touched_registry;
+            bool registry_dirty;
+            state = AppState.load (registry, out registry_dirty);
             state.persist_failed.connect ((message) => show_toast (message));
             Utils.Preferences.instance ().persist_failed.connect ((message) => show_toast (message));
             prefixes = new PrefixService (this);
@@ -203,6 +201,17 @@ namespace Lumoria.Application {
             runtime.open_handler = open_install_target;
             runtime.bind_registry (registry, () => prefixes.save (false));
             Runtime.attach_session (runtime);
+        }
+
+        public void open_log_dir (string path) {
+            if (ui == null) return;
+            if (!FileUtils.test (path, FileTest.IS_DIR)) {
+                show_toast (_("No logs recorded yet."));
+                return;
+            }
+            ui.open_directory (path, (message) => {
+                show_toast (_("Could not open logs folder: %s").printf (message));
+            });
         }
 
         private void open_install_target (string target) {

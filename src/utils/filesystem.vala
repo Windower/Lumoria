@@ -342,7 +342,27 @@ namespace Lumoria.Utils {
         ensure_dir (Path.get_dirname (dst));
         var source = File.new_for_path (src);
         var dest = File.new_for_path (dst);
-        source.copy (dest, FileCopyFlags.OVERWRITE, cancellable);
+        // Wine DLLs are read-only, so copy next to dst and rename over it.
+        var staged = File.new_for_path (dst + ".lumoria-" + Uuid.string_random ());
+        try {
+            source.copy (staged, FileCopyFlags.NONE, cancellable);
+            ensure_owner_writable (staged.get_path ());
+            staged.move (dest, FileCopyFlags.OVERWRITE, cancellable);
+        } finally {
+            try {
+                staged.delete ();
+            } catch (Error e) {
+                if (!(e is IOError.NOT_FOUND)) debug ("Copy cleanup failed: %s", e.message);
+            }
+        }
+    }
+
+    private static void ensure_owner_writable (string path) {
+        Posix.Stat st;
+        if (Posix.stat (path, out st) != 0 || (st.st_mode & Posix.S_IWUSR) != 0) return;
+        if (Posix.chmod (path, st.st_mode | Posix.S_IWUSR) != 0) {
+            debug ("Cannot make %s writable: %s", path, Posix.strerror (Posix.errno));
+        }
     }
 
     public static uint32 crc32 (uint8[] bytes) {
