@@ -33,6 +33,7 @@
     <file>manifests/installers/ffxi.json</file>
     <file>manifests/installers/empty-wine-prefix.json</file>
     <file>manifests/runners/ge-proton.json</file>
+    <file>manifests/runners/proton-lumoria.json</file>
     <file>manifests/runners/proton-cachyos.json</file>
     <file>manifests/runners/wine-ge-custom.json</file>
     <file>manifests/runners/wine-kron4ek-proton.json</file>

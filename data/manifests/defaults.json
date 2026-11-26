@@ -3,7 +3,7 @@
   "startup_view": "last-prefix",
   "default": {
     "runner": {
-      "id": "ge-proton",
+      "id": "proton-lumoria",
       "version": "latest"
     },
     "wine": {
@@ -28,7 +28,7 @@
   "environments": {
     "sandbox": {
       "runner": {
-        "id": "ge-proton",
+        "id": "proton-lumoria",
         "version": "latest"
       }
     }
